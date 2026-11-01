@@ -73,6 +73,43 @@ BOOST_AUTO_TEST_CASE(EachRuntimeStartsWithItsInterpreter) {
     BOOST_TEST(Launch::CommandLine("BINARY", "", "./server", {}, unconfigured) == (std::vector<std::string>{"./server"}));
 }
 
+// docs/resource-limits.md §6: a JVM under a memory limit takes only a quarter of it as heap unless
+// told otherwise. The option goes to the JVM - between the interpreter and -jar - and never after
+// the jar, where it would be the application's argument.
+BOOST_AUTO_TEST_CASE(InterpreterOptionsGoBeforeTheJar) {
+    const Launch::Interpreter unconfigured;
+    BOOST_TEST(Launch::CommandLine("JAVA25", "", "a.jar", {"--profile", "x"}, unconfigured, {"-XX:MaxRAMPercentage=75"})
+               == (std::vector<std::string>{"java25", "-XX:MaxRAMPercentage=75", "-jar", "a.jar", "--profile", "x"}));
+    BOOST_TEST(Launch::CommandLine("PYTHON", "", "a.py", {}, unconfigured, {"-u"}) == (std::vector<std::string>{"python3", "-u", "a.py"}));
+    // An application's own command orders its arguments itself.
+    BOOST_TEST(Launch::CommandLine("JAVA", "/opt/run.sh", "a.jar", {}, unconfigured, {"-XX:MaxRAMPercentage=75"})
+               == (std::vector<std::string>{"/opt/run.sh", "a.jar"}));
+    BOOST_TEST(Launch::CommandLine("BINARY", "", "./server", {}, unconfigured, {"-x"}) == (std::vector<std::string>{"./server"}));
+}
+
+BOOST_AUTO_TEST_CASE(AJvmUnderALimitIsGivenAHeapWorthHaving) {
+    const std::map<std::string, std::string> none;
+    BOOST_TEST(Launch::JavaHeapOption("JAVA25", "", none, 2048, 75).value_or("") == "-XX:MaxRAMPercentage=75");
+    BOOST_TEST(Launch::JavaHeapOption("JAVA", "", none, 2048, 60).value_or("") == "-XX:MaxRAMPercentage=60");
+
+    // No limit enforced: the JVM would read the whole host, and 75% of it is far worse than 25%.
+    BOOST_TEST(!Launch::JavaHeapOption("JAVA25", "", none, 0, 75).has_value());
+    // Not a JVM, or a command of its own.
+    BOOST_TEST(!Launch::JavaHeapOption("PYTHON", "", none, 2048, 75).has_value());
+    BOOST_TEST(!Launch::JavaHeapOption("JAVA25", "/opt/run.sh", none, 2048, 75).has_value());
+    // Switched off.
+    BOOST_TEST(!Launch::JavaHeapOption("JAVA25", "", none, 2048, 0).has_value());
+    BOOST_TEST(!Launch::JavaHeapOption("JAVA25", "", none, 2048, 101).has_value());
+
+    // The deployment sizes the heap itself: what it says explicitly wins.
+    for (const auto *options: {"-Xmx512m", "-Dx=y -XX:MaxRAMPercentage=50", "-XX:MaxHeapSize=1g", "-XX:MaxRAM=4g"}) {
+        BOOST_TEST(!Launch::JavaHeapOption("JAVA25", "", {{"JAVA_TOOL_OPTIONS", options}}, 2048, 75).has_value(), options);
+    }
+    BOOST_TEST(!Launch::JavaHeapOption("JAVA25", "", {{"JDK_JAVA_OPTIONS", "-Xmx1g"}}, 2048, 75).has_value());
+    // Options that do not touch the heap leave it to us.
+    BOOST_TEST(Launch::JavaHeapOption("JAVA25", "", {{"JAVA_TOOL_OPTIONS", "-Dfile.encoding=UTF-8 -Xss1m"}}, 2048, 75).has_value());
+}
+
 BOOST_AUTO_TEST_CASE(TheInterpreterIsWhereTheHostSaysItIs) {
 
     const auto interpreters = configured({{"java21", "/usr/lib/jvm/java-21/bin/java"}, {"python", "/opt/python/bin/python3"}});

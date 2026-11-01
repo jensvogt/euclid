@@ -84,6 +84,7 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("minInstances", static_cast<std::int64_t>(minInstances)),
                 bsoncxx::builder::basic::kvp("maxInstances", static_cast<std::int64_t>(maxInstances)),
                 bsoncxx::builder::basic::kvp("readyTimeoutMs", static_cast<std::int64_t>(readyTimeoutMs)),
+                bsoncxx::builder::basic::kvp("memoryLimitMb", static_cast<std::int64_t>(memoryLimitMb)),
                 bsoncxx::builder::basic::kvp("desiredState", ApplicationStateToString(desiredState)),
                 bsoncxx::builder::basic::kvp("type", ApplicationTypeToString(type)),
                 bsoncxx::builder::basic::kvp("schedule", schedule),
@@ -139,6 +140,8 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "minInstances") application.minInstances = getBsonInt(field);
             else if (key == "maxInstances") application.maxInstances = getBsonInt(field);
             else if (key == "readyTimeoutMs") application.readyTimeoutMs = getBsonInt(field);
+            // Absent before resource limits existed, which reads as 0: no limit, as it always was.
+            else if (key == "memoryLimitMb") application.memoryLimitMb = getBsonInt(field);
             else if (key == "desiredState") application.desiredState = ApplicationStateFromString(std::string(field.get_string().value));
             // Absent in every document written before this field existed, which is why the member
             // defaults to PROCESS rather than UNKNOWN: a definition with no type is a long-running
@@ -187,6 +190,17 @@ namespace Euclid::Database::Entity::EAP {
         if (effectiveMin > effectiveMax) {
             return "minInstances (" + std::to_string(effectiveMin) + ") cannot exceed maxInstances (" +
                    std::to_string(effectiveMax) + ")";
+        }
+        return {};
+    }
+
+    std::string LimitRefusal(const long memoryLimitMb) {
+        if (memoryLimitMb < 0) {
+            return "memoryLimitMb cannot be negative - use 0 to remove the limit";
+        }
+        if (memoryLimitMb > 0 && memoryLimitMb < kMinimumMemoryLimitMb) {
+            return "memoryLimitMb must be 0 (no limit) or at least " + std::to_string(kMinimumMemoryLimitMb)
+                   + " MiB; " + std::to_string(memoryLimitMb) + " MiB is too little for any instance to start";
         }
         return {};
     }

@@ -4,6 +4,8 @@
 
 // C++ includes
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -146,7 +148,32 @@ namespace Euclid::Worker {
 
     WorkerClient::WorkerClient(Options options, CLI::Credentials::Entry credentials)
         : _options(std::move(options)), _credentials(std::move(credentials)),
-          _client(_options.endpoint, _credentials, _options.caCertPath) {}
+          _client(_options.endpoint, _credentials, _options.caCertPath) {
+
+        // A cgroup per instance - docs/resource-limits.md. Here rather than at the first start
+        // because setting the tree up moves this process into a leaf of its own, and that is
+        // better done once, before any instance exists, than in the middle of starting one.
+        //
+        // Never a reason not to start: without Delegate= on the unit, run by hand, on cgroup v1
+        // or off Linux, instances run exactly as they did before, and this says why once.
+        if (Core::Configuration::instance().getOr<bool>("euclid.worker.cgroups-active", true)) {
+            _cgroups = Core::Cgroup::Tree::Setup();
+            if (_cgroups.Enabled()) {
+                log_info << "Application instances get a cgroup each, under " << _cgroups.Root()->string() << "/applications";
+                // Whatever a previous run of this worker left: systemd kills a stopped unit's
+                // processes, but an instance group it had no time to remove stays.
+                _cgroups.Sweep([](const std::string &) { return false; });
+            } else {
+#ifdef __linux__
+                log_warning << "Application instances run without cgroups of their own: " << _cgroups.Reason();
+#else
+                log_info << "Application instances run without cgroups of their own: " << _cgroups.Reason();
+#endif
+            }
+        } else {
+            log_info << "Application cgroups switched off (euclid.worker.cgroups-active)";
+        }
+    }
 
     std::filesystem::path WorkerClient::applicationDir(const std::string &runtimeName) const {
         return std::filesystem::path(_options.dataDir) / "applications" / runtimeName;
@@ -330,6 +357,18 @@ namespace Euclid::Worker {
         // started them.
         if (Core::Configuration::instance().getOr<bool>("euclid.worker.application-monitoring-active", true)) {
             if (auto usage = instanceUsage(cpuTimes); !usage.empty()) body["instanceUsage"] = std::move(usage);
+
+            // And the whole of this worker's cgroup - every instance, and the worker - which is
+            // the figure the OOM killer and any MemoryMax= on the unit go by. Readable without
+            // Delegate=, so sent whether or not instances have groups of their own.
+            if (const auto &root = _cgroups.Root(); root.has_value()) {
+                if (const auto total = Core::Cgroup::ReadUsage(*root); total.has_value()) {
+                    if (total->memoryBytes >= 0) body["cgroupMemoryMb"] = static_cast<double>(total->memoryBytes) / (1024.0 * 1024.0);
+                    if (total->memoryPeakBytes >= 0) body["cgroupMemoryPeakMb"] = static_cast<double>(total->memoryPeakBytes) / (1024.0 * 1024.0);
+                    if (total->memoryMaxBytes >= 0) body["cgroupMemoryMaxMb"] = static_cast<double>(total->memoryMaxBytes) / (1024.0 * 1024.0);
+                    if (total->oomKills >= 0) body["cgroupOomKills"] = total->oomKills;
+                }
+            }
         }
 
         const auto response = post("eap", "renew-node", body);
@@ -368,6 +407,7 @@ namespace Euclid::Worker {
                 assignment.accountId = textField(entry, "accountId");
                 assignment.nameSpace = textField(entry, "nameSpace");
                 assignment.logLevel = textField(entry, "logLevel");
+                assignment.memoryLimitMb = numberField(entry, "memoryLimitMb");
 
                 if (const auto *arguments = entry.is_object() ? entry.as_object().if_contains("arguments") : nullptr;
                     arguments != nullptr && arguments->is_array()) {
@@ -395,6 +435,17 @@ namespace Euclid::Worker {
         // removed, starts from nothing if it ever comes back.
         std::erase_if(_crashes, [&assigned](const auto &entry) {
             return std::ranges::none_of(assigned, [&entry](const Reconciler::Assignment &a) { return a.instanceId == entry.first; });
+        });
+
+        // A slot given up on after repeated OOM kills is tried again once the master says
+        // something that could change the outcome: a new revision, or a different limit.
+        std::erase_if(_crashes, [&assigned](const auto &entry) {
+            if (!entry.second.givenUp) return false;
+            const auto found = std::ranges::find_if(assigned, [&entry](const Reconciler::Assignment &a) { return a.instanceId == entry.first; });
+            if (found == assigned.end() || !Reconciler::OomHoldReleased(entry.second.heldRevision, entry.second.heldMemoryLimitMb, *found)) return false;
+            log_info << "Instance " << entry.first << " was given up on after OOM kills; its "
+                     << (found->revision != entry.second.heldRevision ? "revision" : "memory limit") << " changed, so it is tried again";
+            return true;
         });
 
         // A port goes back once its slot is neither assigned here nor still running - the stop
@@ -429,7 +480,7 @@ namespace Euclid::Worker {
 #endif
 
         boost::json::array reported;
-        for (const auto &[instanceId, instance]: _instances) {
+        for (auto &[instanceId, instance]: _instances) {
             const auto found = usageByPid.find(instance.pid);
             if (found == usageByPid.end()) continue;
             const auto &usage = found->second;
@@ -439,6 +490,23 @@ namespace Euclid::Worker {
                                       {"memoryRealMb", usage.realMb},
                                       {"memoryVirtualMb", usage.virtualMb},
                                       {"memoryPercent", usage.percentOfTotal}};
+
+            // The instance's cgroup, which sees what a pid cannot: page cache charged to it, the
+            // most it has ever held, and whether the OOM killer has been in. An empty group with
+            // a live process means the child never joined it - said once, and then not read.
+            if (!instance.cgroup.empty()) {
+                if (const auto group = Core::Cgroup::ReadUsage(instance.cgroup); group.has_value() && group->populated) {
+                    if (group->memoryBytes >= 0) entry["cgroupMemoryMb"] = static_cast<double>(group->memoryBytes) / (1024.0 * 1024.0);
+                    if (group->memoryPeakBytes >= 0) entry["cgroupMemoryPeakMb"] = static_cast<double>(group->memoryPeakBytes) / (1024.0 * 1024.0);
+                    if (group->oomKills >= 0) entry["oomKills"] = group->oomKills;
+                    if (group->memoryMaxBytes >= 0) entry["cgroupMemoryMaxMb"] = static_cast<double>(group->memoryMaxBytes) / (1024.0 * 1024.0);
+                } else {
+                    log_warning << "Instance " << instanceId << ", pid " << instance.pid << ", is not in its cgroup "
+                                << instance.cgroup.string() << "; nothing is read from it";
+                    std::ignore = Core::Cgroup::Tree::RemoveInstance(instance.cgroup);
+                    instance.cgroup.clear();
+                }
+            }
 
             // A percentage only against a previous reading of the same process: a restarted slot
             // keeps its instance id and starts its counters again from zero, so its first tick
@@ -573,10 +641,76 @@ namespace Euclid::Worker {
         //
         // Where this node keeps each interpreter is RuntimeLookup()'s to answer - the same answer
         // CheckRuntimes() reported on at startup.
+        const auto &configuration = Core::Configuration::instance();
+
+        // The instance's cgroup and its memory limit, before the command line: whether the limit
+        // really holds decides whether a JVM is told to size its heap from it - see below.
+        // cgroup.procs is opened here so the child has one write to make and nothing to look up;
+        // close-on-exec, so the application never holds it.
+        std::filesystem::path cgroup;
+        int cgroupProcs = -1;
+        long enforcedMemoryLimitMb = 0;
+        if (const auto group = _cgroups.CreateInstance(assignment.runtimeName, assignment.instanceId); group.has_value()) {
+            cgroupProcs = Core::Cgroup::OpenProcs(*group);
+            if (cgroupProcs >= 0) {
+                cgroup = *group;
+            } else {
+                log_warning << "Could not open the cgroup of instance " << assignment.instanceId << " (" << group->string()
+                            << "): " << strerror(errno) << "; it runs without one";
+                Core::Cgroup::Tree::RemoveInstance(*group);
+            }
+        }
+        // Every return between here and the fork gives the group back.
+        const auto dropCgroup = [&cgroup, &cgroupProcs] {
+#ifndef _WIN32
+            if (cgroupProcs >= 0) close(cgroupProcs);
+#endif
+            cgroupProcs = -1;
+            if (!cgroup.empty()) Core::Cgroup::Tree::RemoveInstance(cgroup);
+            cgroup.clear();
+        };
+
+        // The memory limit, on the group before the process joins it, so nothing it allocates is
+        // ever outside it. Not enforced is said, every start, rather than run past quietly: a
+        // limit an operator set and believes in is worse than none when it is not there.
+        if (assignment.memoryLimitMb > 0) {
+            if (cgroup.empty()) {
+                log_warning << "Instance " << assignment.instanceId << " of " << assignment.applicationId << " has a memory limit of "
+                            << assignment.memoryLimitMb << " MiB that this node cannot enforce: "
+                            << (_cgroups.Enabled() ? "its cgroup could not be made" : _cgroups.Reason()) << "; it runs unlimited";
+            } else {
+                const auto highPercent = static_cast<int>(configuration.getOr<long>("euclid.worker.memory-high-percent", 90));
+                if (const auto error = Core::Cgroup::ApplyMemoryLimit(cgroup, assignment.memoryLimitMb * 1024LL * 1024LL, highPercent)) {
+                    log_warning << "Could not set the memory limit of instance " << assignment.instanceId << " to "
+                                << assignment.memoryLimitMb << " MiB (" << *error << "); it runs unlimited";
+                } else {
+                    enforcedMemoryLimitMb = assignment.memoryLimitMb;
+                    log_debug << "Memory limit of instance " << assignment.instanceId << ": " << assignment.memoryLimitMb << " MiB";
+                }
+            }
+        }
+
+        // A JVM under a limit sizes its heap from it, but to a quarter by default - a 2 GiB limit
+        // would be a 512 MiB heap. Given a share worth having instead, unless the deployment
+        // sizes the heap itself, and only when the limit really holds: without one, the JVM reads
+        // the whole host. Said at info, every time, because a flag nobody asked for that changes a
+        // process's memory is the kind of help that otherwise costs somebody an afternoon.
+        // docs/resource-limits.md §6.
+        std::vector<std::string> interpreterOptions;
+        if (const auto heap = Core::Launch::JavaHeapOption(assignment.runtime, assignment.command, assignment.environment,
+                                                           enforcedMemoryLimitMb, configuration.getOr<long>("euclid.worker.java-max-ram-percent", 75));
+            heap.has_value()) {
+            interpreterOptions.push_back(*heap);
+            log_info << "Instance " << assignment.instanceId << " of " << assignment.applicationId << ": started with " << *heap
+                     << " under its memory limit of " << enforcedMemoryLimitMb << " MiB (euclid.worker.java-max-ram-percent)";
+        } else if (enforcedMemoryLimitMb > 0 && Core::Launch::IsJavaRuntime(assignment.runtime) && assignment.command.empty()) {
+            log_debug << "Instance " << assignment.instanceId << ": the deployment sizes the JVM heap itself, so no heap option is added";
+        }
+
         const auto artifactPath = std::filesystem::absolute(target, ec);
         const auto commandLine = Core::Launch::CommandLine(
                 assignment.runtime, assignment.command, (ec ? target : artifactPath).string(), assignment.arguments,
-                RuntimeLookup());
+                RuntimeLookup(), interpreterOptions);
         const auto workingDir = directory.string();
         // Absolute for the same reason: the application reads it after the chdir.
         const auto credentialsPath = std::filesystem::absolute(directory / Core::Launch::CredentialsFileName, ec).string();
@@ -595,7 +729,6 @@ namespace Euclid::Worker {
         // A port of its own for the instance's HTTP listener, from the range this node set aside,
         // under the name the manager uses for its own instances. None configured, none given - as
         // on the manager - and then the gateway has nothing to route to here.
-        const auto &configuration = Core::Configuration::instance();
         const auto httpPort = Core::Launch::PickHttpPort(_ports, assignment.instanceId,
                                                          configuration.getOr<long>("euclid.worker.http-port-min", 0),
                                                          configuration.getOr<long>("euclid.worker.http-port-max", 0));
@@ -619,7 +752,10 @@ namespace Euclid::Worker {
         // what makes a killed worker safe: its instances go with it, rather than running on while
         // the master re-places the same slots elsewhere once the lease runs out.
         const auto spawned = Core::WindowsProcess::Spawn(assignment.runtimeName, commandLine, environment, workingDir);
-        if (!spawned.has_value()) return false;
+        if (!spawned.has_value()) {
+            dropCgroup();
+            return false;
+        }
 
         instance.pid = static_cast<int>(spawned->pid);
         instance.processHandle = spawned->process;
@@ -657,6 +793,7 @@ namespace Euclid::Worker {
             for (const int fd: {outPipe[0], outPipe[1], errPipe[0], errPipe[1]}) {
                 if (fd >= 0) close(fd);
             }
+            dropCgroup();
             return false;
         }
         for (const int fd: {outPipe[0], outPipe[1], errPipe[0], errPipe[1]}) fcntl(fd, F_SETFD, FD_CLOEXEC);
@@ -665,6 +802,7 @@ namespace Euclid::Worker {
         if (pid < 0) {
             log_error << "Could not fork for instance " << assignment.instanceId << ": " << strerror(errno);
             for (const int fd: {outPipe[0], outPipe[1], errPipe[0], errPipe[1]}) close(fd);
+            dropCgroup();
             return false;
         }
 
@@ -672,6 +810,11 @@ namespace Euclid::Worker {
             // The child. Its own process group, so stopping it does not depend on the worker's own
             // signal disposition and a kill reaches whatever it started.
             setpgid(0, 0);
+
+            // Into its cgroup before anything else runs, so everything it ever allocates and
+            // everything it starts is counted there. A failure is not fatal - the instance runs as
+            // it would have without one - and the parent notices the group staying empty.
+            std::ignore = Core::Cgroup::JoinFromChild(cgroupProcs);
 
             dup2(outPipe[1], STDOUT_FILENO);
             dup2(errPipe[1], STDERR_FILENO);
@@ -696,10 +839,12 @@ namespace Euclid::Worker {
         // everything they use, so nothing they touch belongs to this object.
         close(outPipe[1]);
         close(errPipe[1]);
+        if (cgroupProcs >= 0) close(cgroupProcs);
         std::thread(drainOutput, outPipe[0], false, channel, fields).detach();
         std::thread(drainOutput, errPipe[0], true, channel, fields).detach();
 
         instance.pid = static_cast<int>(pid);
+        instance.cgroup = std::move(cgroup);
 #endif
 
         instance.startedAt = std::chrono::system_clock::now();
@@ -759,6 +904,8 @@ namespace Euclid::Worker {
             }
         }
 #endif
+
+        std::ignore = releaseCgroup(found->second, false).said;
 
         log_info << "Stopped instance " << running.instanceId;
         report(found->second.assignment, -1, 0, "STOPPED");
@@ -874,6 +1021,10 @@ namespace Euclid::Worker {
             // Whether it ended of its own accord and said it went well, which is the only thing
             // that separates a finished job from a failed one - see the JOB branch below.
             bool succeeded = false;
+
+            // Whether the kernel's OOM killer ended it - told to the master as OOM_KILLED rather
+            // than CRASHED, and counted towards giving the slot up. docs/resource-limits.md §5.
+            bool oomKilled = false;
 #ifdef _WIN32
             const auto process = static_cast<HANDLE>(it->second.processHandle);
             const auto exitCode = Core::WindowsProcess::ExitCode(process);
@@ -905,6 +1056,9 @@ namespace Euclid::Worker {
             } else {
                 how = "status " + std::to_string(status);
             }
+            const auto released = releaseCgroup(it->second, WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+            how += released.said;
+            oomKilled = released.oomKilled;
 #endif
 
             const auto ranFor = std::chrono::duration_cast<std::chrono::seconds>(now - it->second.startedAt);
@@ -927,14 +1081,69 @@ namespace Euclid::Worker {
 
             const auto previous = _crashes.contains(it->first) ? _crashes.at(it->first).delay : std::chrono::seconds{0};
             const auto delay = Reconciler::RestartDelay(previous, ranFor);
-            _crashes[it->first] = Crash{.delay = delay, .notBefore = now + delay};
 
-            log_warning << "Instance " << it->first << " exited on its own, application: " << it->second.assignment.applicationId
-                        << ", " << how << ", ran for " << ranFor.count() << "s; restarting in " << delay.count() << "s";
+            // OOM kills in a row. Not reset by the backoff's one-minute "stable" rule: a JVM whose
+            // limit is too low can take several minutes to grow into it, and would then be
+            // restarted for ever. An hour of running is what makes the next kill a new problem.
+            const auto previousOomKills = _crashes.contains(it->first) ? _crashes.at(it->first).oomKills : 0;
+            const auto oomKills = !oomKilled ? 0 : ranFor >= std::chrono::hours{1} ? 1 : previousOomKills + 1;
+            const auto limit = static_cast<int>(Core::Configuration::instance().getOr<long>("euclid.worker.oom-kill-limit", 3));
 
-            report(it->second.assignment, -1, 0, "CRASHED");
+            Crash crash{.delay = delay, .notBefore = now + delay, .oomKills = oomKills};
+            if (oomKilled && Reconciler::GiveUpAfterOomKills(oomKills, limit)) {
+                crash.givenUp = true;
+                crash.heldRevision = it->second.assignment.revision;
+                crash.heldMemoryLimitMb = it->second.assignment.memoryLimitMb;
+                crash.notBefore = std::chrono::system_clock::time_point::max();
+                log_error << "Instance " << it->first << " of " << it->second.assignment.applicationId << " was killed by the OOM killer "
+                          << oomKills << " times in a row and will not be restarted on this node: "
+                          << (it->second.assignment.memoryLimitMb > 0
+                                      ? "its memory limit of " + std::to_string(it->second.assignment.memoryLimitMb) + " MiB is too low for it"
+                                      : std::string("it has no memory limit, so the host keeps running out"))
+                          << ". It is tried again when its limit or its revision changes - eap set-application-limits, "
+                             "update-application, redeploy-application or restart-application";
+            } else {
+                log_warning << "Instance " << it->first << " exited on its own, application: " << it->second.assignment.applicationId
+                            << ", " << how << ", ran for " << ranFor.count() << "s; restarting in " << delay.count() << "s";
+            }
+            _crashes[it->first] = crash;
+
+            report(it->second.assignment, -1, 0, oomKilled ? "OOM_KILLED" : "CRASHED");
             it = _instances.erase(it);
         }
+
+        // Groups RemoveInstance() could not take when their instance ended - something the
+        // instance started outlived it by a moment - go once they are empty. Cheap: one directory
+        // per application here.
+        _cgroups.Sweep([this](const std::string &instanceId) { return _instances.contains(instanceId); });
+    }
+
+    WorkerClient::Released WorkerClient::releaseCgroup(Instance &instance, const bool killedBySignal) const {
+
+        if (instance.cgroup.empty()) return {};
+
+        Released released;
+        auto &said = released.said;
+        // Read before the group goes, since its counters go with it. memory.events counts a kill
+        // in this group whether the group's own ceiling caused it or the whole host ran out and
+        // the kernel picked a process here - either way, an operator reading "signal 9" alone
+        // would take it for a crash or for euclid's own kill.
+        if (killedBySignal) {
+            if (const auto usage = Core::Cgroup::ReadUsage(instance.cgroup); usage.has_value() && usage->oomKills > 0) {
+                released.oomKilled = true;
+                said = " - the kernel's OOM killer (" + std::to_string(usage->oomKills) + " kill" + (usage->oomKills == 1 ? "" : "s")
+                       + " in this instance's cgroup)";
+                if (usage->memoryMaxBytes < 0) {
+                    said += ", with no memory limit on the instance: the host ran out of memory";
+                } else {
+                    said += ", over its memory limit of " + std::to_string(usage->memoryMaxBytes / (1024 * 1024)) + " MiB";
+                }
+            }
+        }
+
+        std::ignore = Core::Cgroup::Tree::RemoveInstance(instance.cgroup);
+        instance.cgroup.clear();
+        return released;
     }
 
     std::map<std::string, std::chrono::system_clock::time_point> WorkerClient::HoldOff() const {

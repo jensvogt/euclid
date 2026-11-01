@@ -24,6 +24,7 @@ using Euclid::Database::Entity::EAP::ApplicationTypeToString;
 using Euclid::Database::Entity::EAP::IsJob;
 using Euclid::Database::Entity::EAP::RedeployRefusal;
 using Euclid::Database::Entity::EAP::ScaleRefusal;
+using Euclid::Database::Entity::EAP::LimitRefusal;
 using Euclid::Database::Entity::EAP::RestartRefusal;
 using Euclid::Database::Entity::EAP::Runtime;
 using Euclid::Database::Entity::EAP::RuntimeCommandPrefix;
@@ -65,6 +66,7 @@ namespace {
         application.minInstances = 2;
         application.maxInstances = 8;
         application.readyTimeoutMs = 45000;
+        application.memoryLimitMb = 1536;
         application.desiredState = ApplicationState::RUNNING;
         application.logLevel = "warning";
         return application;
@@ -95,6 +97,7 @@ BOOST_AUTO_TEST_CASE(ApplicationSurvivesABsonRoundTrip) {
     BOOST_TEST(restored.minInstances == 2);
     BOOST_TEST(restored.maxInstances == 8);
     BOOST_TEST(restored.readyTimeoutMs == 45000);
+    BOOST_TEST(restored.memoryLimitMb == 1536);
     BOOST_TEST((restored.desiredState == ApplicationState::RUNNING));
 
     BOOST_TEST_REQUIRE(restored.arguments.size() == 2U);
@@ -758,4 +761,22 @@ BOOST_AUTO_TEST_CASE(AnArtifactSizeReadsBackWhateverWidthItWasStoredIn) {
     const auto narrow = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("applicationId", "narrow"),
                                                                bsoncxx::builder::basic::kvp("artifactSize", std::int32_t{1048576}));
     BOOST_TEST(Application::fromDocument(narrow.view()).artifactSize == 1048576L);
+}
+
+// docs/resource-limits.md §11: a per-instance memory limit, 0 for none. Anything an instance could
+// not start under is refused rather than stored, since it would only show up as every instance
+// OOM-killed on start.
+BOOST_AUTO_TEST_CASE(MemoryLimitRefusals) {
+    BOOST_TEST(LimitRefusal(0).empty());
+    BOOST_TEST(LimitRefusal(64).empty());
+    BOOST_TEST(LimitRefusal(2048).empty());
+    BOOST_TEST(!LimitRefusal(-1).empty());
+    BOOST_TEST(!LimitRefusal(1).empty());
+    BOOST_TEST(!LimitRefusal(63).empty());
+}
+
+// A definition written before limits existed has no memoryLimitMb and reads back unlimited.
+BOOST_AUTO_TEST_CASE(OldDefinitionsHaveNoMemoryLimit) {
+    Application application;
+    BOOST_TEST(application.memoryLimitMb == 0);
 }

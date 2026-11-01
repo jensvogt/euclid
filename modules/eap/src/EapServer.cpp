@@ -306,6 +306,7 @@ namespace Euclid::EAP {
 
             ApplicationPool pool;
             bool crashed = false;
+            bool oomKilled = false;
             bool starting = false;
             bool stopping = false;
 
@@ -320,6 +321,8 @@ namespace Euclid::EAP {
                                 {"httpPort", instance.httpPort}});
                     } else if (instance.state == State::CRASHED) {
                         crashed = true;
+                    } else if (instance.state == State::OOM_KILLED) {
+                        oomKilled = true;
                     } else if (instance.state == State::STARTING || instance.state == State::RESTARTING
                                || instance.state == State::PENDING_RESTART) {
                         starting = true;
@@ -332,7 +335,10 @@ namespace Euclid::EAP {
                 }
             }
 
+            // OOM_KILLED before CRASHED: of the two it is the one with a known remedy - a higher
+            // memoryLimitMb, or a host with room - and the one restarting will not fix.
             pool.state = !pool.endpoints.empty() ? "RUNNING"
+                         : oomKilled             ? "OOM_KILLED"
                          : crashed               ? "CRASHED"
                          : starting              ? "STARTING"
                          : stopping              ? "STOPPING"
@@ -1370,6 +1376,10 @@ namespace Euclid::EAP {
                     {"minInstances", application.minInstances},
                     {"maxInstances", application.maxInstances},
                     {"readyTimeoutMs", application.readyTimeoutMs},
+                    // Per instance, in MiB; 0 is no limit. What each node actually enforces is its
+                    // own business - a node whose unit does not delegate its cgroup cannot - and is
+                    // in that node's application-memory-limit-mb series and its log.
+                    {"memoryLimitMb", application.memoryLimitMb},
                     {"type", Database::Entity::EAP::ApplicationTypeToString(application.type)},
                     {"schedule", application.schedule},
                     // Only reported when there is a schedule it came from. The epoch is how "no
@@ -1562,6 +1572,10 @@ namespace Euclid::EAP {
         application.minInstances = std::max(1L, longField(obj, "minInstances", 1));
         application.maxInstances = std::max(application.minInstances, longField(obj, "maxInstances", 1));
         application.readyTimeoutMs = std::max(1000L, longField(obj, "readyTimeoutMs", 30000));
+        application.memoryLimitMb = longField(obj, "memoryLimitMb", 0);
+        if (const auto refusal = Database::Entity::EAP::LimitRefusal(application.memoryLimitMb); !refusal.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request, refusal);
+        }
         application.desiredState = ApplicationState::STOPPED;
 
         // PROCESS unless asked for otherwise, and an unrecognised word is refused rather than
@@ -1862,6 +1876,55 @@ namespace Euclid::EAP {
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored.value_or(*application))));
     }
 
+    // Sets an application's per-instance memory limit - docs/resource-limits.md §11.
+    //
+    // Separate from update-application, which can set it too, for the reason scale-application is:
+    // that one stamps the modification date and so restarts every instance. This writes the one
+    // field, and the limit reaches instances as they start - a new one, a replacement, a restart.
+    // Not applied to running instances' groups behind their backs: a JVM sized its heap from the
+    // limit it started under, and a lower ceiling than it planned for is an OOM kill waiting for
+    // the next busy minute. restart-application is how running instances are given it.
+    static response<string_body> handleSetApplicationLimits(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-application-limits");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto applicationId = stringField(obj, "applicationId");
+        if (applicationId.empty()) return EapServer::ErrorResponse(req, status::bad_request, "applicationId is required");
+        if (!obj.contains("memoryLimitMb")) {
+            return EapServer::ErrorResponse(req, status::bad_request, "Nothing to change: give memoryLimitMb (0 removes the limit)");
+        }
+
+        const auto memoryLimitMb = longField(obj, "memoryLimitMb", -1);
+        if (const auto refusal = Database::Entity::EAP::LimitRefusal(memoryLimitMb); !refusal.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request, refusal);
+        }
+
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto repo = Database::RepositoryFactory::instance().eapRepository();
+        const auto application = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
+        if (!application.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
+        }
+
+        if (!repo->setApplicationLimits(auth.user->accountId, ns, applicationId, memoryLimitMb)) {
+            return EapServer::ErrorResponse(req, status::internal_server_error, "Could not set limits of application: " + applicationId);
+        }
+
+        log_info << "EAP set application limits, applicationId: " << applicationId
+                 << ", memoryLimitMb: " << application->memoryLimitMb << " -> " << memoryLimitMb;
+
+        const auto stored = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored.value_or(*application))));
+    }
+
     // Defines the same application again in another namespace, leaving the original alone.
     //
     // The sibling of update-application's namespace move, and the difference is the whole point:
@@ -2136,6 +2199,16 @@ namespace Euclid::EAP {
         if (obj.contains("minInstances")) application->minInstances = std::max(1L, longField(obj, "minInstances", application->minInstances));
         if (obj.contains("maxInstances")) application->maxInstances = std::max(application->minInstances, longField(obj, "maxInstances", application->maxInstances));
         if (obj.contains("readyTimeoutMs")) application->readyTimeoutMs = std::max(1000L, longField(obj, "readyTimeoutMs", application->readyTimeoutMs));
+        // Through update-application the change restarts the pool like any other, which is the
+        // one way a running JVM gets a heap sized for its new limit. set-application-limits is the
+        // way that does not.
+        if (obj.contains("memoryLimitMb")) {
+            const auto memoryLimitMb = longField(obj, "memoryLimitMb", application->memoryLimitMb);
+            if (const auto refusal = Database::Entity::EAP::LimitRefusal(memoryLimitMb); !refusal.empty()) {
+                return EapServer::ErrorResponse(req, status::bad_request, refusal);
+            }
+            application->memoryLimitMb = memoryLimitMb;
+        }
 
         // Changeable, because an application deployed as a PROCESS before anybody noticed it was a
         // job should not have to be deleted and recreated to say so. Refused the same way as on
@@ -2861,8 +2934,25 @@ namespace Euclid::EAP {
     //
     // Each figure only when it was sent: the first renewal after an instance starts carries no
     // CPU percentage, and a recorded zero would read as an idle instance.
+    //
+    // The cgroup figures - docs/resource-limits.md §9 - beside the pid ones rather than instead of
+    // them: a cgroup is charged page cache a pid's resident size is not, it remembers its peak, and
+    // it counts the OOM killer's visits. Sent only by a worker whose unit delegates its cgroup.
     static void recordInstanceUsage(const boost::json::object &body, const std::string &node,
                                     const std::map<std::string, std::string> &applicationOf) {
+
+        // The worker's whole cgroup, every instance on the node and the worker itself: the figure
+        // the OOM killer and a MemoryMax= on the unit go by. Recorded for the local node too - the
+        // monitoring module measures the host, not what is charged to one service on it.
+        const auto nodeGauge = [&body, &node](const std::string &name, const char *field) {
+            if (const auto *figure = body.if_contains(field); figure != nullptr && figure->is_number()) {
+                Core::Monitoring::MetricEventBus::instance().sigMetricGaugeWithLabels(name, {{"node", node}}, figure->to_number<double>());
+            }
+        };
+        nodeGauge("node-applications-memory-mb", "cgroupMemoryMb");
+        nodeGauge("node-applications-memory-peak-mb", "cgroupMemoryPeakMb");
+        nodeGauge("node-applications-memory-limit-mb", "cgroupMemoryMaxMb");
+        nodeGauge("node-applications-oom-kills", "cgroupOomKills");
 
         const auto *entries = body.if_contains("instanceUsage");
         if (entries == nullptr || !entries->is_array()) return;
@@ -2892,6 +2982,10 @@ namespace Euclid::EAP {
             gauge("application-memory-usage-real-mb", "memoryRealMb");
             gauge("application-memory-usage-virtual-mb", "memoryVirtualMb");
             gauge("application-memory-usage-percent", "memoryPercent");
+            gauge("application-memory-cgroup-mb", "cgroupMemoryMb");
+            gauge("application-memory-peak-mb", "cgroupMemoryPeakMb");
+            gauge("application-memory-limit-mb", "cgroupMemoryMaxMb");
+            gauge("application-oom-kills", "oomKills");
         }
     }
 
@@ -3080,6 +3174,10 @@ namespace Euclid::EAP {
                         // instance's channel. Not part of the revision, so changing it restarts
                         // nothing - here or on the manager.
                         {"logLevel", application->logLevel},
+                        // The instance's memory ceiling in MiB, 0 for none, which the worker makes
+                        // its cgroup's memory.max when it starts the instance. Not part of the
+                        // revision, so set-application-limits restarts nothing.
+                        {"memoryLimitMb", application->memoryLimitMb},
                 });
             }
         }
@@ -3924,6 +4022,7 @@ namespace Euclid::EAP {
         if (action == "update-application") return handleUpdateApplication(req);
         if (action == "copy-application") return handleCopyApplication(req);
         if (action == "scale-application") return handleScaleApplication(req);
+        if (action == "set-application-limits") return handleSetApplicationLimits(req);
         if (action == "redeploy-application") return handleRedeployApplication(req);
         if (action == "list-applications") return handleListApplications(req);
         if (action == "get-application") return handleGetApplication(req);

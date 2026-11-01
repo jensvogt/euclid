@@ -275,6 +275,27 @@ namespace Euclid::Database::Entity::EAP {
         long readyTimeoutMs = 30000;
 
         /**
+         * @brief The most memory one instance may use, in MiB; 0 for no limit.
+         *
+         * @par
+         * Per instance, not per pool - docs/resource-limits.md §7 - so the application's whole cost
+         * is maxInstances times this. Enforced by the worker as its instance cgroup's memory.max,
+         * with memory.high a little below it so an instance drifting towards the ceiling slows
+         * down and shows up before it is killed, and no swap.
+         *
+         * @par
+         * 0 is the default and means what every application defined before this field had: no
+         * limit at all, so nothing changes for anybody who does not ask.
+         *
+         * @par
+         * Taken when an instance starts. A JVM sizes its heap once, from the limit it starts
+         * under, so changing this on a running instance's group would leave the heap sized for
+         * the old one; set-application-limits therefore applies to instances started afterwards,
+         * and restart-application is how the running ones get it.
+         */
+        long memoryLimitMb = 0;
+
+        /**
          * @brief What the application should be doing - see ApplicationState.
          */
         ApplicationState desiredState = ApplicationState::STOPPED;
@@ -489,6 +510,26 @@ namespace Euclid::Database::Entity::EAP {
      * @return the reason to refuse, phrased for whoever is scaling, or empty to go ahead
      */
     std::string ScaleRefusal(long requestedMin, long requestedMax, long currentMin, long currentMax);
+
+    /**
+     * @brief The smallest memory limit accepted, in MiB. Below this nothing euclid runs gets as
+     * far as starting - a JVM reserves more than that for itself before it loads a class - and a
+     * limit that kills every instance on start is a typo, not a setting.
+     */
+    constexpr long kMinimumMemoryLimitMb = 64;
+
+    /**
+     * @brief Why this memory limit cannot be set, or empty if it can.
+     *
+     * @par
+     * The one rule for the CLI and the eap module, as ScaleRefusal() is. The host's own memory is
+     * not checked here: whether every application's limits fit the nodes they are placed on is
+     * admission, docs/resource-limits.md §8, and a later step.
+     *
+     * @param memoryLimitMb the limit asked for, in MiB; 0 removes the limit
+     * @return the reason to refuse, phrased for whoever is setting it, or empty to go ahead
+     */
+    std::string LimitRefusal(long memoryLimitMb);
 
     /**
      * @brief Why this application cannot be restarted, or empty if it can.

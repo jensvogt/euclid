@@ -43,7 +43,8 @@ fit.
 .TP
 .B \-\-config\-only
 Back up only the configuration (queues, topics, subscriptions, buckets,
-users, roles, applications, servers, secrets), whatever
+users, roles, applications, servers, secrets, alert rules, dashboards),
+whatever
 .I euclid.modules.emm.backup.full
 says.
 .PP
@@ -51,17 +52,21 @@ With neither,
 .I euclid.modules.emm.backup.full
 decides, as it does for the nightly backup.
 .PP
-Monitoring data
-.RI ( emo )
-is never part of a backup, and
+From monitoring
+.RI ( emo ),
+a backup takes the configuration \- alert rules and saved dashboards \-
+and never the metric rows or the alert history, full or not: they are
+millions of rows, rebuilt by simply running. Nor the current alert
+states, which are rebuilt within one period.
 .I ekm
 is only included when a passphrase is set.
 .SH OUTPUT
 The JSON response is printed to standard output:
 .RS
 .TP
-.I name ", " path
-The archive the backup will write, and the same with its directory.
+.I name ", " directory
+The file name the backup writes \- the same in the backup directory, in
+each account's and in each namespace's \- and the backup directory.
 .TP
 .I startedAt
 When it started, in UTC.

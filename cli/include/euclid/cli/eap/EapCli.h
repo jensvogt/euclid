@@ -101,6 +101,11 @@ namespace Euclid::CLI {
         int scaleApplication(const std::vector<std::string> &args) const;
 
         /**
+         * @brief eap set-application-limits: the per-instance memory limit, without a restart.
+         */
+        int setApplicationLimits(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Deploys a new build of an application from a local file.
          *
          * The two commands this replaces - uploading the artifact, then updating the definition so

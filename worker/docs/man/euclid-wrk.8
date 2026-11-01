@@ -304,6 +304,84 @@ the local node included. On Linux an instance is read as its whole
 process group, so children it started are counted; CPU is a share of
 the whole machine, so one busy core of sixteen reads 6.25. An instance's
 first renewal after it starts carries memory only.
+.IP
+Where instances have cgroups of their own (see
+.IR euclid.worker.cgroups-active ),
+also
+.I application-memory-cgroup-mb
+(everything charged to the instance, page cache included),
+.I application-memory-peak-mb
+(the most it has held since it started \(em the figure to size a memory
+limit from) and
+.IR application-oom-kills .
+And, delegated or not, the worker's whole cgroup as
+.IR node-applications-memory-mb ,
+.IR node-applications-memory-peak-mb ,
+.I node-applications-memory-limit-mb
+(only when the unit sets
+.IR MemoryMax= )
+and
+.IR node-applications-oom-kills ,
+labelled with the node.
+.TP
+.I euclid.worker.cgroups-active
+Whether each application instance is started in a cgroup of its own,
+under
+.IR <unit>/applications/<application>/<instance> .
+On by default. Needs
+.I Delegate=memory cpu pids
+on the unit, which the shipped
+.I euclid-wrk.service
+carries; without it, run by hand, on cgroup v1 or off Linux, instances
+run as before and the worker logs once, at start-up, why they have no
+groups. With them, an instance killed by the kernel's OOM killer is
+logged as that rather than as a bare
+.IR "signal 9" ,
+and reported to the master as
+.B OOM_KILLED
+rather than
+.BR CRASHED .
+They are also what an application's memory limit
+.RB ( "eap set-application-limits" )
+is enforced through: without them, an instance with a limit runs
+unlimited and the worker logs a warning each time it starts one.
+.TP
+.I euclid.worker.memory-high-percent
+Where an instance with a memory limit is throttled, as a percentage of
+the limit: its cgroup's
+.I memory.high
+is set there, so the kernel slows it and reclaims its memory before it
+reaches
+.I memory.max
+and is killed. Default 90; 0 leaves
+.I memory.high
+unset.
+.TP
+.I euclid.worker.java-max-ram-percent
+The share of its memory limit a JVM instance may use as heap, given to
+it as
+.BR \-XX:MaxRAMPercentage .
+Default 75; 0 adds nothing. Without it a JVM takes 25% of its limit, so
+a 2 GiB limit would be a 512 MiB heap. Added only to JAVA, JAVA21 and
+JAVA25 instances whose limit is enforced and which have no command of
+their own, and not where
+.IR JAVA_TOOL_OPTIONS ,
+.I JDK_JAVA_OPTIONS
+or
+.I _JAVA_OPTIONS
+already size the heap. Logged at info each time it is added.
+.TP
+.I euclid.worker.oom-kill-limit
+How many OOM kills in a row an instance may have before this node stops
+restarting it. Default 3; 0 never gives up. An instance that ran for an
+hour before it was killed starts the count again. A slot given up on is
+tried again as soon as the master sends it with a different memory limit
+or a new revision \(em
+.BR "eap set-application-limits" ,
+.BR update-application ,
+.B redeploy-application
+or
+.BR restart-application .
 .TP
 .I euclid.worker.java
 The older name for

@@ -44,6 +44,13 @@ namespace Euclid::Database::Entity {
         // never reaches this state, because for a PROCESS there is no such thing as finishing.
         COMPLETED,
 
+        // An application instance the kernel's OOM killer ended - over its own memory limit, or
+        // because the whole host ran out and the kernel chose it. Told apart from CRASHED because
+        // the remedy is different: restarting a process that crashed may well work, restarting
+        // one that needs more memory than it is allowed will not. Reported by the worker, which
+        // reads it from the instance's cgroup - see docs/resource-limits.md §5.
+        OOM_KILLED,
+
         UNKNOWN
     };
 
@@ -63,6 +70,7 @@ namespace Euclid::Database::Entity {
      * - PENDING_RESTART: "PENDING_RESTART"
      * - RESTARTING: "RESTARTING"
      * - COMPLETED: "COMPLETED"
+     * - OOM_KILLED: "OOM_KILLED"
      * - UNKNOWN: "UNKNOWN"
      */
     static std::map<ModuleState, std::string> ModuleStateNames{
@@ -74,6 +82,7 @@ namespace Euclid::Database::Entity {
         {ModuleState::PENDING_RESTART, "PENDING_RESTART"},
         {ModuleState::RESTARTING, "RESTARTING"},
         {ModuleState::COMPLETED, "COMPLETED"},
+        {ModuleState::OOM_KILLED, "OOM_KILLED"},
         {ModuleState::UNKNOWN, "UNKNOWN"},
     };
 

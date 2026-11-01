@@ -100,6 +100,11 @@ objects), not just the top-level resources. Ignored for modules with no
 child data
 .RI ( eam ", " emm ", " emo ).
 Defaults to off.
+.IP
+.I emo
+exports its alert rules and saved dashboards, and with them its metric
+rows and alert history whether or not this is given \- the history a
+backup always leaves out.
 .TP
 .BR \-f ", " \-\-file " " \fIPATH\fR
 Output file path. Defaults to

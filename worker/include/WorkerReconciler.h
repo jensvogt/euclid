@@ -123,6 +123,14 @@ namespace Euclid::Worker {
              * worker on every renewal, and never a reason to restart anything.
              */
             std::string logLevel;
+
+            /**
+             * @brief The most memory the instance may use, in MiB; 0 for no limit. Made its
+             * cgroup's memory.max when it starts - see Core::Cgroup::ApplyMemoryLimit(). Not part of
+             * the decision, and not part of the revision: a changed limit reaches the next process
+             * started on the slot, not the running one.
+             */
+            long memoryLimitMb{};
         };
 
         /**
@@ -235,6 +243,34 @@ namespace Euclid::Worker {
             constexpr auto kStable = std::chrono::seconds{60};
             if (previous.count() <= 0 || ranFor >= kStable) return kInitial;
             return std::min(previous * 2, kMaximum);
+        }
+
+        /**
+         * @brief Whether a slot should stop being restarted after this many OOM kills in a row.
+         *
+         * @par
+         * docs/resource-limits.md §5: an instance killed for its memory again and again is not a
+         * flaky process but one whose limit is wrong, and starting it a fourth time only adds a
+         * fourth kill. A limit of 0 never gives up.
+         */
+        [[nodiscard]] inline bool GiveUpAfterOomKills(const int consecutiveOomKills, const int limit) {
+            return limit > 0 && consecutiveOomKills >= limit;
+        }
+
+        /**
+         * @brief Whether a slot given up on after OOM kills may be tried again.
+         *
+         * @par
+         * Only once something that could change the outcome has: a new revision - an update, a
+         * redeploy, a restart-application - or a different memory limit. Waiting alone changes
+         * neither, so time is deliberately not a reason.
+         *
+         * @param heldRevision the revision the slot was running when it was given up on
+         * @param heldMemoryLimitMb the limit it was running under
+         * @param now what the master says the slot is now
+         */
+        [[nodiscard]] inline bool OomHoldReleased(const std::string &heldRevision, const long heldMemoryLimitMb, const Assignment &now) {
+            return now.revision != heldRevision || now.memoryLimitMb != heldMemoryLimitMb;
         }
 
         /**

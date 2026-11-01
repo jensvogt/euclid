@@ -188,6 +188,23 @@ namespace Euclid::Database {
                                              const std::string &applicationId, long minInstances, long maxInstances) = 0;
 
         /**
+         * @brief Sets an application's per-instance memory limit, without restarting anything.
+         *
+         * @par
+         * By hand rather than through upsertApplication(), which stamps the modification date the
+         * manager restarts a pool on - for the reason setApplicationInstances() gives. Instances
+         * started from now on get the new limit; restart-application is how running ones do.
+         *
+         * @param accountId account the application belongs to
+         * @param nameSpace namespace within accountId
+         * @param applicationId application to change
+         * @param memoryLimitMb the limit in MiB, 0 for none; already checked by LimitRefusal()
+         * @return true if an application of that name was changed
+         */
+        virtual bool setApplicationLimits(const std::string &accountId, const std::string &nameSpace,
+                                          const std::string &applicationId, long memoryLimitMb) = 0;
+
+        /**
          * @brief Records the resources an application's declaration created.
          *
          * @par
