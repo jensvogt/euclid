@@ -218,7 +218,7 @@ namespace Euclid::Core {
                 "ens:unsubscribe",
                 "ens:update-message-body",
 
-                // eqs - 33 actions
+                // eqs - 34 actions
                 "eqs:add-metadata",
                 "eqs:add-queue-tag",
                 "eqs:create-queue",
@@ -246,6 +246,7 @@ namespace Euclid::Core {
                 "eqs:set-message-visibility",
                 "eqs:set-queue-delay",
                 "eqs:set-queue-max-message-length",
+                "eqs:set-queue-max-retries",
                 "eqs:set-queue-tag",
                 "eqs:set-queue-visibility",
                 "eqs:set-visibility",

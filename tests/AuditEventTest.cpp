@@ -270,7 +270,7 @@ BOOST_AUTO_TEST_CASE(AMentionOfAMessageIsNotAMessage) {
 
     // Only the last word is the subject. These configure a queue and merely name a message on the
     // way past, and getting that wrong would silently drop queue administration from the trail.
-    for (const auto *action: {"set-queue-max-message-length", "set-queue-visibility", "set-queue-delay"}) {
+    for (const auto *action: {"set-queue-max-message-length", "set-queue-max-retries", "set-queue-visibility", "set-queue-delay"}) {
         BOOST_TEST_CONTEXT("eqs:" << action) { BOOST_TEST(Server::ShouldAudit("eqs", action, 200)); }
     }
     BOOST_TEST(Server::ShouldAudit("ens", "set-topic-max-message-length", 200));

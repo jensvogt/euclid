@@ -64,6 +64,7 @@
 #include <euclid/dto/eqs/SetMessageVisibilityRequest.h>
 #include <euclid/dto/eqs/SetQueueDelayRequest.h>
 #include <euclid/dto/eqs/SetQueueMaxMessageLengthRequest.h>
+#include <euclid/dto/eqs/SetQueueMaxRetriesRequest.h>
 #include <euclid/dto/eqs/SetQueueVisibilityRequest.h>
 #include <euclid/dto/eqs/UpdateMessageBodyRequest.h>
 
