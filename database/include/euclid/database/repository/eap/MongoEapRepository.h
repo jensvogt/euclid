@@ -149,7 +149,7 @@ namespace Euclid::Database {
          * @brief See IEapRepository::setApplicationLimits.
          */
         bool setApplicationLimits(const std::string &accountId, const std::string &nameSpace,
-                                  const std::string &applicationId, long memoryLimitMb) override;
+                                  const std::string &applicationId, long memoryLimitMb, double cpuLimit) override;
 
         bool setApplicationInfrastructure(const std::string &accountId, const std::string &nameSpace,
                                           const std::string &applicationId,

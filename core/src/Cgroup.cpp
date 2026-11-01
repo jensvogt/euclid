@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // C++ includes
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <fstream>
@@ -113,6 +114,25 @@ namespace Euclid::Core::Cgroup {
         return toNumber(text);
     }
 
+    std::optional<double> ParseCpuMax(const std::string_view text) {
+        const auto trimmed = trim(text);
+        const auto space = trimmed.find(' ');
+        if (space == std::string_view::npos) return std::nullopt;
+        const auto period = toNumber(trimmed.substr(space + 1));
+        if (!period.has_value() || *period <= 0) return std::nullopt;
+        if (const auto quota = trimmed.substr(0, space); quota == "max") return -1.0;
+        const auto quota = toNumber(trimmed.substr(0, space));
+        if (!quota.has_value()) return std::nullopt;
+        return static_cast<double>(*quota) / static_cast<double>(*period);
+    }
+
+    std::optional<double> ThrottledPercent(const long long previousPeriods, const long long previousThrottled,
+                                           const long long periods, const long long throttled) {
+        if (previousPeriods < 0 || previousThrottled < 0 || periods < 0 || throttled < 0) return std::nullopt;
+        if (periods <= previousPeriods || throttled < previousThrottled) return std::nullopt;
+        return 100.0 * static_cast<double>(throttled - previousThrottled) / static_cast<double>(periods - previousPeriods);
+    }
+
     bool HasController(const std::string_view controllers, const std::string_view controller) {
         std::size_t start = 0;
         while (start < controllers.size()) {
@@ -147,6 +167,12 @@ namespace Euclid::Core::Cgroup {
         usage.oomKills = keyed("memory.events", "oom_kill").value_or(-1);
         usage.cpuUsageUsec = keyed("cpu.stat", "usage_usec").value_or(-1);
         usage.cpuThrottledUsec = keyed("cpu.stat", "throttled_usec").value_or(-1);
+        usage.cpuPeriods = keyed("cpu.stat", "nr_periods").value_or(-1);
+        usage.cpuThrottledPeriods = keyed("cpu.stat", "nr_throttled").value_or(-1);
+        if (const auto text = readText(group / "cpu.max"); text.has_value()) usage.cpuLimit = ParseCpuMax(*text).value_or(-1.0);
+        usage.tasks = single("pids.current");
+        usage.tasksMax = single("pids.max");
+        usage.tasksLimitHits = keyed("pids.events", "max").value_or(-1);
         usage.populated = keyed("cgroup.events", "populated").value_or(0) != 0;
         return usage;
     }
@@ -193,6 +219,32 @@ namespace Euclid::Core::Cgroup {
             if (const auto error = writeFile(group / "memory.swap.max", "0")) return error;
         }
         return std::nullopt;
+#endif
+    }
+
+    std::optional<std::string> ApplyCpuLimit(const std::filesystem::path &group, const double cores) {
+#ifdef _WIN32
+        (void) group;
+        (void) cores;
+        return std::string("cgroups exist on Linux only");
+#else
+        if (!(cores > 0.0)) return std::string("a CPU limit must be positive");
+        // The kernel's default period, so a quota reads as what it is: 150000 of 100000 is one
+        // and a half cores. 1 ms is the smallest quota the kernel takes.
+        constexpr long long kPeriod = 100000;
+        const auto quota = std::max(1000LL, static_cast<long long>(cores * static_cast<double>(kPeriod) + 0.5));
+        return writeFile(group / "cpu.max", std::to_string(quota) + " " + std::to_string(kPeriod));
+#endif
+    }
+
+    std::optional<std::string> ApplyTaskLimit(const std::filesystem::path &group, const long long tasks) {
+#ifdef _WIN32
+        (void) group;
+        (void) tasks;
+        return std::string("cgroups exist on Linux only");
+#else
+        if (tasks <= 0) return std::string("a task limit must be positive");
+        return writeFile(group / "pids.max", std::to_string(tasks));
 #endif
     }
 

@@ -153,6 +153,29 @@ namespace Euclid::Core::Launch {
         return line;
     }
 
+    long long OpenFileLimit(const long long wanted, const long long hardLimit) {
+        if (wanted <= 0) return 0;
+        if (hardLimit > 0 && wanted > hardLimit) return hardLimit;
+        return wanted;
+    }
+
+    std::optional<long> CountOpenFiles(const int pid) {
+#ifdef __linux__
+        std::error_code ec;
+        std::filesystem::directory_iterator entries("/proc/" + std::to_string(pid) + "/fd", ec);
+        if (ec) return std::nullopt;
+        long count = 0;
+        for (const auto &entry: entries) {
+            (void) entry;
+            ++count;
+        }
+        return count;
+#else
+        (void) pid;
+        return std::nullopt;
+#endif
+    }
+
     bool IsJavaRuntime(const std::string &runtime) {
         return runtime == "JAVA" || runtime == "JAVA21" || runtime == "JAVA25";
     }

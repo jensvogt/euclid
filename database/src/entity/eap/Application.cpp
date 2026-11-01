@@ -6,7 +6,10 @@
 // Created by vogje01 on 9/1/26.
 //
 
+#include <algorithm>
 #include <regex>
+#include <string>
+#include <vector>
 
 #include <bsoncxx/builder/basic/array.hpp>
 #include <bsoncxx/builder/concatenate.hpp>
@@ -85,6 +88,7 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("maxInstances", static_cast<std::int64_t>(maxInstances)),
                 bsoncxx::builder::basic::kvp("readyTimeoutMs", static_cast<std::int64_t>(readyTimeoutMs)),
                 bsoncxx::builder::basic::kvp("memoryLimitMb", static_cast<std::int64_t>(memoryLimitMb)),
+                bsoncxx::builder::basic::kvp("cpuLimit", cpuLimit),
                 bsoncxx::builder::basic::kvp("desiredState", ApplicationStateToString(desiredState)),
                 bsoncxx::builder::basic::kvp("type", ApplicationTypeToString(type)),
                 bsoncxx::builder::basic::kvp("schedule", schedule),
@@ -142,6 +146,12 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "readyTimeoutMs") application.readyTimeoutMs = getBsonInt(field);
             // Absent before resource limits existed, which reads as 0: no limit, as it always was.
             else if (key == "memoryLimitMb") application.memoryLimitMb = getBsonInt(field);
+            else if (key == "cpuLimit") {
+                // A double as written, but read as any number: a document edited by hand is as
+                // likely to say 2 as 2.0.
+                if (field.type() == bsoncxx::type::k_double) application.cpuLimit = field.get_double().value;
+                else application.cpuLimit = static_cast<double>(getBsonInt(field));
+            }
             else if (key == "desiredState") application.desiredState = ApplicationStateFromString(std::string(field.get_string().value));
             // Absent in every document written before this field existed, which is why the member
             // defaults to PROCESS rather than UNKNOWN: a definition with no type is a long-running
@@ -201,6 +211,50 @@ namespace Euclid::Database::Entity::EAP {
         if (memoryLimitMb > 0 && memoryLimitMb < kMinimumMemoryLimitMb) {
             return "memoryLimitMb must be 0 (no limit) or at least " + std::to_string(kMinimumMemoryLimitMb)
                    + " MiB; " + std::to_string(memoryLimitMb) + " MiB is too little for any instance to start";
+        }
+        return {};
+    }
+
+    std::string CpuLimitRefusal(const double cpuLimit) {
+        if (!(cpuLimit >= 0.0)) {
+            return "cpuLimit cannot be negative - use 0 to remove the limit";
+        }
+        if (cpuLimit > 0.0 && cpuLimit < kMinimumCpuLimit) {
+            return "cpuLimit must be 0 (no limit) or at least 0.01 cores - the kernel cannot throttle to less than 1 ms in 100";
+        }
+        return {};
+    }
+
+    std::string AdmissionRefusal(const long memoryLimitMb, const long minInstances, const long committedByOthersMb,
+                                 const std::vector<long> &nodeMemoryMb, const double overcommitRatio) {
+
+        if (memoryLimitMb <= 0) return {};
+
+        const double ratio = overcommitRatio > 0.0 ? overcommitRatio : 1.0;
+        long largest = 0;
+        double offered = 0.0;
+        for (const auto memory: nodeMemoryMb) {
+            if (memory <= 0) continue;
+            largest = std::max(largest, memory);
+            offered += static_cast<double>(memory) * ratio;
+        }
+        if (largest == 0) return {};
+
+        // Per instance against the largest node, without the ratio: overcommitting a node is
+        // promising more than it has across instances, not running one instance bigger than the
+        // machine.
+        if (memoryLimitMb > largest) {
+            return "memoryLimitMb " + std::to_string(memoryLimitMb) + " MiB is more than any node offers applications (largest: "
+                   + std::to_string(largest) + " MiB) - one instance could never be placed";
+        }
+
+        const auto floor = static_cast<double>(std::max(1L, minInstances)) * static_cast<double>(memoryLimitMb);
+        if (static_cast<double>(std::max(0L, committedByOthersMb)) + floor > offered) {
+            return "minInstances x memoryLimitMb = " + std::to_string(static_cast<long>(floor)) + " MiB, on top of "
+                   + std::to_string(committedByOthersMb) + " MiB already committed by other running applications, exceeds the "
+                   + std::to_string(static_cast<long>(offered)) + " MiB the nodes offer"
+                   + (ratio != 1.0 ? " (overcommit ratio " + std::to_string(ratio).substr(0, 4) + ")" : std::string())
+                   + " - lower the limit or the floor, add a node, or raise euclid.modules.eap.memory-overcommit-ratio";
         }
         return {};
     }

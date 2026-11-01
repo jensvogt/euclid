@@ -172,7 +172,7 @@ namespace Euclid::CLI {
                 {"set-egress-limit", "Set how fast one application may call an outside site"},
                 {"set-log-level", "Turn an application's own logging up, down or off"},
                 {"scale-application", "Change how many instances an application runs, without restarting it"},
-                {"set-application-limits", "Set how much memory each of an application's instances may use"},
+                {"set-application-limits", "Set how much memory and CPU each of an application's instances may use"},
                 {"start-application", "Ask the manager to start an application"},
                 {"stop-application", "Ask the manager to stop an application"},
                 {"update-application", "Change an existing application's definition"},
@@ -251,6 +251,7 @@ namespace Euclid::CLI {
                 ("type", po::value<std::string>(), "PROCESS (default) for something that stays up, or JOB for something that runs once and finishes: a JOB is not restarted when it exits 0, and is not autoscaled")
                 ("schedule", po::value<std::string>(), "cron expression a JOB runs on, in UTC, e.g. \"0 2 * * *\" or \"@daily\"; only valid with --type JOB, and an empty value unschedules it")
                 ("memory-limit", po::value<std::string>(), "the most memory one instance may use: a size in MiB, or with a unit - 512M, 2G; 0 for no limit (the default). Enforced on nodes whose euclid-wrk unit delegates its cgroup")
+                ("cpu-limit", po::value<double>(), "the most CPU one instance may use, in cores - 1.5 is one and a half; 0 for no limit (the default). Over it an instance is slowed, never stopped")
                 ("ready-timeout", po::value<long>(), "kept on the definition but no longer decides readiness: an application counts as started by surviving its own startup, not by creating a socket");
 
         if (IsHelpRequest(args)) {
@@ -258,7 +259,7 @@ namespace Euclid::CLI {
                                    "--application-id <name> --runtime <runtime> --bucket <bucket> --artifact <key> [--version <x.y.z>] "
                                    "[--user <user>] [--buckets <list>] [--queues <list>] [--command <cmd>] "
                                    "[--arguments <list>] [--environment <list>] [--node-labels <list>] [--min-instances <n>] "
-                                   "[--max-instances <n>] [--memory-limit <size>] [--ready-timeout <ms>]",
+                                   "[--max-instances <n>] [--memory-limit <size>] [--cpu-limit <cores>] [--ready-timeout <ms>]",
                                    "Defines a new application from an artifact already stored in an ESM bucket - upload it first with "
                                    "\"esm upload-file\", or through a transfer server. The manager copies the artifact to the host, "
                                    "starts it with the runtime's interpreter (java -jar, python3, node) or directly for BINARY, and "
@@ -324,6 +325,14 @@ namespace Euclid::CLI {
             }
             request["memoryLimitMb"] = *memoryLimitMb;
         }
+        if (vm.contains("cpu-limit")) {
+            const auto cpuLimit = vm["cpu-limit"].as<double>();
+            if (const auto refusal = Database::Entity::EAP::CpuLimitRefusal(cpuLimit); !refusal.empty()) {
+                std::cerr << "error: " << refusal << std::endl;
+                return 1;
+            }
+            request["cpuLimit"] = cpuLimit;
+        }
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -360,13 +369,14 @@ namespace Euclid::CLI {
                 ("type", po::value<std::string>(), "PROCESS (default) for something that stays up, or JOB for something that runs once and finishes: a JOB is not restarted when it exits 0, and is not autoscaled")
                 ("schedule", po::value<std::string>(), "cron expression a JOB runs on, in UTC, e.g. \"0 2 * * *\" or \"@daily\"; only valid with --type JOB, and an empty value unschedules it")
                 ("memory-limit", po::value<std::string>(), "the most memory one instance may use: a size in MiB, or with a unit - 512M, 2G; 0 for no limit (the default). Enforced on nodes whose euclid-wrk unit delegates its cgroup")
+                ("cpu-limit", po::value<double>(), "the most CPU one instance may use, in cores - 1.5 is one and a half; 0 for no limit (the default). Over it an instance is slowed, never stopped")
                 ("ready-timeout", po::value<long>(), "kept on the definition but no longer decides readiness: an application counts as started by surviving its own startup, not by creating a socket");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eap", "update-application",
                                    "--application-id <name> [--runtime <runtime>] [--artifact <key>] [--command <cmd>] "
                                    "[--arguments <list>] [--environment <list>] [--buckets <list>] [--queues <list>] "
-                                   "[--node-labels <list>] [--min-instances <n>] [--max-instances <n>] [--memory-limit <size>] [--ready-timeout <ms>] [--user <userId>]",
+                                   "[--node-labels <list>] [--min-instances <n>] [--max-instances <n>] [--memory-limit <size>] [--cpu-limit <cores>] [--ready-timeout <ms>] [--user <userId>]",
                                    "Changes an existing application's definition. Only the options actually given are altered, so one "
                                    "setting can be changed without resending the whole definition; --arguments and --environment "
                                    "replace the current values rather than adding to them. A running application is restarted onto the "
@@ -423,6 +433,14 @@ namespace Euclid::CLI {
                 return 1;
             }
             request["memoryLimitMb"] = *memoryLimitMb;
+        }
+        if (vm.contains("cpu-limit")) {
+            const auto cpuLimit = vm["cpu-limit"].as<double>();
+            if (const auto refusal = Database::Entity::EAP::CpuLimitRefusal(cpuLimit); !refusal.empty()) {
+                std::cerr << "error: " << refusal << std::endl;
+                return 1;
+            }
+            request["cpuLimit"] = cpuLimit;
         }
 
         try {
@@ -569,15 +587,18 @@ namespace Euclid::CLI {
     }
 
     int EapCli::setApplicationLimits(const std::vector<std::string> &args) const {
-        po::options_description desc("set how much memory each of an application's instances may use");
+        po::options_description desc("set how much memory and CPU each of an application's instances may use");
         desc.add_options()
                 ("application-id,n", po::value<std::string>()->required(), "name of the application")
-                ("memory-limit,m", po::value<std::string>()->required(), "the most memory one instance may use: a size in MiB, or with a unit - 512M, 2G; 0 removes the limit");
+                ("memory-limit,m", po::value<std::string>(), "the most memory one instance may use: a size in MiB, or with a unit - 512M, 2G; 0 removes the limit")
+                ("cpu-limit,c", po::value<double>(), "the most CPU one instance may use, in cores - 1.5 is one and a half; 0 removes the limit");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eap", "set-application-limits",
-                                   "--application-id <name> --memory-limit <size>",
-                                   "Sets the most memory each instance of an application may use, without restarting anything. The "
+                                   "--application-id <name> [--memory-limit <size>] [--cpu-limit <cores>]",
+                                   "Sets the most memory and the most CPU each instance of an application may use, without restarting "
+                                   "anything; a limit not named is left as it is. Over its CPU limit an instance is throttled - slowed "
+                                   "until the next 100 ms period - and never stopped. The memory limit, in more detail: the "
                                    "limit is per instance, so the application as a whole may use up to its maximum instance count "
                                    "times this. A node's worker makes it the instance's cgroup memory.max when it starts the instance, "
                                    "with memory.high a little below so an instance near its ceiling slows down before it is killed, "
@@ -599,17 +620,32 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        const auto memoryLimitMb = ParseMemoryMb(vm["memory-limit"].as<std::string>());
-        if (!memoryLimitMb.has_value()) {
-            std::cerr << "error: --memory-limit must be a size in MiB, or a number with M or G after it: " << vm["memory-limit"].as<std::string>() << std::endl;
-            return 1;
-        }
-        if (const auto refusal = Database::Entity::EAP::LimitRefusal(*memoryLimitMb); !refusal.empty()) {
-            std::cerr << "error: " << refusal << std::endl;
+        if (!vm.contains("memory-limit") && !vm.contains("cpu-limit")) {
+            std::cerr << "error: nothing to change - give --memory-limit, --cpu-limit or both" << std::endl;
             return 1;
         }
 
-        const boost::json::object request{{"applicationId", vm["application-id"].as<std::string>()}, {"memoryLimitMb", *memoryLimitMb}};
+        boost::json::object request{{"applicationId", vm["application-id"].as<std::string>()}};
+        if (vm.contains("memory-limit")) {
+            const auto memoryLimitMb = ParseMemoryMb(vm["memory-limit"].as<std::string>());
+            if (!memoryLimitMb.has_value()) {
+                std::cerr << "error: --memory-limit must be a size in MiB, or a number with M or G after it: " << vm["memory-limit"].as<std::string>() << std::endl;
+                return 1;
+            }
+            if (const auto refusal = Database::Entity::EAP::LimitRefusal(*memoryLimitMb); !refusal.empty()) {
+                std::cerr << "error: " << refusal << std::endl;
+                return 1;
+            }
+            request["memoryLimitMb"] = *memoryLimitMb;
+        }
+        if (vm.contains("cpu-limit")) {
+            const auto cpuLimit = vm["cpu-limit"].as<double>();
+            if (const auto refusal = Database::Entity::EAP::CpuLimitRefusal(cpuLimit); !refusal.empty()) {
+                std::cerr << "error: " << refusal << std::endl;
+                return 1;
+            }
+            request["cpuLimit"] = cpuLimit;
+        }
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);

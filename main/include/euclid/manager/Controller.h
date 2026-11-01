@@ -902,6 +902,17 @@ namespace Euclid::main {
         std::map<std::string, long> _heldSlots;
 
         /**
+         * @brief The memory limits of the instances assigned to each node, in MiB, by node name -
+         * what placement's Fits() measures one more instance against. docs/resource-limits.md §8.
+         *
+         * @par
+         * Counted once at the start of each pass, from every pool's slots and every application's
+         * limit, and added to as the pass places slots, so two placed in one pass do not both
+         * count on the room only one of them will have.
+         */
+        std::map<std::string, long> _committedMemoryMb;
+
+        /**
          * @brief Node applications that have lost an instance since they were last balanced, and
          * so may be worth a move - see rebalanceNodeApplication(). Cleared once no move would help.
          *

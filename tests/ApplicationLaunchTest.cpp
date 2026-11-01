@@ -87,6 +87,16 @@ BOOST_AUTO_TEST_CASE(InterpreterOptionsGoBeforeTheJar) {
     BOOST_TEST(Launch::CommandLine("BINARY", "", "./server", {}, unconfigured, {"-x"}) == (std::vector<std::string>{"./server"}));
 }
 
+// docs/resource-limits.md step 7: an open-file cap per instance, never above what this process may
+// grant - asking for more than the hard limit would fail the whole setrlimit and leave none.
+BOOST_AUTO_TEST_CASE(OpenFileLimitStaysUnderTheHardLimit) {
+    BOOST_TEST(Launch::OpenFileLimit(65536, 524288) == 65536);
+    BOOST_TEST(Launch::OpenFileLimit(65536, 4096) == 4096);
+    BOOST_TEST(Launch::OpenFileLimit(65536, 0) == 65536);
+    BOOST_TEST(Launch::OpenFileLimit(0, 524288) == 0);
+    BOOST_TEST(Launch::OpenFileLimit(-1, 524288) == 0);
+}
+
 BOOST_AUTO_TEST_CASE(AJvmUnderALimitIsGivenAHeapWorthHaving) {
     const std::map<std::string, std::string> none;
     BOOST_TEST(Launch::JavaHeapOption("JAVA25", "", none, 2048, 75).value_or("") == "-XX:MaxRAMPercentage=75");

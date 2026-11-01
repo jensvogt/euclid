@@ -374,6 +374,18 @@ namespace Euclid::Core {
         static std::optional<double> ReadSystemMemoryUsagePercent();
 
         /**
+         * @brief The machine's physical memory, in MiB.
+         *
+         * @par
+         * What a worker registers with, for admission - docs/resource-limits.md §8: whether the
+         * memory limits placed on a node fit in it. /proc/meminfo's MemTotal on Linux,
+         * GlobalMemoryStatusEx's ullTotalPhys on Windows, hw.memsize on macOS.
+         *
+         * @return the total, or std::nullopt if it could not be read
+         */
+        static std::optional<long> ReadSystemMemoryTotalMb();
+
+        /**
          * @brief This process's real (resident) and virtual memory usage, plus real memory as a
          * percentage of the system's total RAM - the same figures `ps aux`'s RSS/VSZ/%MEM
          * columns report.

@@ -74,6 +74,27 @@ namespace Euclid::Core {
             /** @brief `cpu.stat` `throttled_usec`: time spent held back by `cpu.max`. */
             long long cpuThrottledUsec{-1};
 
+            /** @brief `cpu.stat` `nr_periods`: enforcement periods that have passed with work to do. */
+            long long cpuPeriods{-1};
+
+            /** @brief `cpu.stat` `nr_throttled`: the periods in which the quota ran out. */
+            long long cpuThrottledPeriods{-1};
+
+            /** @brief `cpu.max` as cores - quota over period - or -1 for "max", which is none. */
+            double cpuLimit{-1.0};
+
+            /** @brief `pids.current`: tasks - processes and threads - in the group now. */
+            long long tasks{-1};
+
+            /** @brief `pids.max`, or -1 for "max", which is none. */
+            long long tasksMax{-1};
+
+            /**
+             * @brief `pids.events` `max`: how often a fork or a new thread was refused for the
+             * limit. A JVM sees each one as "OutOfMemoryError: unable to create native thread".
+             */
+            long long tasksLimitHits{-1};
+
             /** @brief `cgroup.events` `populated`: whether any process is in the group or below. */
             bool populated{false};
         };
@@ -95,6 +116,20 @@ namespace Euclid::Core {
          * which is how every limit file says "none".
          */
         [[nodiscard]] std::optional<long long> SingleValue(std::string_view text);
+
+        /**
+         * @brief `cpu.max` - "150000 100000", or "max 100000" - as cores: 1.5, or -1 for none.
+         * Empty when it cannot be read.
+         */
+        [[nodiscard]] std::optional<double> ParseCpuMax(std::string_view text);
+
+        /**
+         * @brief The share of periods in which an instance's CPU quota ran out between two
+         * readings, as a percentage - application-cpu-throttled-percent. Empty when no period
+         * passed, or the counters went backwards (a new process in the same group).
+         */
+        [[nodiscard]] std::optional<double> ThrottledPercent(long long previousPeriods, long long previousThrottled,
+                                                             long long periods, long long throttled);
 
         /**
          * @brief Whether a space-separated controller list - `cgroup.controllers` - names one.
@@ -140,6 +175,32 @@ namespace Euclid::Core {
          * @return empty on success, or what failed, worded for an operator's log
          */
         [[nodiscard]] std::optional<std::string> ApplyMemoryLimit(const std::filesystem::path &group, long long maxBytes, int highPercent);
+
+        /**
+         * @brief Puts a CPU ceiling on a group: `cpu.max`, a quota of @p cores x 100 ms per 100 ms
+         * period - docs/resource-limits.md §4. Over it the group is throttled until the next
+         * period, never killed.
+         *
+         * @param group the instance's group
+         * @param cores the ceiling in cores - 1.5 is one and a half; must be positive
+         * @return empty on success, or what failed, worded for an operator's log
+         */
+        [[nodiscard]] std::optional<std::string> ApplyCpuLimit(const std::filesystem::path &group, double cores);
+
+        /**
+         * @brief Caps the tasks - processes and threads together - in a group: `pids.max`.
+         *
+         * @par
+         * docs/resource-limits.md step 7, in place of RLIMIT_NPROC. That one counts every process
+         * and thread of the *user*, not of the process it is set on, and every instance on a node
+         * runs as the same user - so a per-instance figure there would be a node-wide one, hit by
+         * the sum of all of them. The group counts one instance and what it starts.
+         *
+         * @param group the instance's group
+         * @param tasks the ceiling; must be positive
+         * @return empty on success, or what failed, worded for an operator's log
+         */
+        [[nodiscard]] std::optional<std::string> ApplyTaskLimit(const std::filesystem::path &group, long long tasks);
 
         /**
          * @brief Opens a group's `cgroup.procs` for the child to join it through - in the parent,

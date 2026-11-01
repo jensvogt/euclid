@@ -22,6 +22,7 @@ euclid-cli-eap-create-application \- define an application from an artifact in a
 [\fB\-\-min\-instances\fR \fIN\fR]
 [\fB\-\-max\-instances\fR \fIN\fR]
 [\fB\-\-memory\-limit\fR \fISIZE\fR]
+[\fB\-\-cpu\-limit\fR \fICORES\fR]
 [\fB\-\-ready\-timeout\fR \fIMS\fR]
 .SH DESCRIPTION
 Defines a new application from an artifact already stored in an
@@ -163,6 +164,14 @@ application as a whole may use up to
 times this. See
 .BR euclid-cli-eap-set-application-limits (1)
 for what is enforced, where, and how an instance killed for it shows.
+Refused when the nodes could not hold
+.B \-\-min\-instances
+of it on top of what other running applications have committed.
+.TP
+.B \-\-cpu\-limit " " \fICORES\fR
+The most CPU one instance may use, in cores \- 1.5 is one and a half; 0,
+the default, is no limit. Over it an instance is slowed down until the
+next 100 ms period, never stopped.
 .TP
 .B \-\-ready\-timeout " " \fIMS\fR
 Recorded on the definition, and no longer used to decide anything.

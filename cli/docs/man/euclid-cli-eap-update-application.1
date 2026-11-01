@@ -17,6 +17,7 @@ euclid-cli-eap-update-application \- change an application's definition
 [\fB\-\-min\-instances\fR \fIN\fR]
 [\fB\-\-max\-instances\fR \fIN\fR]
 [\fB\-\-memory\-limit\fR \fISIZE\fR]
+[\fB\-\-cpu\-limit\fR \fICORES\fR]
 [\fB\-\-ready\-timeout\fR \fIMS\fR]
 [\fB\-\-user\fR|\fB\-u\fR \fIUSERID\fR]
 .SH DESCRIPTION
@@ -129,6 +130,11 @@ change to its definition, which is how running instances \- whose JVM sized
 its heap from the old limit \- get the new one.
 .BR euclid-cli-eap-set-application-limits (1)
 changes it without a restart.
+.TP
+.B \-\-cpu\-limit " " \fICORES\fR
+The most CPU one instance may use, in cores; 0 for none. As for
+.BR \-\-memory\-limit ,
+this restarts the application; set-application-limits does not.
 .TP
 .B \-\-ready\-timeout " " \fIMS\fR
 Recorded on the definition, and no longer used to decide anything - see

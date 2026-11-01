@@ -26,6 +26,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <thread>
+#include <sys/resource.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -105,6 +106,17 @@ namespace Euclid::Worker {
 #else
             close(fd);
 #endif
+        }
+
+        double fractionField(const boost::json::value &value, const std::string &key) {
+            if (!value.is_object()) return 0.0;
+            const auto *field = value.as_object().if_contains(key);
+            if (field == nullptr) return 0.0;
+            try {
+                return field->to_number<double>();
+            } catch (const std::exception &) {
+                return 0.0;
+            }
         }
 
         long numberField(const boost::json::value &value, const std::string &key) {
@@ -239,11 +251,30 @@ namespace Euclid::Worker {
             if (address.empty()) log_warning << "Could not determine this node's address, endpoint: " << _options.endpoint;
         }
 
+        // What this node offers applications: the host's memory, or the worker unit's MemoryMax=
+        // when that is lower - the applications live inside it - less what this host keeps for
+        // everything else (euclid.worker.memory-reserve-mb). The node knows that better than the
+        // master: the local node shares its host with MongoDB and every euclid module. 0 when
+        // nothing can be read, which the master's admission takes as "unknown" rather than as a
+        // node with no room; a reserve that leaves nothing reports 1, which is "no room".
+        long memoryMb = Core::SystemUtils::ReadSystemMemoryTotalMb().value_or(0);
+        if (const auto &root = _cgroups.Root(); root.has_value()) {
+            if (const auto usage = Core::Cgroup::ReadUsage(*root); usage.has_value() && usage->memoryMaxBytes > 0) {
+                const auto unitMb = static_cast<long>(usage->memoryMaxBytes / (1024 * 1024));
+                memoryMb = memoryMb > 0 ? std::min(memoryMb, unitMb) : unitMb;
+            }
+        }
+        if (memoryMb > 0) {
+            const auto reserveMb = Core::Configuration::instance().getOr<long>("euclid.worker.memory-reserve-mb", 1024);
+            memoryMb = std::max(1L, memoryMb - std::max(0L, reserveMb));
+        }
+
         const boost::json::value body{
                 {"node", _options.nodeName},
                 {"address", address},
                 {"labels", labels},
                 {"cpuCount", static_cast<long>(std::max(1U, std::thread::hardware_concurrency()))},
+                {"memoryMb", memoryMb},
                 {"version", APP_VERSION},
                 {"os", Core::SystemUtils::GetOperatingSystem()},
                 {"arch", Core::SystemUtils::GetArchitecture()},
@@ -408,6 +439,7 @@ namespace Euclid::Worker {
                 assignment.nameSpace = textField(entry, "nameSpace");
                 assignment.logLevel = textField(entry, "logLevel");
                 assignment.memoryLimitMb = numberField(entry, "memoryLimitMb");
+                assignment.cpuLimit = fractionField(entry, "cpuLimit");
 
                 if (const auto *arguments = entry.is_object() ? entry.as_object().if_contains("arguments") : nullptr;
                     arguments != nullptr && arguments->is_array()) {
@@ -480,6 +512,8 @@ namespace Euclid::Worker {
 #endif
 
         boost::json::array reported;
+        // This reading's cpu.stat period counters, kept with the CPU baseline below.
+        std::map<std::string, std::pair<long long, long long> > throttleCounters;
         for (auto &[instanceId, instance]: _instances) {
             const auto found = usageByPid.find(instance.pid);
             if (found == usageByPid.end()) continue;
@@ -491,6 +525,9 @@ namespace Euclid::Worker {
                                       {"memoryVirtualMb", usage.virtualMb},
                                       {"memoryPercent", usage.percentOfTotal}};
 
+            // Descriptors held, for sizing euclid.worker.max-open-files from rather than guessing.
+            if (const auto openFiles = Core::Launch::CountOpenFiles(instance.pid); openFiles.has_value()) entry["openFiles"] = *openFiles;
+
             // The instance's cgroup, which sees what a pid cannot: page cache charged to it, the
             // most it has ever held, and whether the OOM killer has been in. An empty group with
             // a live process means the child never joined it - said once, and then not read.
@@ -500,6 +537,22 @@ namespace Euclid::Worker {
                     if (group->memoryPeakBytes >= 0) entry["cgroupMemoryPeakMb"] = static_cast<double>(group->memoryPeakBytes) / (1024.0 * 1024.0);
                     if (group->oomKills >= 0) entry["oomKills"] = group->oomKills;
                     if (group->memoryMaxBytes >= 0) entry["cgroupMemoryMaxMb"] = static_cast<double>(group->memoryMaxBytes) / (1024.0 * 1024.0);
+                    if (group->tasks >= 0) entry["tasks"] = group->tasks;
+                    if (group->tasksLimitHits >= 0) entry["tasksLimitHits"] = group->tasksLimitHits;
+                    if (group->cpuLimit > 0.0) {
+                        entry["cgroupCpuLimit"] = group->cpuLimit;
+                        // Only under a limit: without one nothing is ever throttled, and a series of
+                        // zeros for every unlimited instance says nothing.
+                        if (const auto previous = _previousInstanceCpu.find(instanceId);
+                            previous != _previousInstanceCpu.end() && previous->second.pid == instance.pid) {
+                            if (const auto throttled = Core::Cgroup::ThrottledPercent(previous->second.cpuPeriods, previous->second.cpuThrottledPeriods,
+                                                                                      group->cpuPeriods, group->cpuThrottledPeriods);
+                                throttled.has_value()) {
+                                entry["cpuThrottledPercent"] = *throttled;
+                            }
+                        }
+                        throttleCounters[instanceId] = {group->cpuPeriods, group->cpuThrottledPeriods};
+                    }
                 } else {
                     log_warning << "Instance " << instanceId << ", pid " << instance.pid << ", is not in its cgroup "
                                 << instance.cgroup.string() << "; nothing is read from it";
@@ -520,7 +573,10 @@ namespace Euclid::Worker {
                         entry["cpuUsage"] = *percent;
                     }
                 }
-                _previousInstanceCpu[instanceId] = InstanceCpu{.pid = instance.pid, .processTime = usage.cpuTime, .systemTimes = *systemTimes};
+                const auto counters = throttleCounters.find(instanceId);
+                _previousInstanceCpu[instanceId] = InstanceCpu{.pid = instance.pid, .processTime = usage.cpuTime, .systemTimes = *systemTimes,
+                                                               .cpuPeriods = counters != throttleCounters.end() ? counters->second.first : -1,
+                                                               .cpuThrottledPeriods = counters != throttleCounters.end() ? counters->second.second : -1};
             }
             reported.push_back(std::move(entry));
         }
@@ -690,6 +746,31 @@ namespace Euclid::Worker {
             }
         }
 
+        // The CPU limit, the same way and for the same reason - though over it an instance is only
+        // throttled, so a failure here costs speed, not a process.
+        if (assignment.cpuLimit > 0.0) {
+            if (cgroup.empty()) {
+                log_warning << "Instance " << assignment.instanceId << " of " << assignment.applicationId << " has a CPU limit of "
+                            << assignment.cpuLimit << " cores that this node cannot enforce: "
+                            << (_cgroups.Enabled() ? "its cgroup could not be made" : _cgroups.Reason()) << "; it runs unlimited";
+            } else if (const auto error = Core::Cgroup::ApplyCpuLimit(cgroup, assignment.cpuLimit)) {
+                log_warning << "Could not set the CPU limit of instance " << assignment.instanceId << " to "
+                            << assignment.cpuLimit << " cores (" << *error << "); it runs unlimited";
+            } else {
+                log_debug << "CPU limit of instance " << assignment.instanceId << ": " << assignment.cpuLimit << " cores";
+            }
+        }
+
+        // A ceiling on tasks - processes and threads - for every instance alike: a thread leak
+        // ends as one instance refused new threads rather than a node that cannot fork. The
+        // cgroup's pids.max rather than RLIMIT_NPROC, which counts every process of the user,
+        // and every instance here is the same user. docs/resource-limits.md step 7.
+        if (const auto maxTasks = configuration.getOr<long>("euclid.worker.max-tasks", 8192); maxTasks > 0 && !cgroup.empty()) {
+            if (const auto error = Core::Cgroup::ApplyTaskLimit(cgroup, maxTasks)) {
+                log_warning << "Could not set the task limit of instance " << assignment.instanceId << " (" << *error << ")";
+            }
+        }
+
         // A JVM under a limit sizes its heap from it, but to a quarter by default - a 2 GiB limit
         // would be a 512 MiB heap. Given a share worth having instead, unless the deployment
         // sizes the heap itself, and only when the limit really holds: without one, the JVM reads
@@ -798,6 +879,21 @@ namespace Euclid::Worker {
         }
         for (const int fd: {outPipe[0], outPipe[1], errPipe[0], errPipe[1]}) fcntl(fd, F_SETFD, FD_CLOEXEC);
 
+        // The open-file limit, decided here so the child has one call to make. Per process, which
+        // is what RLIMIT_NOFILE is: a descriptor leak in one instance ends with that instance
+        // refused, not with the node's worker. Soft and hard alike, so the application cannot
+        // raise it again. Never above this process's own hard limit - asking for more fails.
+        struct rlimit openFiles{};
+        bool limitOpenFiles = false;
+        if (struct rlimit current{}; getrlimit(RLIMIT_NOFILE, &current) == 0) {
+            const auto hard = current.rlim_max == RLIM_INFINITY ? 0LL : static_cast<long long>(current.rlim_max);
+            if (const auto wanted = Core::Launch::OpenFileLimit(configuration.getOr<long>("euclid.worker.max-open-files", 65536), hard);
+                wanted > 0) {
+                openFiles.rlim_cur = openFiles.rlim_max = static_cast<rlim_t>(wanted);
+                limitOpenFiles = true;
+            }
+        }
+
         const auto pid = fork();
         if (pid < 0) {
             log_error << "Could not fork for instance " << assignment.instanceId << ": " << strerror(errno);
@@ -815,6 +911,10 @@ namespace Euclid::Worker {
             // everything it starts is counted there. A failure is not fatal - the instance runs as
             // it would have without one - and the parent notices the group staying empty.
             std::ignore = Core::Cgroup::JoinFromChild(cgroupProcs);
+
+            // setrlimit is async-signal-safe; a failure leaves the inherited limit, which is what
+            // the instance had before there was one.
+            if (limitOpenFiles) std::ignore = setrlimit(RLIMIT_NOFILE, &openFiles);
 
             dup2(outPipe[1], STDOUT_FILENO);
             dup2(errPipe[1], STDERR_FILENO);
@@ -1139,6 +1239,14 @@ namespace Euclid::Worker {
                     said += ", over its memory limit of " + std::to_string(usage->memoryMaxBytes / (1024 * 1024)) + " MiB";
                 }
             }
+        }
+
+        // A task limit that was hit is the likeliest reason a JVM died of "unable to create native
+        // thread", and nothing else says so - worth naming whatever the exit was.
+        if (const auto usage = Core::Cgroup::ReadUsage(instance.cgroup); usage.has_value() && usage->tasksLimitHits > 0) {
+            said += " - it was refused a new thread or process " + std::to_string(usage->tasksLimitHits)
+                    + " time" + (usage->tasksLimitHits == 1 ? "" : "s") + " by its task limit of " + std::to_string(usage->tasksMax)
+                    + " (euclid.worker.max-tasks)";
         }
 
         std::ignore = Core::Cgroup::Tree::RemoveInstance(instance.cgroup);

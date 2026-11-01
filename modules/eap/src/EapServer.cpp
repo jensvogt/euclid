@@ -1380,6 +1380,8 @@ namespace Euclid::EAP {
                     // own business - a node whose unit does not delegate its cgroup cannot - and is
                     // in that node's application-memory-limit-mb series and its log.
                     {"memoryLimitMb", application.memoryLimitMb},
+                    // Per instance, in cores; 0 is no limit.
+                    {"cpuLimit", application.cpuLimit},
                     {"type", Database::Entity::EAP::ApplicationTypeToString(application.type)},
                     {"schedule", application.schedule},
                     // Only reported when there is a schedule it came from. The epoch is how "no
@@ -1402,6 +1404,34 @@ namespace Euclid::EAP {
         }
 
     }// namespace
+
+    // Whether the account's nodes can keep the promise this memory limit makes - see
+    // Entity::EAP::AdmissionRefusal(). @p runtimeName is the application being changed, left out
+    // of what the others commit; empty for one not created yet. Nodes count unless drained: one
+    // that is down for a moment is still capacity the installation has, and refusing every deploy
+    // while a worker restarts would be worse than the check.
+    static std::string admissionRefusal(const std::string &accountId, const std::string &runtimeName,
+                                        const long memoryLimitMb, const long minInstances) {
+
+        if (memoryLimitMb <= 0) return {};
+
+        const auto repo = Database::RepositoryFactory::instance().eapRepository();
+
+        long committedByOthers = 0;
+        for (const auto &other: repo->listAllApplications("")) {
+            if (other.accountId != accountId || other.desiredState != ApplicationState::RUNNING || other.memoryLimitMb <= 0) continue;
+            if (!runtimeName.empty() && Database::Entity::EAP::RuntimeName(other) == runtimeName) continue;
+            committedByOthers += std::max(1L, other.minInstances) * other.memoryLimitMb;
+        }
+
+        std::vector<long> nodeMemory;
+        for (const auto &node: repo->listNodes(accountId)) {
+            if (!node.drained) nodeMemory.push_back(node.memoryMb);
+        }
+
+        return Database::Entity::EAP::AdmissionRefusal(memoryLimitMb, minInstances, committedByOthers, nodeMemory,
+                                                       Core::Configuration::instance().getOr<double>("euclid.modules.eap.memory-overcommit-ratio", 1.0));
+    }
 
     static AuthResult authenticate(const request<string_body> &req) {
         const auto auth = EapServer::Authenticate(req);
@@ -1575,6 +1605,15 @@ namespace Euclid::EAP {
         application.memoryLimitMb = longField(obj, "memoryLimitMb", 0);
         if (const auto refusal = Database::Entity::EAP::LimitRefusal(application.memoryLimitMb); !refusal.empty()) {
             return EapServer::ErrorResponse(req, status::bad_request, refusal);
+        }
+        application.cpuLimit = doubleField(obj, "cpuLimit", 0.0);
+        if (const auto refusal = Database::Entity::EAP::CpuLimitRefusal(application.cpuLimit); !refusal.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request, refusal);
+        }
+        // Checked though the application is created stopped: it is created to be run, and finding
+        // out at start-application that it never could be is finding out late.
+        if (const auto refusal = admissionRefusal(auth.user->accountId, {}, application.memoryLimitMb, application.minInstances); !refusal.empty()) {
+            return EapServer::ErrorResponse(req, status::conflict, refusal);
         }
         application.desiredState = ApplicationState::STOPPED;
 
@@ -1864,6 +1903,17 @@ namespace Euclid::EAP {
         const auto effectiveMin = minInstances >= 0 ? minInstances : application->minInstances;
         const auto effectiveMax = maxInstances >= 0 ? maxInstances : application->maxInstances;
 
+        // A higher floor is a bigger promise. Only the floor: the ceiling is the autoscaler's room
+        // to grow, and whether each instance beyond the floor fits is placement's question, asked
+        // when it is wanted.
+        if (effectiveMin > application->minInstances && application->desiredState == ApplicationState::RUNNING) {
+            if (const auto refusal = admissionRefusal(application->accountId, Database::Entity::EAP::RuntimeName(*application),
+                                                      application->memoryLimitMb, effectiveMin);
+                !refusal.empty()) {
+                return EapServer::ErrorResponse(req, status::conflict, refusal);
+            }
+        }
+
         if (!repo->setApplicationInstances(auth.user->accountId, ns, applicationId, minInstances, maxInstances)) {
             return EapServer::ErrorResponse(req, status::internal_server_error, "Could not scale application: " + applicationId);
         }
@@ -1898,13 +1948,22 @@ namespace Euclid::EAP {
 
         const auto applicationId = stringField(obj, "applicationId");
         if (applicationId.empty()) return EapServer::ErrorResponse(req, status::bad_request, "applicationId is required");
-        if (!obj.contains("memoryLimitMb")) {
-            return EapServer::ErrorResponse(req, status::bad_request, "Nothing to change: give memoryLimitMb (0 removes the limit)");
+        if (!obj.contains("memoryLimitMb") && !obj.contains("cpuLimit")) {
+            return EapServer::ErrorResponse(req, status::bad_request, "Nothing to change: give memoryLimitMb, cpuLimit or both (0 removes a limit)");
         }
 
-        const auto memoryLimitMb = longField(obj, "memoryLimitMb", -1);
-        if (const auto refusal = Database::Entity::EAP::LimitRefusal(memoryLimitMb); !refusal.empty()) {
-            return EapServer::ErrorResponse(req, status::bad_request, refusal);
+        // -1 leaves a limit as it is, as scale-application leaves a bound.
+        const auto memoryLimitMb = obj.contains("memoryLimitMb") ? longField(obj, "memoryLimitMb", -1) : -1L;
+        if (obj.contains("memoryLimitMb")) {
+            if (const auto refusal = Database::Entity::EAP::LimitRefusal(memoryLimitMb); !refusal.empty()) {
+                return EapServer::ErrorResponse(req, status::bad_request, refusal);
+            }
+        }
+        const auto cpuLimit = obj.contains("cpuLimit") ? doubleField(obj, "cpuLimit", -1.0) : -1.0;
+        if (obj.contains("cpuLimit")) {
+            if (const auto refusal = Database::Entity::EAP::CpuLimitRefusal(cpuLimit); !refusal.empty()) {
+                return EapServer::ErrorResponse(req, status::bad_request, refusal);
+            }
         }
 
         const auto ns = std::string(req["x-euclid-namespace"]);
@@ -1914,12 +1973,21 @@ namespace Euclid::EAP {
             return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
         }
 
-        if (!repo->setApplicationLimits(auth.user->accountId, ns, applicationId, memoryLimitMb)) {
+        if (memoryLimitMb >= 0) {
+            if (const auto refusal = admissionRefusal(application->accountId, Database::Entity::EAP::RuntimeName(*application),
+                                                      memoryLimitMb, application->minInstances);
+                !refusal.empty()) {
+                return EapServer::ErrorResponse(req, status::conflict, refusal);
+            }
+        }
+
+        if (!repo->setApplicationLimits(auth.user->accountId, ns, applicationId, memoryLimitMb, cpuLimit)) {
             return EapServer::ErrorResponse(req, status::internal_server_error, "Could not set limits of application: " + applicationId);
         }
 
         log_info << "EAP set application limits, applicationId: " << applicationId
-                 << ", memoryLimitMb: " << application->memoryLimitMb << " -> " << memoryLimitMb;
+                 << ", memoryLimitMb: " << application->memoryLimitMb << " -> " << (memoryLimitMb >= 0 ? memoryLimitMb : application->memoryLimitMb)
+                 << ", cpuLimit: " << application->cpuLimit << " -> " << (cpuLimit >= 0.0 ? cpuLimit : application->cpuLimit);
 
         const auto stored = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored.value_or(*application))));
@@ -2208,6 +2276,20 @@ namespace Euclid::EAP {
                 return EapServer::ErrorResponse(req, status::bad_request, refusal);
             }
             application->memoryLimitMb = memoryLimitMb;
+        }
+        if (obj.contains("cpuLimit")) {
+            const auto cpuLimit = doubleField(obj, "cpuLimit", application->cpuLimit);
+            if (const auto refusal = Database::Entity::EAP::CpuLimitRefusal(cpuLimit); !refusal.empty()) {
+                return EapServer::ErrorResponse(req, status::bad_request, refusal);
+            }
+            application->cpuLimit = cpuLimit;
+        }
+        if (obj.contains("memoryLimitMb") || obj.contains("minInstances")) {
+            if (const auto refusal = admissionRefusal(application->accountId, Database::Entity::EAP::RuntimeName(*application),
+                                                      application->memoryLimitMb, application->minInstances);
+                !refusal.empty()) {
+                return EapServer::ErrorResponse(req, status::conflict, refusal);
+            }
         }
 
         // Changeable, because an application deployed as a PROCESS before anybody noticed it was a
@@ -2589,6 +2671,15 @@ namespace Euclid::EAP {
             return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
         }
 
+        // Starting it is what turns its floor into a commitment.
+        if (desired == ApplicationState::RUNNING && application->desiredState != ApplicationState::RUNNING) {
+            if (const auto refusal = admissionRefusal(application->accountId, Database::Entity::EAP::RuntimeName(*application),
+                                                      application->memoryLimitMb, application->minInstances);
+                !refusal.empty()) {
+                return EapServer::ErrorResponse(req, status::conflict, "Refusing to start '" + applicationId + "': " + refusal);
+            }
+        }
+
         application->desiredState = desired;
         const auto stored = repo->upsertApplication(*application);
         log_info << "EAP set application state, applicationId: " << applicationId << ", desiredState: " << ApplicationStateToString(desired);
@@ -2845,6 +2936,7 @@ namespace Euclid::EAP {
                     {"principal", node.principal},
                     {"labels", labels},
                     {"cpuCount", node.cpuCount},
+                    {"memoryMb", node.memoryMb},
                     // The one-minute figure from the node's last heartbeat, set by the same tick
                     // that set lastSeen - so it is exactly as current as lastSeen says it is.
                     // Reported here as well as pushed to EMO because the gauge is not an answer for
@@ -2901,6 +2993,7 @@ namespace Euclid::EAP {
         node.accountId = auth.user->accountId;
         node.principal = auth.user->userId;
         node.cpuCount = obj.contains("cpuCount") ? obj.at("cpuCount").to_number<long>() : 0;
+        node.memoryMb = obj.contains("memoryMb") ? obj.at("memoryMb").to_number<long>() : 0;
         node.version = stringField(obj, "version");
         node.os = stringField(obj, "os");
         node.arch = stringField(obj, "arch");
@@ -2915,7 +3008,7 @@ namespace Euclid::EAP {
 
         const auto stored = repository->upsertNode(node);
         log_info << "EAP RegisterNode, node: " << stored.name << ", address: " << stored.address << ", principal: " << stored.principal
-                 << ", cpus: " << stored.cpuCount << ", version: " << stored.version << ", os: " << stored.os << ", arch: " << stored.arch;
+                 << ", cpus: " << stored.cpuCount << ", memoryMb: " << stored.memoryMb << ", version: " << stored.version << ", os: " << stored.os << ", arch: " << stored.arch;
 
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
                                                                 {"node", nodeToJson(stored)},
@@ -2985,6 +3078,11 @@ namespace Euclid::EAP {
             gauge("application-memory-cgroup-mb", "cgroupMemoryMb");
             gauge("application-memory-peak-mb", "cgroupMemoryPeakMb");
             gauge("application-memory-limit-mb", "cgroupMemoryMaxMb");
+            gauge("application-cpu-limit-cores", "cgroupCpuLimit");
+            gauge("application-cpu-throttled-percent", "cpuThrottledPercent");
+            gauge("application-tasks", "tasks");
+            gauge("application-tasks-limit-hits", "tasksLimitHits");
+            gauge("application-open-files", "openFiles");
             gauge("application-oom-kills", "oomKills");
         }
     }
@@ -3178,6 +3276,8 @@ namespace Euclid::EAP {
                         // its cgroup's memory.max when it starts the instance. Not part of the
                         // revision, so set-application-limits restarts nothing.
                         {"memoryLimitMb", application->memoryLimitMb},
+                        // And its CPU ceiling in cores, 0 for none: the group's cpu.max.
+                        {"cpuLimit", application->cpuLimit},
                 });
             }
         }

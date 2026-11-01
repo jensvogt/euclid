@@ -198,11 +198,14 @@ namespace Euclid::Database {
          * @param accountId account the application belongs to
          * @param nameSpace namespace within accountId
          * @param applicationId application to change
-         * @param memoryLimitMb the limit in MiB, 0 for none; already checked by LimitRefusal()
+         * @param memoryLimitMb the limit in MiB, 0 for none, -1 to leave it; already checked by
+         * LimitRefusal()
+         * @param cpuLimit the limit in cores, 0 for none, negative to leave it; already checked by
+         * CpuLimitRefusal()
          * @return true if an application of that name was changed
          */
         virtual bool setApplicationLimits(const std::string &accountId, const std::string &nameSpace,
-                                          const std::string &applicationId, long memoryLimitMb) = 0;
+                                          const std::string &applicationId, long memoryLimitMb, double cpuLimit) = 0;
 
         /**
          * @brief Records the resources an application's declaration created.

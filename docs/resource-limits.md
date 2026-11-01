@@ -1,7 +1,7 @@
 # Resource limits per application
 
-**Status:** steps 1, 2, 4 and 5 of §12 built (2026-11-01): per-instance cgroups, their figures, the
-memory limit with `OOM_KILLED`, and the JVM heap flag. CPU limits (3), admission (6) and rlimits (7) not yet. Written 2026-09-24.
+**Status:** all seven steps of §12 built (2026-11-01): per-instance cgroups and their figures, CPU and memory
+limits, `OOM_KILLED`, the JVM heap flag, admission at deploy and at scale-up, and task and open-file caps. Written 2026-09-24.
 
 > **Since this was written, applications moved.** They are no longer forked by the manager but by
 > `euclid-wrk` ([worker-nodes.md](worker-nodes.md)) - on the manager's host too, as the local node -
@@ -86,7 +86,8 @@ straight answer rather than being passed over.
 - **The JVM does not read rlimits when sizing itself.** It reads cgroups. Which is the next section,
   and is the argument that settles it.
 
-`RLIMIT_NOFILE` and `RLIMIT_NPROC` are a different matter and are worth having regardless — they cap
+`RLIMIT_NOFILE` and `RLIMIT_NPROC` are a different matter and are worth having regardless (but see step 7
+as built: `RLIMIT_NPROC` turned out to be the wrong tool too) — they cap
 descriptor and thread leaks, which is a real class of runaway, and they cost nothing. §10.
 
 ### The JVM makes cgroups do the right thing for free
@@ -365,11 +366,11 @@ without a host, beside `ScaleRefusal` and `RedeployRefusal`.
 |---|---|---|
 | 1 ✅ | `memory.peak`/`memory.current`/`cpu.stat` read and published as metrics; no limits, no `Delegate=` — reading a cgroup needs no delegation | operators can size limits from observation before any limit can hurt them |
 | 2 ✅ | `Delegate=memory cpu pids`; the subgroup tree; detection and the "not enforced" path | the privileged change, on its own, with nothing depending on it yet |
-| 3 | `cpuLimit` only, throttling, no kills | the plumbing, with a failure mode that cannot lose data |
+| 3 ✅ | `cpuLimit` only, throttling, no kills | the plumbing, with a failure mode that cannot lose data |
 | 4 ✅ | `memoryLimitMb` with `memory.high`, `memory.swap.max=0`, the `oom_kill` discriminator and `OOM_KILLED` | §5 before anything can be killed silently |
 | 5 ✅ | JVM `MaxRAMPercentage` injection for `JAVA*` runtimes | §6 |
-| 6 | admission at deploy and at scale-up | §8 |
-| 7 | `RLIMIT_NOFILE`/`RLIMIT_NPROC`, which need no cgroups at all | cheap, and independent of everything above |
+| 6 ✅ | admission at deploy and at scale-up | §8 |
+| 7 ✅ | `RLIMIT_NOFILE`/`RLIMIT_NPROC`, which need no cgroups at all — built as `RLIMIT_NOFILE` and `pids.max`, see below | cheap, and independent of everything above |
 
 Step 3 before step 4 deliberately: a CPU limit set too low makes an application slow, and a memory
 limit set too low makes it die. The reversible one should be the one that finds the bugs.
@@ -404,6 +405,70 @@ that contains one.
   may well fit on another.
 - **Metric** `application-memory-limit-mb` - what each node actually enforces, which is the
   configured-but-not-enforced signal of §10: absent where the limit is not applied.
+
+### Steps 3 and 6 as built
+
+**CPU (step 3).** `Application::cpuLimit`, cores as a double, 0 = none; `CpuLimitRefusal()` refuses
+negatives and anything under 0.01 (cpu.max's 1 ms floor). Same surfaces as the memory limit:
+`--cpu-limit` on create/update, and `set-application-limits` now takes either limit or both, leaving
+the other alone. The worker writes `cpu.max` as `<cores x 100000> 100000` before the child joins, and
+reports `application-cpu-limit-cores` and `application-cpu-throttled-percent` - the share of
+`nr_periods` that were `nr_throttled` since the previous renewal, sent only for limited instances.
+Measured on the development host: a busy loop under 0.5 cores used 0.49, with every period throttled.
+
+**Admission (step 6).** Two halves, as §8 asks:
+
+- *At deploy* - `Entity::EAP::AdmissionRefusal()`, pure. Refused (HTTP 409) when one instance's
+  limit exceeds the largest node's offer, or when `minInstances x memoryLimitMb` plus every other
+  RUNNING application's floor in the account exceeds the sum of the nodes' offers times
+  `euclid.modules.eap.memory-overcommit-ratio` (default 1.0). Checked by create, update (when the
+  limit or floor changes), set-application-limits, scale-application (floor rising, application
+  running) and start-application. Drained nodes do not count; nodes that do not report memory are
+  left out, and with none that do nothing is refused.
+- *At scale-up* - `Placement::Fits()`: a node takes another instance only if its committed memory
+  (every assigned slot's limit, counted once per pass in `ServiceController::_committedMemoryMb` and
+  added to as the pass places) plus this one fits in its offer x ratio. Kept out of `Satisfies()`
+  so that rebalancing does not read a full node as one its own instances must leave. When nothing
+  fits only for want of memory, the manager says so: *"Not adding an instance: no node has N MiB
+  left for it"*, with each node's committed/offered. Lease re-placement uses the same rule.
+
+**Where a node's offer comes from.** Not the master's configuration but the node's: the worker
+registers `memoryMb` = host memory (or its unit's `MemoryMax=`, if lower) less
+`euclid.worker.memory-reserve-mb` (default 1024). The local node shares its host with MongoDB and
+every module, so `LocalNode` writes its reserve from `euclid.modules.eap.local-node.memory-reserve-mb`,
+half the host when unset. A node knows what else runs on it; the master does not.
+
+**What admission does not count:** applications without a memory limit (they commit nothing - one
+more reason to give them one), CPU (it throttles, it cannot run out the way memory does), and
+placement constraints at deploy time (the deploy check sums the account's nodes; a label-constrained
+application that only fits on one of them is caught at placement instead).
+
+### Step 7 as built
+
+**`RLIMIT_NPROC` is not per process.** It limits the number of processes - threads included - of the
+process's *real user*, and every instance on a node runs as `euclid-wrk`. A per-instance figure there
+is a node-wide one, reached by the sum of every instance: on the development host fifteen JVMs at
+~175 threads each are 2,600 tasks of one user, so any cap low enough to stop one leaking instance
+would stop the next JVM from starting threads. The per-instance tool is the cgroup's `pids.max`,
+which counts one instance and everything it starts - so step 7 is not, after all, entirely free of
+cgroups.
+
+- **Tasks:** `Cgroup::ApplyTaskLimit()` writes `pids.max` from `euclid.worker.max-tasks` (default
+  8192, 0 = none) on every instance group. Refusals are `pids.events` `max`, reported as
+  `application-tasks-limit-hits` beside `application-tasks` (`pids.current`), and named in the exit
+  line - a JVM reports them as *"unable to create native thread"*, which says nothing about a limit.
+- **Open files:** `RLIMIT_NOFILE`, soft and hard alike so the application cannot raise it, from
+  `euclid.worker.max-open-files` (default 65536, 0 = inherit), capped at the worker's own hard limit
+  (`Launch::OpenFileLimit()`) because asking for more fails the whole call. Set by the child between
+  `fork()` and `exec()` - `setrlimit` is async-signal-safe - so it needs no cgroup and applies with or
+  without delegation. `application-open-files` counts `/proc/<pid>/fd` of the instance's process.
+- **Installation-wide, not per application.** Both are leak guards with generous defaults rather
+  than sizes anybody tunes per application; a per-application override can follow the memory and CPU
+  fields if one turns out to need it.
+
+Verified on the development host in a delegated scope: under `pids.max` 20 a child started 19 of 50
+threads (the twentieth task being itself), with 31 refusals in `pids.events`; under `RLIMIT_NOFILE`
+64 it opened 61 files beside its three standard streams.
 
 ## 13. Not in scope
 

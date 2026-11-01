@@ -21,7 +21,12 @@
 #include <net/if.h>     // IFF_UP
 #include <netinet/in.h> // sockaddr_in, sockaddr_in6
 #endif
+#ifdef __APPLE__
+#include <sys/sysctl.h> // sysctlbyname
+#endif
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -340,6 +345,31 @@ namespace Euclid::Core {
 
         const auto used = status.ullTotalPhys > status.ullAvailPhys ? status.ullTotalPhys - status.ullAvailPhys : 0;
         return 100.0 * static_cast<double>(used) / static_cast<double>(status.ullTotalPhys);
+#else
+        return std::nullopt;
+#endif
+    }
+
+    std::optional<long> SystemUtils::ReadSystemMemoryTotalMb() {
+#ifdef __linux__
+        std::ifstream meminfo("/proc/meminfo");
+        std::string label;
+        unsigned long long value = 0;
+        while (meminfo >> label >> value) {
+            if (label == "MemTotal:") return value > 0 ? std::optional<long>(static_cast<long>(value / 1024)) : std::nullopt;
+            meminfo.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        }
+        return std::nullopt;
+#elif defined(_WIN32)
+        MEMORYSTATUSEX status{};
+        status.dwLength = sizeof(status);
+        if (!GlobalMemoryStatusEx(&status) || status.ullTotalPhys == 0) return std::nullopt;
+        return static_cast<long>(status.ullTotalPhys / (1024ULL * 1024ULL));
+#elif defined(__APPLE__)
+        std::uint64_t bytes = 0;
+        std::size_t size = sizeof(bytes);
+        if (sysctlbyname("hw.memsize", &bytes, &size, nullptr, 0) != 0 || bytes == 0) return std::nullopt;
+        return static_cast<long>(bytes / (1024ULL * 1024ULL));
 #else
         return std::nullopt;
 #endif

@@ -124,6 +124,20 @@ namespace Euclid::Core {
                                                            const std::vector<std::string> &interpreterOptions = {});
 
         /**
+         * @brief The open-file limit to start an instance with: @p wanted, but never above
+         * @p hardLimit - an unprivileged process cannot raise its hard limit, and asking would
+         * fail the whole setrlimit. 0 when @p wanted is 0 or less, which leaves the inherited
+         * limit alone. docs/resource-limits.md step 7.
+         */
+        [[nodiscard]] long long OpenFileLimit(long long wanted, long long hardLimit);
+
+        /**
+         * @brief How many files a process has open, from /proc/<pid>/fd. Empty off Linux, or when
+         * the directory cannot be read - another user's process.
+         */
+        [[nodiscard]] std::optional<long> CountOpenFiles(int pid);
+
+        /**
          * @brief Whether a runtime is started by a JVM: JAVA, JAVA21, JAVA25.
          */
         [[nodiscard]] bool IsJavaRuntime(const std::string &runtime);

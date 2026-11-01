@@ -100,6 +100,14 @@ namespace Euclid::Database::Entity::EAP {
         long cpuCount{};
 
         /**
+         * @brief How much memory the node offers applications, in MiB - the host's, or less when
+         * the worker's own unit has a MemoryMax=. What admission measures memory limits against -
+         * docs/resource-limits.md §8. 0 for a worker too old to say, which admission treats as
+         * "unknown" and does not refuse on.
+         */
+        long memoryMb{};
+
+        /**
          * @brief The euclid version the worker is built from, so a mismatch is visible before it
          * is mysterious.
          */
