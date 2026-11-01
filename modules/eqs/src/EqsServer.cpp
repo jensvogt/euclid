@@ -1497,6 +1497,46 @@ namespace Euclid::EQS {
                                                 Database::Entity::EQS::EffectiveMaxMessageLength(queue->maxMessageLength)}}));
     }
 
+    static response<string_body> handleSetQueueMaxRetries(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-max-retries");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EQS::SetQueueMaxRetriesRequest>(jv);
+        if (request.ern.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Queue ERN missing");
+        }
+        // The bounds AWS SQS holds maxReceiveCount to. Zero would send every message to the dead
+        // letter queue on its first receive, which is a queue nobody can consume from.
+        if (request.maxRetries < 1 || request.maxRetries > 1000) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "maxRetries must be between 1 and 1000");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
+        }
+
+        log_info << "EQS SetQueueMaxRetries, ern: " << request.ern
+                 << ", maxReceiveCount: " << queue->maxReceiveCount << " -> " << request.maxRetries;
+
+        // A message keeps the receive count it has; it is measured against the new limit on its
+        // next receive. Lowering the limit below a message's count moves it to the dead letter
+        // queue then, not now.
+        queue->maxReceiveCount = request.maxRetries;
+        queue = repo->upsertQueue(queue.value());
+
+        return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                               {"ern", request.ern},
+                                               {"maxRetries", queue->maxReceiveCount}}));
+    }
+
     static response<string_body> handleSetQueueTag(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-tag");
@@ -1588,6 +1628,7 @@ namespace Euclid::EQS {
             SetQueueVisibility,
             SetQueueDelay,
             SetQueueMaxMessageLength,
+            SetQueueMaxRetries,
             StopQueue,
             StartQueue,
             DeleteMessage,
@@ -1618,6 +1659,7 @@ namespace Euclid::EQS {
         if (action == "set-queue-visibility") return Command::SetQueueVisibility;
         if (action == "set-queue-delay") return Command::SetQueueDelay;
         if (action == "set-queue-max-message-length") return Command::SetQueueMaxMessageLength;
+        if (action == "set-queue-max-retries") return Command::SetQueueMaxRetries;
         if (action == "stop-queue") return Command::StopQueue;
         if (action == "start-queue") return Command::StartQueue;
         if (action == "delete-message") return Command::DeleteMessage;
@@ -1690,6 +1732,9 @@ namespace Euclid::EQS {
 
             case Command::SetQueueMaxMessageLength:
                 return handleSetQueueMaxMessageLength(req);
+
+            case Command::SetQueueMaxRetries:
+                return handleSetQueueMaxRetries(req);
 
             case Command::StopQueue:
                 return handleStopQueue(req);
