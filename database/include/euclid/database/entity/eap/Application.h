@@ -296,6 +296,20 @@ namespace Euclid::Database::Entity::EAP {
         long memoryLimitMb = 0;
 
         /**
+         * @brief The most CPU one instance may use, in cores - 1.5 is one and a half; 0 for no
+         * limit.
+         *
+         * @par
+         * Enforced as the instance cgroup's cpu.max, a quota per 100 ms period: over it, the
+         * instance is throttled, never killed - docs/resource-limits.md §4. A throttled instance
+         * takes longer per unit of work, reports higher utilisation, and the autoscaler adds
+         * instances, which is the right answer to an application that needs more CPU than one
+         * instance is allowed. Taken at start, as memoryLimitMb is: a JVM sizes its thread pools
+         * from the processors it sees when it starts.
+         */
+        double cpuLimit = 0.0;
+
+        /**
          * @brief What the application should be doing - see ApplicationState.
          */
         ApplicationState desiredState = ApplicationState::STOPPED;
@@ -530,6 +544,45 @@ namespace Euclid::Database::Entity::EAP {
      * @return the reason to refuse, phrased for whoever is setting it, or empty to go ahead
      */
     std::string LimitRefusal(long memoryLimitMb);
+
+    /**
+     * @brief The smallest CPU limit accepted, in cores: cpu.max's quota cannot go below 1 ms of a
+     * 100 ms period.
+     */
+    constexpr double kMinimumCpuLimit = 0.01;
+
+    /**
+     * @brief Why this CPU limit cannot be set, or empty if it can. 0 removes the limit.
+     */
+    std::string CpuLimitRefusal(double cpuLimit);
+
+    /**
+     * @brief Why the nodes cannot keep the promise a memory limit makes, or empty if they can -
+     * docs/resource-limits.md §8, at deploy.
+     *
+     * @par
+     * A memory limit is a ceiling rather than a reservation, but minInstances of them are a floor
+     * the installation has promised to run. Refused when one instance would not fit on any node,
+     * or when this application's floor, on top of what every other running application's floor
+     * already commits, exceeds what the nodes offer. The scale-up half - one more instance on one
+     * particular node - is placement's, see Manager::Placement::Fits().
+     *
+     * @par
+     * Applications without a limit commit nothing: they are not accounted, which is one more
+     * reason to give them one. Nodes that do not report their memory are left out, and with none
+     * that do, nothing is refused - an older worker is not a reason to stop deploying.
+     *
+     * @param memoryLimitMb this application's limit per instance; 0 is never refused
+     * @param minInstances its floor
+     * @param committedByOthersMb minInstances x memoryLimitMb summed over the account's other
+     * applications desired RUNNING
+     * @param nodeMemoryMb what each node accepting work offers, as it registered
+     * @param overcommitRatio how much more than they offer may be committed -
+     * euclid.modules.eap.memory-overcommit-ratio, 1.0 for none
+     * @return the reason to refuse, phrased for whoever is deploying, or empty to go ahead
+     */
+    std::string AdmissionRefusal(long memoryLimitMb, long minInstances, long committedByOthersMb,
+                                 const std::vector<long> &nodeMemoryMb, double overcommitRatio);
 
     /**
      * @brief Why this application cannot be restarted, or empty if it can.

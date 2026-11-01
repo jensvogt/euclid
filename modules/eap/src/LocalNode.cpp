@@ -23,6 +23,7 @@
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/LogStream.h>
+#include <euclid/core/SystemUtils.h>
 #include <euclid/database/RepositoryFactory.h>
 
 namespace Euclid::EAP::LocalNode {
@@ -199,6 +200,15 @@ namespace Euclid::EAP::LocalNode {
         if (const auto first = configuration.getOr<long>("euclid.modules.eap.local-node.http-port-min", 0); first > 0) {
             worker["http-port-min"] = first;
             worker["http-port-max"] = configuration.getOr<long>("euclid.modules.eap.local-node.http-port-max", first);
+        }
+
+        // What this host keeps back from applications, for admission - docs/resource-limits.md §8.
+        // Far more than a standalone worker's: the local node shares its machine with MongoDB,
+        // every euclid module and whatever else runs there. Half the host unless said otherwise.
+        {
+            long reserveMb = configuration.getOr<long>("euclid.modules.eap.local-node.memory-reserve-mb", -1);
+            if (reserveMb < 0) reserveMb = Core::SystemUtils::ReadSystemMemoryTotalMb().value_or(0) / 2;
+            worker["memory-reserve-mb"] = reserveMb;
         }
 
         // This host's interpreters, as the manager already knows them.

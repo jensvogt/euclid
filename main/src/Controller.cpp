@@ -826,12 +826,42 @@ namespace Euclid::main {
 
     }// namespace
 
+    namespace {
+
+        // The memory limits of every instance assigned to each node - see _committedMemoryMb. By
+        // runtime name, which is what a pool is called and what an application is known by here.
+        std::map<std::string, long> committedMemoryPerNode(const std::vector<Database::Entity::EAP::Application> &applications,
+                                                           const std::vector<Database::Entity::Module> &modules) {
+            std::map<std::string, long> limitOf;
+            for (const auto &application: applications) {
+                if (application.memoryLimitMb > 0) limitOf[Database::Entity::EAP::RuntimeName(application)] = application.memoryLimitMb;
+            }
+            std::map<std::string, long> committed;
+            for (const auto &module: modules) {
+                const auto limit = limitOf.find(module.name);
+                if (limit == limitOf.end()) continue;
+                for (const auto &instance: module.instances) {
+                    if (!instance.assignedTo.empty()) committed[instance.assignedTo] += limit->second;
+                }
+            }
+            return committed;
+        }
+
+        double overcommitRatio() {
+            return Core::Configuration::instance().getOr<double>("euclid.modules.eap.memory-overcommit-ratio", 1.0);
+        }
+
+    }// namespace
+
     void ServiceController::reconcileApplications() {
 
         // Every application in the installation: this host runs them all, whatever account or
         // namespace defines them, and a reconciler that saw only one namespace's would treat every
         // other namespace's running pool as undefined and tear it down.
         const auto applications = Database::RepositoryFactory::instance().eapRepository()->listAllApplications("");
+
+        // What each node has already been promised, before anything in this pass adds to it.
+        _committedMemoryMb = committedMemoryPerNode(applications, Database::RepositoryFactory::instance().emmRepository()->findAll());
 
         std::set<std::string> defined;
 
@@ -1326,7 +1356,9 @@ namespace Euclid::main {
         }
 
         const Manager::Placement::Constraints constraints{.nodes = application.nodes,
-                                                          .labels = application.nodeLabels};
+                                                          .labels = application.nodeLabels,
+                                                          .memoryMb = application.memoryLimitMb,
+                                                          .overcommitRatio = overcommitRatio()};
 
         for (auto slot = have; slot < wanted; ++slot) {
 
@@ -1337,7 +1369,9 @@ namespace Euclid::main {
                                                                    .cpuCount = node.cpuCount,
                                                                    .loadAverage = node.loadAverage,
                                                                    .instancesOfApplication = perNode[node.name],
-                                                                   .acceptsWork = node.acceptsWork(leaseSeconds, now)});
+                                                                   .acceptsWork = node.acceptsWork(leaseSeconds, now),
+                                                                   .memoryMb = node.memoryMb,
+                                                                   .committedMemoryMb = _committedMemoryMb[node.name]});
             }
 
             const auto chosen = Manager::Placement::Choose(candidates, constraints);
@@ -1345,8 +1379,26 @@ namespace Euclid::main {
                 // Said once per pass rather than once per missing slot: an application constrained
                 // to a node that is not up yet would otherwise fill the log at every tick with the
                 // same sentence repeated as many times as the pool is short.
-                log_warning << "No node can take an instance of this application, application: " << runtimeName
-                            << ", have: " << have << ", wanted: " << wanted;
+                //
+                // And said as what it is when the only thing missing is room: a pool that stops
+                // growing because no node has memory left for another instance would otherwise
+                // look like an autoscaler that is broken. docs/resource-limits.md §8.
+                const bool forWantOfMemory = std::ranges::any_of(candidates, [&constraints](const auto &candidate) {
+                    return Manager::Placement::Satisfies(candidate, constraints) && !Manager::Placement::Fits(candidate, constraints);
+                });
+                if (forWantOfMemory) {
+                    std::ostringstream room;
+                    for (const auto &candidate: candidates) {
+                        if (!Manager::Placement::Satisfies(candidate, constraints)) continue;
+                        room << " " << candidate.name << ": " << candidate.committedMemoryMb << "/" << candidate.memoryMb << " MiB";
+                    }
+                    log_warning << "Not adding an instance: no node has " << application.memoryLimitMb
+                                << " MiB left for it, application: " << runtimeName << ", have: " << have << ", wanted: " << wanted
+                                << ", committed/offered:" << room.str();
+                } else {
+                    log_warning << "No node can take an instance of this application, application: " << runtimeName
+                                << ", have: " << have << ", wanted: " << wanted;
+                }
                 return;
             }
 
@@ -1372,6 +1424,7 @@ namespace Euclid::main {
 
             emm->upsertInstance(module, instance);
             ++perNode[*chosen];
+            if (application.memoryLimitMb > 0) _committedMemoryMb[*chosen] += application.memoryLimitMb;
 
             log_info << "Placed an instance of a node application, application: " << runtimeName
                      << ", instance: " << instance.instanceId << ", node: " << *chosen;
@@ -1414,7 +1467,9 @@ namespace Euclid::main {
                                                                .cpuCount = node.cpuCount,
                                                                .loadAverage = node.loadAverage,
                                                                .instancesOfApplication = held[node.name],
-                                                               .acceptsWork = node.acceptsWork(leaseSeconds, now)});
+                                                               .acceptsWork = node.acceptsWork(leaseSeconds, now),
+                                                               .memoryMb = node.memoryMb,
+                                                               .committedMemoryMb = _committedMemoryMb[node.name]});
         }
         // A holder with no node record left - deleted under its slots - is as gone as a dead one.
         for (const auto &[name, count]: held) {
@@ -1423,7 +1478,9 @@ namespace Euclid::main {
         }
 
         const Manager::Placement::Constraints constraints{.nodes = application.nodes,
-                                                          .labels = application.nodeLabels};
+                                                          .labels = application.nodeLabels,
+                                                          .memoryMb = application.memoryLimitMb,
+                                                          .overcommitRatio = overcommitRatio()};
         const auto move = Manager::Placement::ChooseRebalance(candidates, constraints);
         if (!move.has_value()) {
             // Balanced, as far as one move at a time can tell. Nothing more until the next loss.
@@ -1487,6 +1544,9 @@ namespace Euclid::main {
 
         const auto now = std::chrono::system_clock::now();
 
+        // What each node has been promised, as placement counts it - see _committedMemoryMb.
+        auto committedMemory = committedMemoryPerNode(eap->listAllApplications(""), modules);
+
         for (const auto &module: modules) {
             for (const auto &instance: module.instances) {
 
@@ -1515,11 +1575,18 @@ namespace Euclid::main {
                             // case: a lease only expires because the node stopped renewing, and a
                             // node that stopped renewing is not live. If it comes back it will be
                             // live again - and by then it has already stopped the slot itself.
-                            .acceptsWork = node.acceptsWork(leaseSeconds, now)});
+                            .acceptsWork = node.acceptsWork(leaseSeconds, now),
+                            .memoryMb = node.memoryMb,
+                            // Less this slot itself where it is now: re-placed onto the same node,
+                            // it is not an addition.
+                            .committedMemoryMb = committedMemory[node.name]
+                                                 - (node.name == instance.assignedTo ? std::max(0L, application->memoryLimitMb) : 0L)});
                 }
 
                 const Manager::Placement::Constraints constraints{.nodes = application->nodes,
-                                                                  .labels = application->nodeLabels};
+                                                                  .labels = application->nodeLabels,
+                                                                  .memoryMb = application->memoryLimitMb,
+                                                                  .overcommitRatio = overcommitRatio()};
 
                 const auto chosen = Manager::Placement::Choose(candidates, constraints);
                 if (!chosen.has_value()) {
@@ -1546,6 +1613,10 @@ namespace Euclid::main {
 
                 if (emm->assignInstance(module.name, instance.instanceId, *chosen, now + leaseSeconds)) {
                     ++instancesPerNodePerModule[*chosen][module.name];
+                    if (*chosen != instance.assignedTo && application->memoryLimitMb > 0) {
+                        committedMemory[*chosen] += application->memoryLimitMb;
+                        committedMemory[instance.assignedTo] -= application->memoryLimitMb;
+                    }
                 }
             }
         }

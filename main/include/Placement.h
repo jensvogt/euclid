@@ -95,6 +95,18 @@ namespace Euclid::Manager {
              * below assertable without one.
              */
             bool acceptsWork{};
+
+            /**
+             * @brief What the node offers applications, in MiB, as it registered - 0 when it did
+             * not say, which Fits() treats as room for anything.
+             */
+            long memoryMb{};
+
+            /**
+             * @brief The memory limits of the instances already assigned to it, every
+             * application's, in MiB. Unlimited instances count nothing.
+             */
+            long committedMemoryMb{};
         };
 
         /**
@@ -116,7 +128,37 @@ namespace Euclid::Manager {
              * @brief Labels a node must carry, all of them, with these values.
              */
             std::map<std::string, std::string> labels;
+
+            /**
+             * @brief The memory limit of one instance, in MiB; 0 for an application without one,
+             * which fits anywhere. docs/resource-limits.md §8, at scale-up.
+             */
+            long memoryMb{};
+
+            /**
+             * @brief How much more than it offers a node may be committed -
+             * euclid.modules.eap.memory-overcommit-ratio.
+             */
+            double overcommitRatio{1.0};
         };
+
+        /**
+         * @brief Whether one more instance of this size fits on a node, on top of what is already
+         * committed there.
+         *
+         * @par
+         * Kept apart from Satisfies() on purpose. Satisfies() is also what decides that an instance
+         * already on a node must leave it - ChooseRebalance() - and an instance counts itself in
+         * its own node's committed memory, so asking "would it fit there again" of it would move
+         * every instance off a full node. Fits() is only ever asked of a node an instance would be
+         * added to.
+         */
+        [[nodiscard]] inline bool Fits(const Candidate &candidate, const Constraints &constraints) {
+            if (constraints.memoryMb <= 0 || candidate.memoryMb <= 0) return true;
+            const double ratio = constraints.overcommitRatio > 0.0 ? constraints.overcommitRatio : 1.0;
+            return static_cast<double>(candidate.committedMemoryMb + constraints.memoryMb)
+                   <= static_cast<double>(candidate.memoryMb) * ratio;
+        }
 
         /**
          * @brief Whether one node satisfies an application's constraints.
@@ -186,7 +228,7 @@ namespace Euclid::Manager {
             const Candidate *best = nullptr;
             for (const auto &candidate: candidates) {
 
-                if (!Satisfies(candidate, constraints)) continue;
+                if (!Satisfies(candidate, constraints) || !Fits(candidate, constraints)) continue;
                 if (best == nullptr) {
                     best = &candidate;
                     continue;

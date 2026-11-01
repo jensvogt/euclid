@@ -312,8 +312,18 @@ also
 (everything charged to the instance, page cache included),
 .I application-memory-peak-mb
 (the most it has held since it started \(em the figure to size a memory
-limit from) and
-.IR application-oom-kills .
+limit from),
+.IR application-oom-kills ,
+.I application-tasks
+and
+.IR application-tasks-limit-hits ;
+under a limit,
+.IR application-memory-limit-mb ,
+.I application-cpu-limit-cores
+and
+.IR application-cpu-throttled-percent .
+On Linux, cgroups or not,
+.IR application-open-files .
 And, delegated or not, the worker's whole cgroup as
 .IR node-applications-memory-mb ,
 .IR node-applications-memory-peak-mb ,
@@ -370,6 +380,42 @@ their own, and not where
 or
 .I _JAVA_OPTIONS
 already size the heap. Logged at info each time it is added.
+.TP
+.I euclid.worker.memory-reserve-mb
+How much of this host's memory is kept back from applications, in MiB.
+The rest \- or the unit's
+.I MemoryMax=
+when that is lower \- is what the node registers as offering, and what
+the master's admission measures memory limits against. Default 1024. The
+local node's generated configuration sets it from
+.IR euclid.modules.eap.local-node.memory-reserve-mb ,
+half the host unless set: that node shares its machine with MongoDB and
+every euclid module.
+.TP
+.I euclid.worker.max-tasks
+The most tasks \(em processes and threads together \(em one application
+instance may have, as its cgroup's
+.IR pids.max .
+Default 8192; 0 for none. A thread leak then ends with that instance
+refused new threads (a JVM reports
+.IR "OutOfMemoryError: unable to create native thread" )
+rather than a node that cannot fork at all; the refusals are counted in
+.I application-tasks-limit-hits
+and named in the log line when the instance exits. A cgroup limit rather
+than
+.IR RLIMIT_NPROC ,
+which counts every process of the user, and every instance runs as the
+same one. Needs the instance cgroups of
+.IR euclid.worker.cgroups-active .
+.TP
+.I euclid.worker.max-open-files
+The open-file limit each application instance starts with,
+.I RLIMIT_NOFILE
+soft and hard alike, so the application cannot raise it. Default 65536;
+0 leaves the limit the worker inherited. Never above the worker's own
+hard limit. Each instance's count is reported as
+.IR application-open-files .
+Works without cgroups.
 .TP
 .I euclid.worker.oom-kill-limit
 How many OOM kills in a row an instance may have before this node stops

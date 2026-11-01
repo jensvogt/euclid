@@ -426,6 +426,13 @@ namespace Euclid::Worker {
             int pid{-1};
             unsigned long long processTime{};
             Core::SystemUtils::CpuTimes systemTimes{};
+
+            /**
+             * @brief The cgroup's cpu.stat period counters at the same reading, for the share of
+             * periods throttled since - -1 until there is one.
+             */
+            long long cpuPeriods{-1};
+            long long cpuThrottledPeriods{-1};
         };
 
         /**

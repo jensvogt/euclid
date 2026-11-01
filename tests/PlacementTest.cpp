@@ -531,3 +531,56 @@ BOOST_AUTO_TEST_CASE(AShrinkingPoolStopsOnlyAnInstanceWithNothingInHand) {
     const std::vector<Slot> unheld{{.instanceId = "x", .node = "", .inHand = 0}};
     BOOST_TEST(!ChooseSlotToStop(unheld, std::nullopt).has_value());
 }
+
+// ── Memory - docs/resource-limits.md §8, at scale-up ────────────────────────
+
+namespace {
+
+    Candidate withMemory(const std::string &name, const long offered, const long committed, const long instances = 0) {
+        auto candidate = node(name, instances);
+        candidate.memoryMb = offered;
+        candidate.committedMemoryMb = committed;
+        return candidate;
+    }
+
+}// namespace
+
+BOOST_AUTO_TEST_CASE(AnInstanceGoesWhereItFits) {
+
+    using Euclid::Manager::Placement::Constraints;
+    const Constraints twoGig{.memoryMb = 2048};
+
+    // node-a would win on spread, but has 1 GiB left.
+    const std::vector candidates{withMemory("node-a", 8192, 7168, 0), withMemory("node-b", 8192, 4096, 3)};
+    BOOST_TEST(Choose(candidates, twoGig).value_or("") == "node-b");
+
+    // Exactly full is full enough.
+    BOOST_TEST(Choose({withMemory("node-a", 8192, 6144)}, twoGig).value_or("") == "node-a");
+}
+
+BOOST_AUTO_TEST_CASE(NoRoomAnywhereIsNoPlacement) {
+
+    using Euclid::Manager::Placement::Constraints;
+    using Euclid::Manager::Placement::Fits;
+    const Constraints twoGig{.memoryMb = 2048};
+    const std::vector candidates{withMemory("node-a", 8192, 7168), withMemory("node-b", 4096, 3000)};
+
+    // Declined rather than spawned to be OOM-killed - the caller says why.
+    BOOST_TEST(!Choose(candidates, twoGig).has_value());
+    BOOST_TEST(!Fits(candidates.front(), twoGig));
+
+    // Overcommitted on purpose, it goes.
+    const Constraints overcommitted{.memoryMb = 2048, .overcommitRatio = 1.5};
+    BOOST_TEST(Choose(candidates, overcommitted).value_or("") == "node-a");
+}
+
+BOOST_AUTO_TEST_CASE(UnknownSizesAreNotRefused) {
+
+    using Euclid::Manager::Placement::Constraints;
+    using Euclid::Manager::Placement::Fits;
+
+    // An application without a limit fits anywhere; so does anything on a node too old to say
+    // what it has.
+    BOOST_TEST(Fits(withMemory("node-a", 1024, 1024), Constraints{}));
+    BOOST_TEST(Fits(withMemory("node-a", 0, 0), Constraints{.memoryMb = 4096}));
+}

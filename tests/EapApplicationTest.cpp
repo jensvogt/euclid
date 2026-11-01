@@ -25,6 +25,8 @@ using Euclid::Database::Entity::EAP::IsJob;
 using Euclid::Database::Entity::EAP::RedeployRefusal;
 using Euclid::Database::Entity::EAP::ScaleRefusal;
 using Euclid::Database::Entity::EAP::LimitRefusal;
+using Euclid::Database::Entity::EAP::CpuLimitRefusal;
+using Euclid::Database::Entity::EAP::AdmissionRefusal;
 using Euclid::Database::Entity::EAP::RestartRefusal;
 using Euclid::Database::Entity::EAP::Runtime;
 using Euclid::Database::Entity::EAP::RuntimeCommandPrefix;
@@ -67,6 +69,7 @@ namespace {
         application.maxInstances = 8;
         application.readyTimeoutMs = 45000;
         application.memoryLimitMb = 1536;
+        application.cpuLimit = 1.5;
         application.desiredState = ApplicationState::RUNNING;
         application.logLevel = "warning";
         return application;
@@ -98,6 +101,7 @@ BOOST_AUTO_TEST_CASE(ApplicationSurvivesABsonRoundTrip) {
     BOOST_TEST(restored.maxInstances == 8);
     BOOST_TEST(restored.readyTimeoutMs == 45000);
     BOOST_TEST(restored.memoryLimitMb == 1536);
+    BOOST_TEST(restored.cpuLimit == 1.5);
     BOOST_TEST((restored.desiredState == ApplicationState::RUNNING));
 
     BOOST_TEST_REQUIRE(restored.arguments.size() == 2U);
@@ -779,4 +783,35 @@ BOOST_AUTO_TEST_CASE(MemoryLimitRefusals) {
 BOOST_AUTO_TEST_CASE(OldDefinitionsHaveNoMemoryLimit) {
     Application application;
     BOOST_TEST(application.memoryLimitMb == 0);
+}
+
+BOOST_AUTO_TEST_CASE(CpuLimitRefusals) {
+    BOOST_TEST(CpuLimitRefusal(0.0).empty());
+    BOOST_TEST(CpuLimitRefusal(0.01).empty());
+    BOOST_TEST(CpuLimitRefusal(1.5).empty());
+    BOOST_TEST(!CpuLimitRefusal(-1.0).empty());
+    BOOST_TEST(!CpuLimitRefusal(0.001).empty());
+}
+
+// docs/resource-limits.md §8, at deploy: a floor of instances the nodes cannot hold is refused.
+BOOST_AUTO_TEST_CASE(AdmissionAtDeploy) {
+
+    const std::vector<long> nodes{8192, 4096};
+
+    // Fits: 2 x 2 GiB on top of 4 GiB, against 12 GiB.
+    BOOST_TEST(AdmissionRefusal(2048, 2, 4096, nodes, 1.0).empty());
+    // Exactly full.
+    BOOST_TEST(AdmissionRefusal(2048, 4, 4096, nodes, 1.0).empty());
+    // One more is too many - unless the installation overcommits on purpose.
+    BOOST_TEST(!AdmissionRefusal(2048, 5, 4096, nodes, 1.0).empty());
+    BOOST_TEST(AdmissionRefusal(2048, 5, 4096, nodes, 1.5).empty());
+
+    // One instance bigger than any node can never be placed, whatever the ratio.
+    BOOST_TEST(!AdmissionRefusal(10000, 1, 0, nodes, 1.0).empty());
+    BOOST_TEST(!AdmissionRefusal(10000, 1, 0, nodes, 4.0).empty());
+
+    // No limit commits nothing; nodes that do not report their memory are not a reason to refuse.
+    BOOST_TEST(AdmissionRefusal(0, 100, 999999, nodes, 1.0).empty());
+    BOOST_TEST(AdmissionRefusal(2048, 100, 0, {}, 1.0).empty());
+    BOOST_TEST(AdmissionRefusal(2048, 100, 0, {0, 0}, 1.0).empty());
 }

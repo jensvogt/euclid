@@ -131,6 +131,12 @@ namespace Euclid::Worker {
              * started on the slot, not the running one.
              */
             long memoryLimitMb{};
+
+            /**
+             * @brief The most CPU the instance may use, in cores; 0 for no limit. Made its
+             * cgroup's cpu.max when it starts, like memoryLimitMb.
+             */
+            double cpuLimit{};
         };
 
         /**

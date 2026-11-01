@@ -110,6 +110,26 @@ BOOST_AUTO_TEST_SUITE(Parsing)
         BOOST_CHECK(!Cgroup::HasController("", "memory"));
     }
 
+    BOOST_AUTO_TEST_CASE(CpuMaxReadsAsCores) {
+        BOOST_CHECK_CLOSE(Cgroup::ParseCpuMax("150000 100000\n").value_or(-9), 1.5, 1e-9);
+        BOOST_CHECK_CLOSE(Cgroup::ParseCpuMax("50000 100000").value_or(-9), 0.5, 1e-9);
+        BOOST_CHECK_EQUAL(Cgroup::ParseCpuMax("max 100000\n").value_or(-9), -1.0);
+        BOOST_CHECK(!Cgroup::ParseCpuMax("").has_value());
+        BOOST_CHECK(!Cgroup::ParseCpuMax("150000").has_value());
+        BOOST_CHECK(!Cgroup::ParseCpuMax("150000 0").has_value());
+    }
+
+    BOOST_AUTO_TEST_CASE(ThrottlingIsAShareOfPeriods) {
+        // 50 of the 200 periods since the last reading ran out of quota.
+        BOOST_CHECK_CLOSE(Cgroup::ThrottledPercent(1000, 100, 1200, 150).value_or(-9), 25.0, 1e-9);
+        BOOST_CHECK_CLOSE(Cgroup::ThrottledPercent(1000, 100, 1200, 100).value_or(-9), 0.0, 1e-9);
+        // No period passed - an idle instance - is no reading, not zero and not a division by it.
+        BOOST_CHECK(!Cgroup::ThrottledPercent(1000, 100, 1000, 100).has_value());
+        // Counters that went backwards belong to another process.
+        BOOST_CHECK(!Cgroup::ThrottledPercent(1000, 100, 10, 1).has_value());
+        BOOST_CHECK(!Cgroup::ThrottledPercent(-1, -1, 10, 1).has_value());
+    }
+
     BOOST_AUTO_TEST_CASE(MemoryHighSitsBelowTheCeiling) {
         constexpr long long gib = 1024LL * 1024 * 1024;
         const auto high = Cgroup::MemoryHighFor(gib, 90);
@@ -290,6 +310,39 @@ BOOST_AUTO_TEST_SUITE(Tree)
         BOOST_CHECK(!std::filesystem::exists(*group / "memory.high"));
         BOOST_CHECK(!std::filesystem::exists(*group / "memory.swap.max"));
         BOOST_CHECK(Cgroup::ApplyMemoryLimit(*group, 0, 90).has_value());
+    }
+
+    BOOST_AUTO_TEST_CASE(CpuLimitIsAQuotaPerPeriod) {
+        TempDir temp;
+        delegatedUnit(temp.path);
+        const auto tree = Cgroup::Tree::Setup(temp.path, "system.slice/euclid-wrk.service");
+        const auto group = tree.CreateInstance("parser", "one");
+        BOOST_REQUIRE(group);
+        BOOST_CHECK(!Cgroup::ApplyCpuLimit(*group, 1.5).has_value());
+        BOOST_CHECK_EQUAL(read(*group / "cpu.max"), "150000 100000");
+        BOOST_CHECK_CLOSE(Cgroup::ReadUsage(*group)->cpuLimit, 1.5, 1e-9);
+        // The kernel's floor, 1 ms in 100.
+        BOOST_CHECK(!Cgroup::ApplyCpuLimit(*group, 0.001).has_value());
+        BOOST_CHECK_EQUAL(read(*group / "cpu.max"), "1000 100000");
+        BOOST_CHECK(Cgroup::ApplyCpuLimit(*group, 0.0).has_value());
+    }
+
+    BOOST_AUTO_TEST_CASE(TaskLimitIsPidsMax) {
+        TempDir temp;
+        delegatedUnit(temp.path);
+        const auto tree = Cgroup::Tree::Setup(temp.path, "system.slice/euclid-wrk.service");
+        const auto group = tree.CreateInstance("parser", "one");
+        BOOST_REQUIRE(group);
+        BOOST_CHECK(!Cgroup::ApplyTaskLimit(*group, 4096).has_value());
+        BOOST_CHECK_EQUAL(read(*group / "pids.max"), "4096");
+        BOOST_CHECK(Cgroup::ApplyTaskLimit(*group, 0).has_value());
+
+        write(*group / "pids.current", "175\n");
+        write(*group / "pids.events", "max 3\n");
+        const auto usage = Cgroup::ReadUsage(*group);
+        BOOST_CHECK_EQUAL(usage->tasks, 175);
+        BOOST_CHECK_EQUAL(usage->tasksMax, 4096);
+        BOOST_CHECK_EQUAL(usage->tasksLimitHits, 3);
     }
 
     BOOST_AUTO_TEST_CASE(ChildJoinsThroughTheOpenedFile) {

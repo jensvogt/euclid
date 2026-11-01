@@ -1,15 +1,15 @@
 .TH EUCLID-CLI-EAP-SET-APPLICATION-LIMITS 1 "November 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
 .SH NAME
-euclid-cli-eap-set-application-limits \- set how much memory each of an application's instances may use
+euclid-cli-eap-set-application-limits \- set how much memory and CPU each of an application's instances may use
 .SH SYNOPSIS
 .B euclid-cli eap set-application-limits
 .BR \-\-application\-id | \-n
 .I NAME
-.BR \-\-memory\-limit | \-m
-.I SIZE
+[\fB\-\-memory\-limit\fR|\fB\-m\fR \fISIZE\fR]
+[\fB\-\-cpu\-limit\fR|\fB\-c\fR \fICORES\fR]
 .SH DESCRIPTION
-Sets the most memory one instance of an application may use, without
-restarting anything.
+Sets the most memory and the most CPU one instance of an application may
+use, without restarting anything. A limit not named is left as it is.
 .PP
 The limit is per instance, not per application: an application may use up
 to its maximum instance count times this, which is a number that can be
@@ -39,6 +39,49 @@ and in the application's state. After three of those in a row the worker
 stops restarting the instance, because a fourth start under the same limit
 will end the same way; it tries again once the limit or the application
 changes.
+.SS CPU
+The CPU limit becomes the instance cgroup's
+.IR cpu.max :
+a quota per 100 ms period, so 1.5 cores is 150 ms of CPU in every 100 ms.
+Over it an instance is throttled until the next period \- slowed, never
+killed. A throttled instance reports higher utilisation and the
+autoscaler adds instances, which is the right answer to an application
+that needs more CPU than one instance is allowed. How often it happens is
+in
+.IR application\-cpu\-throttled\-percent ,
+the share of periods in which an instance ran out of its quota.
+.SS Admission
+A memory limit is checked against what the nodes offer before it is
+stored. Refused with HTTP 409 when one instance would be larger than any
+node offers applications, or when the application's minimum instance
+count times the limit, on top of what every other running application in
+the account has committed the same way, is more than the nodes offer. The
+same check is made by
+.BR create-application ,
+.BR update-application ,
+.B scale-application
+(when the floor rises) and
+.BR start-application .
+.PP
+What a node offers is its memory less what it keeps back for everything
+else on the host \- see
+.I euclid.worker.memory\-reserve\-mb
+in
+.BR euclid-wrk (8);
+the local node keeps half the host unless
+.I euclid.modules.eap.local\-node.memory\-reserve\-mb
+says otherwise.
+.I euclid.modules.eap.memory\-overcommit\-ratio
+(default 1.0) lets the limits add up to more than that, deliberately: a
+limit is a ceiling, not a reservation. Applications without a memory
+limit commit nothing and are never refused.
+.PP
+The same rule holds at scale-up: an instance the autoscaler wants is
+placed only on a node with room left for its limit. When none has, the
+pool stops growing and the manager logs
+.I "Not adding an instance: no node has ... MiB left for it"
+with each node's committed and offered memory, rather than starting an
+instance to be killed.
 .SS When it takes effect
 Instances started from now on \- a new one, a replacement, a restart \- get
 the new limit. Running instances keep the one they started under until
@@ -102,10 +145,13 @@ A number of MiB, or a number with
 or
 .B G
 after it \- 512M, 2G, 1.5G. 0 removes the limit.
+.TP
+.BR \-\-cpu\-limit ", " \-c " " \fICORES\fR
+In cores: 1.5, 0.25, 4. 0 removes the limit.
 .SH EXIT STATUS
-Non-zero if the application does not exist, if the size cannot be read, or
-if it is below 64 MiB and not 0 \- too little for any instance to start, so
-a typo rather than a setting.
+Non-zero if the application does not exist, if neither limit is given, if
+the size cannot be read, if a memory limit is below 64 MiB or a CPU limit
+below 0.01 cores and not 0, or if admission refuses the memory limit.
 .SH EXAMPLES
 Hold each instance of an importer to 2 GiB:
 .RS
@@ -115,7 +161,14 @@ euclid-cli eap restart-application --application-id parsing
 .fi
 .RE
 .PP
-Remove the limit again:
+Hold each instance to one and a half cores:
+.RS
+.nf
+euclid-cli eap set-application-limits --application-id transformation --cpu-limit 1.5
+.fi
+.RE
+.PP
+Remove the memory limit again:
 .RS
 .nf
 euclid-cli eap set-application-limits --application-id parsing --memory-limit 0
