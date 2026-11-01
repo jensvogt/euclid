@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.19](https://github.com/jensvogt/euclid/compare/v2.1.18...v2.1.19) (2026-11-01)
+
+
+### Bug Fixes
+
+* EAP restrict memory / CPU usage by introducing cgroups ([54557c4](https://github.com/jensvogt/euclid/commit/54557c4d5ddbf18f8c96c90d5435513f7d41b884))
+
 ## [2.1.18](https://github.com/jensvogt/euclid/compare/2.1.17...v2.1.18) (2026-11-01)
 
 
