@@ -31,6 +31,14 @@ ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/var/lib/euclid-wrk
 
+# The unit's cgroup subtree, handed to euclid-wrk so that every application instance gets a cgroup
+# of its own - its memory, its peak and the OOM killer's visits measured per instance, and later
+# its limits (docs/resource-limits.md). This is the only privileged part of that, and it grants
+# nothing outside this unit's own subtree: no root, no capability, no change to
+# NoNewPrivileges or ProtectSystem. Without it the worker runs every instance as before and says
+# once, at start-up, that it could not make their groups.
+Delegate=memory cpu pids
+
 # The endpoint, the node name, the labels, the address and the data directory belong in the
 # configuration file rather than here, so that changing where this worker reports to is not an edit
 # to a unit file that the next package upgrade would overwrite.

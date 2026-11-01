@@ -1069,3 +1069,14 @@ set_target_properties(${CRON_RELEASE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF
 target_link_libraries(${CRON_RELEASE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${CRON_RELEASE_BINARY} COMMAND ${CRON_RELEASE_BINARY})
+
+# The per-instance cgroups of docs/resource-limits.md - Core::Cgroup, in core because euclid-wrk
+# makes them and does not link eucliddb. The tree is exercised against a temporary directory.
+set(CGROUP_BINARY euclid-cgroup-tests)
+
+add_executable(${CGROUP_BINARY} CgroupTest.cpp)
+set_target_properties(${CGROUP_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${CGROUP_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${CGROUP_BINARY} COMMAND ${CGROUP_BINARY})

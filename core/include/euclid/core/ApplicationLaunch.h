@@ -109,14 +109,59 @@ namespace Euclid::Core {
          *     then the artifact;
          *   - BINARY and anything unknown is the artifact itself.
          *
-         * The application's arguments follow in every case.
+         * The application's arguments follow in every case - after the artifact, so for a jar
+         * they are the application's own and never reach the JVM. Options for the interpreter
+         * itself go in @p interpreterOptions, between it and its leading arguments:
+         * `java -XX:MaxRAMPercentage=75 -jar app.jar --profile x`. Ignored when the application
+         * names its own command, whose argument order is its own business.
          *
          * @return the command line; never empty.
          */
         [[nodiscard]] std::vector<std::string> CommandLine(const std::string &runtime, const std::string &command,
                                                            const std::string &artifact,
                                                            const std::vector<std::string> &arguments,
-                                                           const Interpreter &interpreter);
+                                                           const Interpreter &interpreter,
+                                                           const std::vector<std::string> &interpreterOptions = {});
+
+        /**
+         * @brief Whether a runtime is started by a JVM: JAVA, JAVA21, JAVA25.
+         */
+        [[nodiscard]] bool IsJavaRuntime(const std::string &runtime);
+
+        /**
+         * @brief Whether a list of JVM options already says how large the heap may be: -Xmx,
+         * -XX:MaxHeapSize, -XX:MaxRAMPercentage, -XX:MaxRAM or -XX:MaxRAMFraction.
+         */
+        [[nodiscard]] bool NamesHeapSize(const std::vector<std::string> &options);
+
+        /**
+         * @brief The heap flag to start a JVM with under a memory limit - docs/resource-limits.md §6.
+         *
+         * @par Why
+         * A JVM in a cgroup with memory.max sizes its heap from the limit rather than from the
+         * host - but to MaxRAMPercentage of it, which defaults to 25. Under a 2 GiB limit that is a
+         * 512 MiB heap, and an application that ran fine unlimited dies of OutOfMemoryError with
+         * three quarters of its allowance untouched: the limit made it fail in a way it never did.
+         *
+         * @par When not
+         * Nothing is added - and the caller says so - when:
+         *   - the runtime is not a JVM, or the application names its own command;
+         *   - no limit is enforced on this instance. This matters most: without a limit the JVM reads
+         *     the whole host, and 75% of a host is far worse than 25%;
+         *   - the deployment already sizes the heap, in JAVA_TOOL_OPTIONS, JDK_JAVA_OPTIONS or
+         *     _JAVA_OPTIONS - what the deployment says explicitly wins;
+         *   - @p percent is outside 1..100, which switches this off.
+         *
+         * @param runtime the runtime's name ("JAVA25", ...)
+         * @param command the application's own command, if it names one
+         * @param environment the instance's environment, where JVM options may already be set
+         * @param memoryLimitMb the limit enforced on the instance, or 0 when none is
+         * @param percent the MaxRAMPercentage to give it
+         * @return the option to add, or empty
+         */
+        [[nodiscard]] std::optional<std::string> JavaHeapOption(const std::string &runtime, const std::string &command,
+                                                                const std::map<std::string, std::string> &environment,
+                                                                long memoryLimitMb, long percent);
 
         /**
          * @brief One runtime this host is configured for but could not actually start.

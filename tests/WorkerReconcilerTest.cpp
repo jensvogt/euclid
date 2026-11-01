@@ -167,6 +167,33 @@ BOOST_AUTO_TEST_CASE(AHoldOffOnOneSlotDoesNotHoldBackAnother) {
     BOOST_TEST(plan.start.front().instanceId == "i-2");
 }
 
+// docs/resource-limits.md §5: three OOM kills in a row and the slot is not started a fourth time,
+// until something that could make a difference changes.
+BOOST_AUTO_TEST_CASE(RepeatedOomKillsStopTheRestarts) {
+
+    using Euclid::Worker::Reconciler::GiveUpAfterOomKills;
+    using Euclid::Worker::Reconciler::OomHoldReleased;
+
+    BOOST_TEST(!GiveUpAfterOomKills(1, 3));
+    BOOST_TEST(!GiveUpAfterOomKills(2, 3));
+    BOOST_TEST(GiveUpAfterOomKills(3, 3));
+    BOOST_TEST(GiveUpAfterOomKills(4, 3));
+    // 0 switches it off.
+    BOOST_TEST(!GiveUpAfterOomKills(100, 0));
+
+    Euclid::Worker::Reconciler::Assignment assignment;
+    assignment.revision = "2026-11-01T10:00:00Z";
+    assignment.memoryLimitMb = 1024;
+    BOOST_TEST(!OomHoldReleased("2026-11-01T10:00:00Z", 1024, assignment));
+
+    // A higher limit, or a restart/redeploy, is worth another try.
+    assignment.memoryLimitMb = 2048;
+    BOOST_TEST(OomHoldReleased("2026-11-01T10:00:00Z", 1024, assignment));
+    assignment.memoryLimitMb = 1024;
+    assignment.revision = "2026-11-01T11:00:00Z";
+    BOOST_TEST(OomHoldReleased("2026-11-01T10:00:00Z", 1024, assignment));
+}
+
 BOOST_AUTO_TEST_CASE(TheRestartDelayDoublesUpToThirtySeconds) {
 
     using Euclid::Worker::Reconciler::RestartDelay;

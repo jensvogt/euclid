@@ -9,6 +9,10 @@
       "application-monitoring-active": true,
       "http-port-min": 9000,
       "http-port-max": 9999,
+      "cgroups-active": true,
+      "memory-high-percent": 90,
+      "oom-kill-limit": 3,
+      "java-max-ram-percent": 75,
       "runtimes": {
         "java": "java",
         "java21": "/usr/lib/jvm/java-21-openjdk-amd64/bin/java",

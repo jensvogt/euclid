@@ -21,6 +21,7 @@ euclid-cli-eap-create-application \- define an application from an artifact in a
 [\fB\-\-node\-labels\fR \fILIST\fR]
 [\fB\-\-min\-instances\fR \fIN\fR]
 [\fB\-\-max\-instances\fR \fIN\fR]
+[\fB\-\-memory\-limit\fR \fISIZE\fR]
 [\fB\-\-ready\-timeout\fR \fIMS\fR]
 .SH DESCRIPTION
 Defines a new application from an artifact already stored in an
@@ -150,6 +151,18 @@ Smallest number of instances the autoscaler keeps running. Defaults to
 .B \-\-max\-instances " " \fIN\fR
 Largest number of instances the autoscaler may scale out to. Defaults to
 1, which pins the application to a single process.
+.TP
+.B \-\-memory\-limit " " \fISIZE\fR
+The most memory one instance may use: a number of MiB, or a number with
+.B M
+or
+.B G
+after it \- 512M, 2G. 0, the default, is no limit. Per instance, so the
+application as a whole may use up to
+.B \-\-max\-instances
+times this. See
+.BR euclid-cli-eap-set-application-limits (1)
+for what is enforced, where, and how an instance killed for it shows.
 .TP
 .B \-\-ready\-timeout " " \fIMS\fR
 Recorded on the definition, and no longer used to decide anything.

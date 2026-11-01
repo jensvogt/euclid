@@ -131,7 +131,8 @@ namespace Euclid::Core::Launch {
     }
 
     std::vector<std::string> CommandLine(const std::string &runtime, const std::string &command, const std::string &artifact,
-                                         const std::vector<std::string> &arguments, const Interpreter &interpreter) {
+                                         const std::vector<std::string> &arguments, const Interpreter &interpreter,
+                                         const std::vector<std::string> &interpreterOptions) {
 
         std::vector<std::string> line;
 
@@ -139,6 +140,9 @@ namespace Euclid::Core::Launch {
             line = {command, artifact};
         } else if (auto prefix = InterpreterPrefix(runtime); !prefix.empty()) {
             if (interpreter) prefix.front() = interpreter(RuntimeKey(runtime), prefix.front());
+            // Right after the interpreter and before "-jar": everything after the jar is the
+            // application's, and a JVM option there would be handed to main() instead.
+            prefix.insert(prefix.begin() + 1, interpreterOptions.begin(), interpreterOptions.end());
             line = std::move(prefix);
             line.push_back(artifact);
         } else {
@@ -147,6 +151,40 @@ namespace Euclid::Core::Launch {
 
         line.insert(line.end(), arguments.begin(), arguments.end());
         return line;
+    }
+
+    bool IsJavaRuntime(const std::string &runtime) {
+        return runtime == "JAVA" || runtime == "JAVA21" || runtime == "JAVA25";
+    }
+
+    bool NamesHeapSize(const std::vector<std::string> &options) {
+        return std::ranges::any_of(options, [](const std::string &option) {
+            return option.starts_with("-Xmx") || option.starts_with("-XX:MaxHeapSize=") || option.starts_with("-XX:MaxRAMPercentage=")
+                   || option.starts_with("-XX:MaxRAM=") || option.starts_with("-XX:MaxRAMFraction=");
+        });
+    }
+
+    std::optional<std::string> JavaHeapOption(const std::string &runtime, const std::string &command,
+                                              const std::map<std::string, std::string> &environment,
+                                              const long memoryLimitMb, const long percent) {
+
+        if (!IsJavaRuntime(runtime) || !command.empty() || memoryLimitMb <= 0 || percent <= 0 || percent > 100) return std::nullopt;
+
+        // The three variables a JVM reads options from, in the instance's environment first and
+        // this process's otherwise - the instance inherits what it is not given.
+        for (const auto *name: {"JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"}) {
+            std::string value;
+            if (const auto set = environment.find(name); set != environment.end()) {
+                value = set->second;
+            } else if (const char *inherited = std::getenv(name); inherited != nullptr) {
+                value = inherited;
+            }
+            std::vector<std::string> options;
+            std::istringstream words(value);
+            for (std::string word; words >> word;) options.push_back(word);
+            if (NamesHeapSize(options)) return std::nullopt;
+        }
+        return "-XX:MaxRAMPercentage=" + std::to_string(percent);
     }
 
     bool ArtifactIsCurrent(const std::filesystem::path &path, const std::string &md5Sum, const long size) {

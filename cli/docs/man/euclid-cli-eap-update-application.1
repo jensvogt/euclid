@@ -16,6 +16,7 @@ euclid-cli-eap-update-application \- change an application's definition
 [\fB\-\-node\-labels\fR \fILIST\fR]
 [\fB\-\-min\-instances\fR \fIN\fR]
 [\fB\-\-max\-instances\fR \fIN\fR]
+[\fB\-\-memory\-limit\fR \fISIZE\fR]
 [\fB\-\-ready\-timeout\fR \fIMS\fR]
 [\fB\-\-user\fR|\fB\-u\fR \fIUSERID\fR]
 .SH DESCRIPTION
@@ -119,6 +120,15 @@ Smallest number of instances the autoscaler keeps running.
 .TP
 .B \-\-max\-instances " " \fIN\fR
 Largest number of instances the autoscaler may scale out to.
+.TP
+.B \-\-memory\-limit " " \fISIZE\fR
+The most memory one instance may use, as for
+.BR euclid-cli-eap-create-application (1).
+Through this command the change restarts the application, like any other
+change to its definition, which is how running instances \- whose JVM sized
+its heap from the old limit \- get the new one.
+.BR euclid-cli-eap-set-application-limits (1)
+changes it without a restart.
 .TP
 .B \-\-ready\-timeout " " \fIMS\fR
 Recorded on the definition, and no longer used to decide anything - see

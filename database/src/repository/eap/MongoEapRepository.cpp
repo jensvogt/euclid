@@ -254,6 +254,24 @@ namespace Euclid::Database {
         return false;
     }
 
+    bool MongoEapRepository::setApplicationLimits(const std::string &accountId, const std::string &nameSpace,
+                                                  const std::string &applicationId, const long memoryLimitMb) {
+        try {
+            const auto collection = Database::instance().collection(COLLECTION);
+
+            // By hand, not through upsertApplication(), for the reason setApplicationInstances()
+            // gives: a stamped "modified" is a revision, and a revision restarts the pool.
+            const auto result = collection.update_one(
+                    applicationFilter(accountId, nameSpace, applicationId).view(),
+                    make_document(kvp("$set", make_document(kvp("memoryLimitMb", static_cast<std::int64_t>(memoryLimitMb))))).view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set application limits failed, applicationId: " << applicationId << ", error: " << e.what();
+        }
+        return false;
+    }
+
     bool MongoEapRepository::setApplicationInfrastructure(const std::string &accountId, const std::string &nameSpace,
                                                           const std::string &applicationId,
                                                           const std::vector<std::string> &infrastructure) {

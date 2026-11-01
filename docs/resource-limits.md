@@ -1,6 +1,17 @@
 # Resource limits per application
 
-**Status:** proposal. Nothing built. Written 2026-09-24.
+**Status:** steps 1, 2, 4 and 5 of §12 built (2026-11-01): per-instance cgroups, their figures, the
+memory limit with `OOM_KILLED`, and the JVM heap flag. CPU limits (3), admission (6) and rlimits (7) not yet. Written 2026-09-24.
+
+> **Since this was written, applications moved.** They are no longer forked by the manager but by
+> `euclid-wrk` ([worker-nodes.md](worker-nodes.md)) - on the manager's host too, as the local node -
+> so everything below that says `euclid.service`, `Controller.cpp` or "the manager" now means
+> `euclid-wrk.service` and `worker/src/WorkerClient.cpp`. The tree is made by `Core::Cgroup`
+> (`core/include/euclid/core/Cgroup.h`), in core because a worker does not link the database.
+>
+> What triggered building it: on 2026-11-01 at 03:39 the development host ran out of memory with
+> 39 application JVMs holding 46 GB, none with a heap limit, and the kernel killed a CLion helper.
+> `euclid-wrk.service` had peaked at 50 GB with no ceiling of any kind.
 
 A CPU and a memory ceiling per application instance, so that one application cannot take a host down
 and an operator can say in advance what each one is allowed to cost.
@@ -159,6 +170,20 @@ Three ways to handle it, in order of how much euclid presumes:
 3. **Make it configurable** — `euclid.modules.eap.java-max-ram-percent`, default 75 — so an
    installation that disagrees can say so without editing every application.
 
+**Correction, found while building it:** (1) does not work as written. An application's `arguments`
+follow the jar - `java -jar app.jar <arguments>` - so they reach `main()`, never the JVM. An operator's
+own heap setting belongs in `JAVA_TOOL_OPTIONS` (or `JDK_JAVA_OPTIONS`) in the application's
+environment.
+
+**As built:** (2) with (3) as the knob, in the worker - which is what builds the command line - so the
+knob is `euclid.worker.java-max-ram-percent` (default 75, 0 = off) rather than an EAP setting.
+`Launch::JavaHeapOption()` decides; `Launch::CommandLine()` takes interpreter options and puts them
+between the interpreter and `-jar`. It is added only when the limit was actually applied to the
+instance's group: measured on the development host, `-XX:MaxRAMPercentage=75` with no limit is a
+94 GB heap, against 512 MiB → 1536 MiB under a 2 GiB limit. An explicit `-Xmx`, `-XX:MaxHeapSize`,
+`-XX:MaxRAMPercentage`, `-XX:MaxRAM` or `-XX:MaxRAMFraction` in `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`
+or `_JAVA_OPTIONS` (the instance's, or inherited) leaves it alone. Logged at info on every start.
+
 Proposed: (2) with (3) as the knob, and a log line saying it was added. Silently injecting JVM flags is
 the kind of help that turns into an afternoon of confusion, so it has to announce itself. An
 application that names `-XX:MaxRAMPercentage` or `-Xmx` itself is left alone, on the general rule that
@@ -212,15 +237,26 @@ Limits are worthless without the numbers to set them from. `memory.current`, `me
 carries per-module gauges — `euclid-memory-usage-real-mb` and `euclid-cpu-usage` are pushed from
 `HttpActionServer` (`core/src/HttpActionServer.cpp:143` and `:165`).
 
-Per-application, per-instance, on the same path:
+Per-application, per-instance, on the same path - sent by the worker with `renew-node` and recorded
+by EAP beside the pid-based `application-memory-usage-*` it already recorded, labelled
+`application, instance, node, pid`:
 
-| Metric | From | Answers |
-|---|---|---|
-| `application-memory-mb` | `memory.current` | how much it uses |
-| `application-memory-peak-mb` | `memory.peak` | what to set the limit to |
-| `application-memory-limit-mb` | `memory.max` | what it is set to |
-| `application-cpu-throttled-percent` | `cpu.stat` `throttled_usec` | whether the CPU limit is actually biting |
-| `application-oom-kills` | `memory.events` `oom_kill` | §5 |
+| Metric | From | Answers | Built |
+|---|---|---|---|
+| `application-memory-cgroup-mb` | `memory.current` | how much it uses, page cache included | yes |
+| `application-memory-peak-mb` | `memory.peak` | what to set the limit to | yes |
+| `application-oom-kills` | `memory.events` `oom_kill` | §5 | yes |
+| `application-memory-limit-mb` | `memory.max` | what it is set to | step 4 |
+| `application-cpu-throttled-percent` | `cpu.stat` `throttled_usec` | whether the CPU limit is actually biting | step 3 |
+
+(`application-memory-mb` was renamed `application-memory-cgroup-mb`: next to the shipped
+`application-memory-usage-real-mb`, which is resident size by pid, the shorter name read as the same
+figure.)
+
+And per node, from the worker unit's own group - readable **without** delegation, so a node reports
+these whatever its unit says: `node-applications-memory-mb`, `node-applications-memory-peak-mb`,
+`node-applications-memory-limit-mb` (only under a `MemoryMax=`) and `node-applications-oom-kills`,
+labelled `node`.
 
 `memory.peak` is the one that makes this usable: it turns "what should this limit be?" from a guess
 into a reading. Worth exposing before the limits themselves, so an operator can size them from a week
@@ -264,6 +300,31 @@ The child joins its own group by writing its pid to `cgroup.procs` between `fork
 `Controller.cpp:458`. That is one write to an already-open descriptor and is async-signal-safe, which
 matters because everything between `fork()` and `exec()` in a multithreaded process does.
 
+**As built (step 2).** `euclid-wrk.service` carries `Delegate=memory cpu pids`. At start-up the
+worker reads its group from `/proc/self/cgroup`, makes `worker/` and moves itself there (a group
+with controllers enabled for its children may hold no processes), enables `+memory +cpu +pids` in
+the unit's and in `applications/`'s `cgroup.subtree_control`, and sweeps instance groups a previous
+run left. Per instance it makes `applications/<application>/<instanceId>/`, opens its
+`cgroup.procs` before `fork()`, and the child writes `"0"` to it right after `setpgid()`. The group
+is removed when the instance is reaped or stopped, or by the per-tick sweep once whatever the
+instance started has gone too. An instance found not to be in its group is logged once and read by
+pid only. `euclid.worker.cgroups-active=false` switches all of it off.
+
+The tree is laid out per *worker unit*, not under `euclid.service`:
+
+```
+euclid-wrk.service/
+  worker/                 euclid-wrk itself
+  applications/
+    <application>/
+      <instanceId>/
+```
+
+The OOM discriminator of §5 is partly in already: an instance that dies by SIGKILL with a non-zero
+`oom_kill` in its group is logged as killed by the OOM killer - including, with no limit set, when
+the whole host ran out, which `memory.events` counts against the victim's group too. The
+`OOM_KILLED` state and its restart budget are still step 4.
+
 Two consequences worth stating rather than discovering:
 
 - **An installation not started by systemd gets no limits.** Run by hand, in a container, or under
@@ -302,16 +363,47 @@ without a host, beside `ScaleRefusal` and `RedeployRefusal`.
 
 | Step | Scope | Proves |
 |---|---|---|
-| 1 | `memory.peak`/`memory.current`/`cpu.stat` read and published as metrics; no limits, no `Delegate=` — reading a cgroup needs no delegation | operators can size limits from observation before any limit can hurt them |
-| 2 | `Delegate=memory cpu pids`; the subgroup tree; detection and the "not enforced" path | the privileged change, on its own, with nothing depending on it yet |
+| 1 ✅ | `memory.peak`/`memory.current`/`cpu.stat` read and published as metrics; no limits, no `Delegate=` — reading a cgroup needs no delegation | operators can size limits from observation before any limit can hurt them |
+| 2 ✅ | `Delegate=memory cpu pids`; the subgroup tree; detection and the "not enforced" path | the privileged change, on its own, with nothing depending on it yet |
 | 3 | `cpuLimit` only, throttling, no kills | the plumbing, with a failure mode that cannot lose data |
-| 4 | `memoryLimitMb` with `memory.high`, `memory.swap.max=0`, the `oom_kill` discriminator and `OOM_KILLED` | §5 before anything can be killed silently |
-| 5 | JVM `MaxRAMPercentage` injection for `JAVA*` runtimes | §6 |
+| 4 ✅ | `memoryLimitMb` with `memory.high`, `memory.swap.max=0`, the `oom_kill` discriminator and `OOM_KILLED` | §5 before anything can be killed silently |
+| 5 ✅ | JVM `MaxRAMPercentage` injection for `JAVA*` runtimes | §6 |
 | 6 | admission at deploy and at scale-up | §8 |
 | 7 | `RLIMIT_NOFILE`/`RLIMIT_NPROC`, which need no cgroups at all | cheap, and independent of everything above |
 
 Step 3 before step 4 deliberately: a CPU limit set too low makes an application slow, and a memory
 limit set too low makes it die. The reversible one should be the one that finds the bugs.
+
+### Step 4 as built
+
+Done before step 3, out of the table's order: the trigger was a host-wide OOM, and memory is the limit
+that contains one.
+
+- **`Application::memoryLimitMb`**, MiB per instance, 0 = none; `LimitRefusal()` refuses negatives and
+  anything between 1 and 63 MiB. Set through `--memory-limit` on `create-application` and
+  `update-application` (the latter restarts the pool, as any update does) and through
+  **`eap:set-application-limits`**, which writes the one field and restarts nothing. `cpuLimit` is not
+  there yet; it comes with step 3.
+- **Not applied to running instances.** The master sends `memoryLimitMb` with each assignment, outside
+  the revision, and the worker applies it when it starts a process. Changing a running group's
+  `memory.max` would be possible, but the JVM inside sized its heap from the old one - so new limits
+  reach running instances through `restart-application`, deliberately.
+- **Worker:** `Cgroup::ApplyMemoryLimit()` writes `memory.high` (`euclid.worker.memory-high-percent`,
+  default 90), then `memory.max`, then `memory.swap.max=0` where swap is accounted - all before the
+  child joins. A limit that cannot be applied (no delegation, a write refused) is a warning on every
+  start and the instance runs unlimited: not enforced is said, never silent.
+- **`OOM_KILLED`** is a new `ModuleState`. The worker reports it when the process died by SIGKILL with a
+  non-zero `oom_kill` in its group; EAP ranks it above `CRASHED` in the application's state, since it
+  has a known remedy.
+- **The restart budget** (§5.3): after `euclid.worker.oom-kill-limit` (default 3) OOM kills in a row,
+  the worker stops restarting the slot and logs why at error. The count is reset by an hour of
+  running, not by the backoff's one-minute rule - a JVM whose limit is too low can take minutes to
+  reach it. The slot is tried again when the master sends a different limit or revision
+  (`Reconciler::OomHoldReleased()`). Done in the worker rather than by stopping the pool on the
+  master: the worker is what sees the kills, and a pool whose instances are OOM-killed on one node
+  may well fit on another.
+- **Metric** `application-memory-limit-mb` - what each node actually enforces, which is the
+  configured-but-not-enforced signal of §10: absent where the limit is not applied.
 
 ## 13. Not in scope
 

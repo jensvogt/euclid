@@ -58,9 +58,16 @@ namespace Euclid::EMM {
         // buckets, users, ...). fullOnly is the bulk child data each of those resources owns
         // (EQS/ENS messages, ESM objects) - opt-in via --full, since it can dwarf the container
         // records around it and usually isn't what an operator wants for a quick inspection/backup.
+        //
+        // history is what a module observed rather than what anybody told it - emo's metric rows
+        // and alert history. "export" writes it as it always wrote emo_data, without --full; a
+        // backup never does, full or not: it is millions of rows, it is rebuilt by simply running,
+        // and restoring one installation's observations into another would show somebody else's
+        // past as its own.
         struct ModuleExportSpec {
             std::vector<std::string> topLevel;
             std::vector<std::string> fullOnly;
+            std::vector<std::string> history;
         };
 
         const std::unordered_map<std::string, ModuleExportSpec> &moduleExportSpecs() {
@@ -78,7 +85,12 @@ namespace Euclid::EMM {
                     // to decide what to grant.
                     {"eam", {.topLevel = {"eam_user", "eam_usergroup", "eam_account", "eam_namespace", "eam_role", "eam_grant"}, .fullOnly = {}}},
                     {"emm", {.topLevel = {"emm_module"}, .fullOnly = {}}},
-                    {"emo", {.topLevel = {"emo_data"}, .fullOnly = {}}},
+                    // The alert rules and saved dashboards are configuration - written by a person,
+                    // and nobody's to recreate. The current alert states are neither configuration
+                    // nor worth keeping: they are rebuilt within one period, and a stale one
+                    // restored would claim a series is in a state it left long ago - or, its last
+                    // row being old, put every series straight into NO_DATA.
+                    {"emo", {.topLevel = {"emo_alert_rule", "emo_dashboard"}, .fullOnly = {}, .history = {"emo_data", "emo_alert_history"}}},
                     {"eap", {.topLevel = {"eap_application"}, .fullOnly = {}}},
                     {"ets", {.topLevel = {"ets_server"}, .fullOnly = {}}},
                     // Note what an ekm export carries: Database::Entity::EKM::Key stores its
@@ -272,6 +284,10 @@ namespace Euclid::EMM {
                     if (full) {
                         for (const auto &collectionName: spec.fullOnly) one(collectionName);
                     }
+                    // A scope is only ever a backup's - see ModuleExportSpec::history.
+                    if (!scope) {
+                        for (const auto &collectionName: spec.history) one(collectionName);
+                    }
                 }
                 to << '}';
             };
@@ -337,6 +353,7 @@ namespace Euclid::EMM {
                 for (const auto &[module, spec]: moduleExportSpecs()) {
                     for (const auto &c: spec.topLevel) m[c] = module;
                     for (const auto &c: spec.fullOnly) m[c] = module;
+                    for (const auto &c: spec.history) m[c] = module;
                 }
                 return m;
             }();
@@ -1060,12 +1077,12 @@ namespace Euclid::EMM {
         // on the same host as the data they protect. Refusing to back ekm up is the lesser harm,
         // and it is said out loud rather than left to be discovered at restore time.
         //
-        // Never emo: its collection is the metric history (3 M samples), not configuration, and it
-        // is rebuilt by simply running. "export" can still take it on request.
+        // emo with its configuration only - the alert rules and saved dashboards. Its metric rows
+        // and alert history are left out by writeExport() for every backup (ModuleExportSpec::
+        // history): 3 M samples that are rebuilt by simply running. "export" still takes them.
         std::vector<std::string> backupModules(const bool haveKey) {
             std::vector<std::string> modules;
             for (const auto &name: moduleExportSpecs() | std::views::keys) {
-                if (name == "emo") continue;
                 if (!haveKey && name == "ekm") continue;
                 modules.emplace_back(name);
             }

@@ -6,6 +6,7 @@
 
 // C++ includes
 #include <chrono>
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <string>
@@ -16,6 +17,7 @@
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/ArtifactFetcher.h>
+#include <euclid/core/Cgroup.h>
 #include <euclid/core/SystemUtils.h>
 
 namespace Euclid::Worker {
@@ -233,6 +235,13 @@ namespace Euclid::Worker {
              */
             void *processHandle{};
             void *stopEvent{};
+
+            /**
+             * @brief The instance's own cgroup, when this node makes them - see Core::Cgroup.
+             * Empty when it does not, and cleared once the instance is found not to be in it, so
+             * that is said once and nothing is reported from an empty group.
+             */
+            std::filesystem::path cgroup;
         };
 
         /**
@@ -246,6 +255,21 @@ namespace Euclid::Worker {
         struct Crash {
             std::chrono::seconds delay{};
             std::chrono::system_clock::time_point notBefore{};
+
+            /**
+             * @brief OOM kills in a row on this slot - reset by any exit that was not one, and by
+             * a run long enough to count as stable.
+             */
+            int oomKills{};
+
+            /**
+             * @brief Set once the slot has been given up on after too many OOM kills in a row:
+             * the revision and limit it was running under, which Renew() compares the master's
+             * assignment against to let it be tried again - see Reconciler::OomHoldReleased().
+             */
+            bool givenUp{};
+            std::string heldRevision;
+            long heldMemoryLimitMb{};
         };
 
         /**
@@ -326,6 +350,28 @@ namespace Euclid::Worker {
          * @brief Slots whose process exited on its own, by instance id.
          */
         std::map<std::string, Crash> _crashes;
+
+        /**
+         * @brief The per-instance cgroups, or why there are none - see Core::Cgroup::Tree. Set up
+         * once, in the constructor, which is also where this process moves into its own leaf.
+         */
+        Core::Cgroup::Tree _cgroups;
+
+        /**
+         * @brief What releaseCgroup() found.
+         */
+        struct Released {
+            /** @brief Appended to the exit's description; empty when there is nothing to add. */
+            std::string said;
+            /** @brief Whether the kernel's OOM killer is what ended the instance. */
+            bool oomKilled{false};
+        };
+
+        /**
+         * @brief Takes an instance's cgroup once its process is gone, and says whether the OOM
+         * killer is what ended it.
+         */
+        Released releaseCgroup(Instance &instance, bool killedBySignal) const;
 
         /**
          * @brief The HTTP port each slot was given, by instance id - see Core::Launch::PickHttpPort.

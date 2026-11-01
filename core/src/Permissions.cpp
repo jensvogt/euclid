@@ -129,6 +129,7 @@ namespace Euclid::Core {
                 "eap:report-node-instance",
                 "eap:restart-application",
                 "eap:scale-application",
+                "eap:set-application-limits",
                 "eap:set-egress-limit",
                 "eap:set-log-level",
                 "eap:start-application",

@@ -1,0 +1,131 @@
+.TH EUCLID-CLI-EAP-SET-APPLICATION-LIMITS 1 "November 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-set-application-limits \- set how much memory each of an application's instances may use
+.SH SYNOPSIS
+.B euclid-cli eap set-application-limits
+.BR \-\-application\-id | \-n
+.I NAME
+.BR \-\-memory\-limit | \-m
+.I SIZE
+.SH DESCRIPTION
+Sets the most memory one instance of an application may use, without
+restarting anything.
+.PP
+The limit is per instance, not per application: an application may use up
+to its maximum instance count times this, which is a number that can be
+worked out in advance. A pool-wide budget shared between instances would
+shrink each one as the pool grew, which is the opposite of what scaling is
+for.
+.PP
+The worker that starts an instance makes the limit its cgroup's
+.IR memory.max ,
+sets
+.I memory.high
+a little below it (see
+.I euclid.worker.memory\-high\-percent
+in
+.BR euclid-wrk (8))
+so that an instance approaching its ceiling is slowed down and reclaimed
+before it is killed, and gives it no swap. An instance that goes over the
+limit anyway is killed by the kernel \- that instance, not whichever process
+the kernel would otherwise have picked on the whole host \- and is reported
+as
+.B OOM_KILLED
+rather than
+.BR CRASHED ,
+in
+.B emm list-modules
+and in the application's state. After three of those in a row the worker
+stops restarting the instance, because a fourth start under the same limit
+will end the same way; it tries again once the limit or the application
+changes.
+.SS When it takes effect
+Instances started from now on \- a new one, a replacement, a restart \- get
+the new limit. Running instances keep the one they started under until
+.BR euclid-cli-eap-restart-application (1).
+That is deliberate: a JVM sizes its heap once, from the limit it starts
+under, and lowering the ceiling under one that planned for more is an OOM
+kill waiting for its next busy minute.
+.PP
+.BR euclid-cli-eap-update-application (1)
+with
+.B \-\-memory\-limit
+sets the same field and restarts the application, like any other change to
+its definition.
+.SS Where it is enforced
+On a node whose
+.I euclid\-wrk.service
+carries
+.IR "Delegate=memory cpu pids" ,
+as the shipped unit does. Anywhere else \- a worker started by hand, cgroup
+v1, Windows, macOS \- the instance runs without a limit and the worker logs a
+warning saying so each time it starts one. What a node actually enforces is
+in its
+.I application\-memory\-limit\-mb
+series.
+.SS The JVM heap
+A JVM started under a limit sizes its heap from it, but by default takes
+only a quarter: under a 2 GiB limit it gives itself 512 MiB of heap and can
+run out of heap with most of its allowance unused. So a JAVA, JAVA21 or
+JAVA25 instance whose limit is enforced is started with
+.B \-XX:MaxRAMPercentage=75
+(see
+.I euclid.worker.java\-max\-ram\-percent
+in
+.BR euclid-wrk (8)),
+and the worker logs that it did. It is not added where no limit is
+enforced \- an unlimited JVM would take that share of the whole host \- nor
+for an application with a command of its own.
+.PP
+An application that sizes its heap itself keeps its own setting: an
+.BR \-Xmx ,
+.BR \-XX:MaxHeapSize ,
+.BR \-XX:MaxRAMPercentage ,
+.B \-XX:MaxRAM
+or
+.B \-XX:MaxRAMFraction
+in
+.IR JAVA_TOOL_OPTIONS ,
+.I JDK_JAVA_OPTIONS
+or
+.I _JAVA_OPTIONS
+in its environment. Not in its arguments: those follow the jar and are
+the application's own, so the JVM never sees them.
+.SH OPTIONS
+.TP
+.BR \-\-application\-id ", " \-n " " \fINAME\fR
+Name of the application, in the namespace the session works in.
+.TP
+.BR \-\-memory\-limit ", " \-m " " \fISIZE\fR
+A number of MiB, or a number with
+.B M
+or
+.B G
+after it \- 512M, 2G, 1.5G. 0 removes the limit.
+.SH EXIT STATUS
+Non-zero if the application does not exist, if the size cannot be read, or
+if it is below 64 MiB and not 0 \- too little for any instance to start, so
+a typo rather than a setting.
+.SH EXAMPLES
+Hold each instance of an importer to 2 GiB:
+.RS
+.nf
+euclid-cli eap set-application-limits --application-id parsing --memory-limit 2G
+euclid-cli eap restart-application --application-id parsing
+.fi
+.RE
+.PP
+Remove the limit again:
+.RS
+.nf
+euclid-cli eap set-application-limits --application-id parsing --memory-limit 0
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-update-application (1),
+.BR euclid-cli-eap-restart-application (1),
+.BR euclid-cli-eap-scale-application (1),
+.BR euclid-wrk (8)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
