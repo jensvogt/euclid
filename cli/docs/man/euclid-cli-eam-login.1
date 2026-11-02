@@ -16,6 +16,7 @@ euclid-cli-eam-login \- authenticate to Euclid and store a session token
 |
 .B \-\-onelogin
 }
+[\fB\-\-account\fR|\fB\-a\fR \fIACCOUNT\fR]
 [\fB\-\-namespace\fR|\fB\-n\fR \fINAME\fR]
 .SH DESCRIPTION
 Sends the given user ID and password to the eam service's
@@ -32,6 +33,18 @@ installation is configured with (see those options below). On success, the retur
 for details on that file), so that subsequent
 .B euclid-cli eam
 commands are authenticated automatically without logging in again.
+.PP
+If
+.B \-\-account
+is given, the session works in that account instead of the user's home
+account: every later command carries it, in the
+.I x\-euclid\-account\-id
+header. It is checked right after the login, against the accounts
+.B euclid-cli eam list-my-accounts
+lists \- the home account, and every account a role granted to the user,
+or to a group the user is in, covers. One that is not among them is
+refused, with the user's accounts listed; the login itself stands, in the
+home account, and the exit status is 1.
 .PP
 If
 .B \-\-namespace
@@ -167,6 +180,13 @@ to, along with the subject and the attributes available for
 document claims, which is exactly what is wanted before there is a
 certificate to check it against.
 .TP
+.BR \-a ", " \-\-account " " \fIACCOUNT\fR
+The account to work in, by account id or by name; the id wins where a
+name would match another account. Omitted means the user's home account,
+as before this option existed. With
+.BR \-\-namespace ,
+the namespace is looked for in this account.
+.TP
 .BR \-n ", " \-\-namespace " " \fINAME\fR
 Namespace to make active for this session. Must exist, and the user must
 either be an account administrator or hold an explicit grant for it (see
@@ -182,8 +202,9 @@ set.
 .B 1
 Missing/invalid arguments, the server could not be reached, the
 credentials were rejected (\fIHTTP 401\fR, "Invalid credentials"), the
-response did not contain a token, or (only when \fB\-\-namespace\fR was
-given) the namespace step failed - login still succeeded in that case.
+response did not contain a token, or (only when \fB\-\-account\fR or
+\fB\-\-namespace\fR was given) the account is not one of the user's or the
+namespace step failed - login still succeeded in either case.
 With \fB\-\-oidc\fR or \fB\-\-saml\fR: additionally when the identity
 provider refused the login, no callback arrived within three minutes, the
 callback belonged to a different login attempt, or the installation has no
@@ -196,6 +217,9 @@ euclid-cli --endpoint http://localhost:5566 eam login \e
 
 euclid-cli --endpoint http://localhost:5566 eam login \e
     --user jdoe --password 'hunter2' --namespace production
+
+euclid-cli --endpoint http://localhost:5566 eam login \e
+    --user jdoe --password 'hunter2' --account 408066031601 --namespace development
 
 euclid-cli --endpoint http://localhost:5566 eam login --oidc
 

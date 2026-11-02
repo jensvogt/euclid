@@ -389,6 +389,15 @@ namespace Euclid::CLI {
         int countObjects(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Finds the objects whose file does not match their record, in one bucket or all
+         *
+         * @param args command line arguments
+         * @return 0 when every object checked is whole, 2 when problems were found, 1 on error
+         */
+        [[nodiscard]]
+        int verifyObjects(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Deletes an object
          *
          * @param args command line arguments

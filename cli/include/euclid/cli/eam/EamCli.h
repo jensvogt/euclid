@@ -112,11 +112,12 @@ namespace Euclid::CLI {
          * makes the CLI a public client that never sees a password, and why the listener is on
          * 127.0.0.1 and lives for one login.
          *
+         * @param account account to work in, by id or name, or empty for the home account.
          * @param nameSpace namespace to make active for the session, or empty for none.
          * @return the process exit code.
          */
         [[nodiscard]]
-        int loginWithOidc(const std::string &nameSpace) const;
+        int loginWithOidc(const std::string &account, const std::string &nameSpace) const;
 
         /**
          * @brief Login through the configured SAML identity provider.
@@ -127,11 +128,12 @@ namespace Euclid::CLI {
          * gateway, not to this process, so euclid answers the browser with a page that posts the
          * finished session here instead.
          *
+         * @param account account to work in, by id or name, or empty for the home account.
          * @param nameSpace namespace to make active for the session, or empty for none.
          * @return the process exit code.
          */
         [[nodiscard]]
-        int loginWithSaml(const std::string &nameSpace) const;
+        int loginWithSaml(const std::string &account, const std::string &nameSpace) const;
 
         /**
          * @brief Login through OneLogin's API, with no browser.
@@ -142,6 +144,7 @@ namespace Euclid::CLI {
          * one-time code go to OneLogin and nowhere else; euclid is handed the finished assertion
          * and verifies it exactly as it verifies one that came through a browser.
          *
+         * @param account account to work in, by id or name, or empty for the home account.
          * @param nameSpace namespace to make active for the session, or empty for none.
          * @param application which configured OneLogin application to ask for, or empty for the
          * only one.
@@ -157,7 +160,7 @@ namespace Euclid::CLI {
          * @return the process exit code.
          */
         [[nodiscard]]
-        int loginWithOneLogin(const std::string &nameSpace, const std::string &application,
+        int loginWithOneLogin(const std::string &account, const std::string &nameSpace, const std::string &application,
                               const std::string &user, const std::string &oneTimeCode,
                               const std::string &device, const std::string &givenPassword,
                               bool showAssertion) const;

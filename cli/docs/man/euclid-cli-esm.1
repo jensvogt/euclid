@@ -188,6 +188,11 @@ Counts a bucket's objects, optionally under a key prefix: exact at the
 moment of asking, and what it costs to count. See
 .BR euclid-cli-esm-count-objects (1).
 .TP
+.B verify-objects
+Finds the objects whose file on disk does not match their record \-
+missing, empty or cut short, as a crash leaves them. See
+.BR euclid-cli-esm-verify-objects (1).
+.TP
 .B delete-object
 Deletes an object by its ERN. See
 .BR euclid-cli-esm-delete-object (1).
@@ -514,6 +519,7 @@ euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
 .BR euclid-cli-esm-list-objects (1),
 .BR euclid-cli-esm-get-object-count (1),
 .BR euclid-cli-esm-count-objects (1),
+.BR euclid-cli-esm-verify-objects (1),
 .BR euclid-cli-esm-delete-object (1),
 .BR euclid-cli-esm-copy-object (1),
 .BR euclid-cli-esm-move-object (1),

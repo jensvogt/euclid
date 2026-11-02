@@ -254,7 +254,7 @@ namespace Euclid::Core {
                 "eqs:stop-queue",
                 "eqs:update-message-body",
 
-                // esm - 49 actions
+                // esm - 50 actions
                 "esm:abort-upload",
                 "esm:add-bucket-tag",
                 "esm:add-object-attribute",
@@ -304,6 +304,7 @@ namespace Euclid::Core {
                 "esm:touch-object",
                 "esm:unsubscribe",
                 "esm:upload-part",
+                "esm:verify-objects",
 
                 // ess - 8 actions
                 "ess:add-secret-tag",
@@ -429,7 +430,7 @@ namespace Euclid::Core {
         const auto action = colon == std::string_view::npos ? permission : permission.substr(colon + 1);
 
         return action.starts_with("list-") || action.starts_with("get-")
-               || action.starts_with("describe-") || action.starts_with("count-");
+               || action.starts_with("describe-") || action.starts_with("count-") || action.starts_with("verify-");
     }
 
     bool Permissions::IsSecondLevel(const std::string_view permission) {

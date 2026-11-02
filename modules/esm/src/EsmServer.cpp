@@ -4,6 +4,7 @@
 
 // Euclid includes
 #include <EsmServer.h>
+#include <ObjectFileCheck.h>
 
 #include <euclid/core/ArchiveZip.h>
 
@@ -116,6 +117,16 @@ namespace Euclid::ESM {
             if (std::filesystem::remove(path, ec); ec) {
                 log_warning << "Could not remove partially written object, path: " << path.string() << ", error: " << ec.message();
             }
+        }
+
+        // Forces a finished object file onto the disk before anything records it as stored - see
+        // Core::DirUtils::SyncFile(). A file the record outlives is what a crash used to leave:
+        // a row saying COMPLETED with a size and an MD5, and an empty file behind it.
+        bool persistObjectFile(const std::filesystem::path &path, const std::string &what) {
+            std::error_code ec;
+            if (Core::DirUtils::SyncFile(path, ec)) return true;
+            log_error << "ESM could not sync object file to disk, " << what << ", path: " << path.string() << ", error: " << ec.message();
+            return false;
         }
 
         // Determines a content type by sniffing the object's first bytes, for the callers that
@@ -430,6 +441,12 @@ namespace Euclid::ESM {
             error = std::string("could not append to the archive: ") + ex.what();
             return false;
         }
+        // The zip, before the object is marked ARCHIVED and its own file removed below: from then
+        // on the member is the only copy.
+        if (!persistObjectFile(esmArchiveDir() / archived.archiveFile, "archive, key: " + object.key)) {
+            error = "could not sync the archive to disk";
+            return false;
+        }
 
         archived.lifecycleState = Database::Entity::ESM::LifecycleState::ARCHIVED;
         archived.archivedAt = now;
@@ -472,6 +489,10 @@ namespace Euclid::ESM {
                                       Core::DirUtils::CreateFilePath(dataDir, object.internalName));
         } catch (const std::exception &ex) {
             error = std::string("could not extract it from the archive: ") + ex.what();
+            return false;
+        }
+        if (!persistObjectFile(Core::DirUtils::FindFilePath(dataDir, object.internalName), "restore, key: " + object.key)) {
+            error = "could not sync the restored file to disk";
             return false;
         }
 
@@ -2222,6 +2243,10 @@ namespace Euclid::ESM {
             discardPartialObject(destPath);
             return ErrorResponse(req, status::internal_server_error, "Could not write object");
         }
+        if (!persistObjectFile(destPath, "bucket: " + bucketErn + ", key: " + key)) {
+            discardPartialObject(destPath);
+            return ErrorResponse(req, status::internal_server_error, "Could not write object");
+        }
 
         // Small enough to hash/sniff inline rather than handing off to a background thread the way
         // complete-upload does for a potentially huge assembled file - this whole handler only
@@ -2800,6 +2825,13 @@ namespace Euclid::ESM {
                     contentType = contentTypeForBuffer(sniff, key);
                 }
 
+                // On disk before the parts go and before the row says COMPLETED: after this the parts
+                // are the only other copy, and after the row nothing would ever look again.
+                if (!persistObjectFile(destPath, "upload id: " + uploadId)) {
+                    discardPartialObject(destPath);
+                    return;
+                }
+
                 std::filesystem::remove_all(uploadDir, ec);
                 if (ec)
                     log_warning << "Could not remove upload storage, path: " << uploadDir.string() << ", error: " << ec.message();
@@ -2969,6 +3001,17 @@ namespace Euclid::ESM {
                 std::ostringstream buffer;
                 buffer << in.rdbuf();
                 data = buffer.str();
+                // Refused rather than served: a file shorter than its record is one a crash cut off
+                // - see Core::DirUtils::SyncFile() - and answering 200 with what is left of it is
+                // how an image-processing service came to be handed an empty image as if it were
+                // the object. An encrypted object needs no such check; its frames are counted.
+                if (static_cast<long>(data.size()) != object->size) {
+                    log_error << "ESM object file does not match its record, bucket: " << bucketErn << ", key: " << key
+                              << ", path: " << path.string() << ", file: " << data.size() << " bytes, recorded: " << object->size;
+                    return ErrorResponse(req, status::internal_server_error,
+                                         "Object data on disk is incomplete (" + std::to_string(data.size()) + " of " + std::to_string(object->size) +
+                                                 " bytes), bucket: " + bucketErn + ", key: " + key);
+                }
             } else {
                 data = Core::ObjectCipher::DecryptWholeFile(readKey.material, path);
             }
@@ -3148,6 +3191,14 @@ namespace Euclid::ESM {
                 data.assign(static_cast<std::size_t>(readSize), '\0');
                 in.read(data.data(), static_cast<std::streamsize>(readSize));
                 data.resize(static_cast<std::size_t>(in.gcount()));
+                // The part asked for lies inside the recorded size, so a short read is a file a crash
+                // cut off - refused rather than handed back as a short or empty part with a 200.
+                if (static_cast<std::int64_t>(data.size()) != readSize) {
+                    log_error << "ESM object file does not match its record, download id: " << downloadId << ", path: " << path.string()
+                              << ", part: " << partNumber << ", read: " << data.size() << " of " << readSize << " bytes";
+                    return ErrorResponse(req, status::internal_server_error,
+                                         "Object data on disk is incomplete, download id: " + downloadId + ", part: " + std::to_string(partNumber));
+                }
             } else {
                 // The range is in the object's own bytes; only the frames it falls in are read and
                 // decrypted, so a part of an encrypted object costs what a part costs.
@@ -3277,6 +3328,100 @@ namespace Euclid::ESM {
         response.count = bucket->objects;
 
         return JsonResponse(req, status::ok, response.toJson());
+    }
+
+    // Which of a bucket's objects have a file that is not the one their record describes - missing,
+    // empty, cut short or too long. What a crash before the files were synced to disk left behind:
+    // a row saying COMPLETED with a size and an MD5, and nothing, or nothing like it, on disk.
+    //
+    // One page of the bucket per call, in key order from "afterKey", and the answer says where the
+    // next page starts: a bucket of millions cannot be checked inside one request, and a page that
+    // carries its own cursor can be continued from anywhere, by anyone, with nothing kept here.
+    // "limit" is how many objects a page looks at, not how many problems it reports - every one
+    // it finds is reported.
+    //
+    // A stat per object, and a header read for an encrypted one; never the bytes. Objects still
+    // being uploaded, archived ones (their bytes are in the month's zip, not a file) and directory
+    // markers are counted as skipped.
+    static response<string_body> handleVerifyObjects(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "verify-objects");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EsmServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &body = jv.as_object();
+
+        const auto stringField = [&](const char *name) {
+            const auto *v = body.if_contains(name);
+            return v && v->is_string() ? std::string(v->as_string()) : std::string();
+        };
+        const auto bucketErn = stringField("bucketErn");
+        const auto afterKey = stringField("afterKey");
+        if (bucketErn.empty()) return EsmServer::ErrorResponse(req, status::bad_request, R"("bucketErn" is required)");
+
+        constexpr long kDefaultLimit = 10000;
+        constexpr long kMaxLimit = 100000;
+        long limit = kDefaultLimit;
+        if (const auto *v = body.if_contains("limit"); v && v->is_number()) limit = static_cast<long>(v->to_number<double>());
+        if (limit < 1 || limit > kMaxLimit) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "\"limit\" must be between 1 and " + std::to_string(kMaxLimit));
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto bucket = repo->findBucketByErn(bucketErn);
+        if (!bucket.has_value()) return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
+        if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
+
+        const auto dataDir = esmDataDir();
+        const auto objects = repo->listObjectsAfter(bucketErn, afterKey, limit);
+
+        long checked = 0;
+        long skipped = 0;
+        boost::json::array problems;
+        for (const auto &object: objects) {
+            if (Database::Entity::ESM::IsDirectoryKey(object.key) || object.status != Database::Entity::ESM::ObjectStatus::COMPLETED ||
+                object.lifecycleState == Database::Entity::ESM::LifecycleState::ARCHIVED) {
+                ++skipped;
+                continue;
+            }
+            ++checked;
+            const auto path = Core::DirUtils::FindFilePath(dataDir, object.internalName);
+            const auto problem = CheckObjectFile(path, object.size, !object.encryptionKeyErn.empty());
+            if (!problem) continue;
+            boost::json::object entry{
+                    {"key", object.key},
+                    {"ern", object.ern},
+                    {"problem", problem->kind},
+                    {"recordedSize", object.size},
+                    {"fileSize", problem->fileSize},
+                    {"expectedFileSize", problem->expectedSize},
+                    {"internalName", object.internalName},
+                    {"created", Core::DateTimeUtils::ToISO8601(object.created)},
+            };
+            if (!problem->detail.empty()) entry["detail"] = problem->detail;
+            problems.push_back(std::move(entry));
+        }
+
+        // A full page may have more behind it; a short one was the end of the bucket.
+        const auto nextKey = static_cast<long>(objects.size()) == limit && !objects.empty() ? objects.back().key : std::string();
+        if (!problems.empty()) {
+            log_warning << "ESM verify-objects found objects whose file does not match the record, bucket: " << bucketErn
+                        << ", from: " << afterKey << ", checked: " << checked << ", problems: " << problems.size();
+        }
+
+        return EsmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"bucketErn", bucketErn},
+                                                                {"afterKey", afterKey},
+                                                                {"scanned", static_cast<long>(objects.size())},
+                                                                {"checked", checked},
+                                                                {"skipped", skipped},
+                                                                {"problems", std::move(problems)},
+                                                                {"nextKey", nextKey},
+                                                        }));
     }
 
     response<string_body> EsmServer::handleCountObjects(const request<string_body> &req) {
@@ -3677,6 +3822,12 @@ namespace Euclid::ESM {
                     log_error << "ESM could not copy object file, key: " << sourceKey << ", error: " << ec.message();
                     return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not copy object");
                 }
+            }
+            // Before the source row goes, for a move that had to rewrite the bytes: from then on
+            // this file is the only copy.
+            if (!persistObjectFile(targetPath, "key: " + targetKey)) {
+                discardPartialObject(targetPath);
+                return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not copy object");
             }
             if (!keepSource) supersededFile = source->internalName;
         }
@@ -4365,6 +4516,7 @@ namespace Euclid::ESM {
             CompleteDownload,
             GetObjectCount,
             CountObjects,
+            VerifyObjects,
             ListObjects,
             CopyObject,
             MoveObject,
@@ -4403,6 +4555,7 @@ namespace Euclid::ESM {
         if (action == "list-objects") return Command::ListObjects;
         if (action == "get-object-count") return Command::GetObjectCount;
         if (action == "count-objects") return Command::CountObjects;
+        if (action == "verify-objects") return Command::VerifyObjects;
         if (action == "copy-object") return Command::CopyObject;
         if (action == "move-object") return Command::MoveObject;
         if (action == "rename-object") return Command::RenameObject;
@@ -4671,6 +4824,8 @@ namespace Euclid::ESM {
                 return handleGetObjectCount(req);
             case Command::CountObjects:
                 return handleCountObjects(req);
+            case Command::VerifyObjects:
+                return handleVerifyObjects(req);
 
             case Command::CopyObject:
                 return handleCopyObject(req);

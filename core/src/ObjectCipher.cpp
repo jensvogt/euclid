@@ -195,6 +195,15 @@ namespace Euclid::Core {
         return readHeader(in, path).plaintextSize;
     }
 
+    std::int64_t ObjectCipher::ExpectedFileSize(const std::filesystem::path &path) {
+        auto in = openForRead(path);
+        const auto header = readHeader(in, path);
+        // An empty object is a header and no frames at all - see Encrypt().
+        const auto chunk = std::max<std::int64_t>(1, static_cast<std::int64_t>(header.chunkSize));
+        const auto frames = (header.plaintextSize + chunk - 1) / chunk;
+        return static_cast<std::int64_t>(kHeaderSize) + header.plaintextSize + frames * static_cast<std::int64_t>(kFrameOverhead);
+    }
+
     std::string ObjectCipher::DecryptWholeFile(const std::string &key, const std::filesystem::path &path) {
 
         std::string plaintext;

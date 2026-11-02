@@ -1,0 +1,129 @@
+.TH EUCLID-CLI-ESM-VERIFY-OBJECTS 1 "November 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-verify-objects \- find objects whose file on disk does not match their record
+.SH SYNOPSIS
+.B euclid-cli esm verify-objects
+(\fB\-\-bucket\fR|\fB\-b\fR \fIBUCKET\fR | \fB\-\-all\-buckets\fR|\fB\-a\fR)
+[\fB\-\-after\-key\fR|\fB\-k\fR \fIKEY\fR]
+[\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-one\-page\fR]
+.SH DESCRIPTION
+An object is two things: a record in the database \- its key, size,
+checksum and status \- and a file under ESM's data directory holding its
+bytes. This command finds the objects where the two disagree.
+.PP
+That is what a machine going down leaves behind. The record is written
+by the database, which keeps it; the file's bytes may still have been in
+memory when the power went, and come back empty, cut short, or not at
+all. Reading such an object fails \- or, before ESM checked, returned the
+empty file as though it were the object, which is how an image service
+came to be handed an empty image. ESM now forces every file onto the disk
+before it records it, so a crash cannot leave new ones; this finds the
+ones left before.
+.PP
+Each object is judged by size, not content: one
+.BR stat (2)
+per object, and a read of the header for an encrypted one. It is quick,
+and never reads the bytes \- so a file of the right length with the wrong
+bytes in it is the one case it does not catch.
+.PP
+Skipped, and counted as such: objects still being uploaded, archived ones
+(their bytes are in the month's archive, not a file), and directory
+markers.
+.SH PROBLEMS
+.TP
+.B missing
+There is no file.
+.TP
+.B empty
+The file has no bytes, the object does.
+.TP
+.B short
+The file has fewer bytes than it should.
+.TP
+.B long
+The file has more bytes than it should.
+.TP
+.B mismatch
+An encrypted file whose header records a different length than the
+object does.
+.TP
+.B unreadable
+The file cannot be read, or is not an encrypted object although the
+record says it is;
+.I detail
+says which.
+.PP
+For an encrypted object the size it should have is computed from its own
+header: the header, the plaintext, and 28 bytes per 64 KiB frame.
+.SH WHAT TO DO WITH WHAT IT FINDS
+The bytes are gone; there is nothing in ESM to repair them from. Delete
+the object with
+.BR euclid-cli-esm-delete-objects (1)
+\- so that a reader gets "not found" rather than a failure it will retry
+for ever \- and have whatever sent it send it again.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fIBUCKET\fR
+The bucket to check, by name or ERN.
+.TP
+.BR \-a ", " \-\-all\-buckets
+Every bucket of the session's namespace, one after the other.
+.TP
+.BR \-k ", " \-\-after\-key " " \fIKEY\fR
+Start after this key \- where an interrupted run's progress said it was.
+Only with
+.BR \-\-bucket .
+.TP
+.BR \-s ", " \-\-page\-size " " \fIN\fR
+Objects looked at per request, from 1 to 100000. Default 10000.
+.TP
+.B \-\-one\-page
+Check one page and print it as ESM answered it, with
+.I nextKey
+\- the key the next page starts after, empty at the end of the bucket.
+.SH OUTPUT
+Progress goes to standard error, one line per page, ending with the key
+the next page starts after \- what
+.B \-\-after\-key
+takes to resume. The report goes to standard output once the walk is
+done:
+.RS
+.nf
+{"checked": 120000, "problems": 1, "buckets": [
+  {"bucketErn": "...:bucket:file-delivery", "checked": 120000, "skipped": 0,
+   "problems": [{"key": "DLI145/...jpg", "ern": "...", "problem": "empty",
+                 "recordedSize": 281861, "fileSize": 0, "expectedFileSize": 281861,
+                 "internalName": "d35f0895-...", "created": "2026-10-30T03:44:44Z"}]}]}
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Every object checked is whole.
+.TP
+.B 2
+Problems were found; they are in the report.
+.TP
+.B 1
+The check could not be run: not authenticated, no such bucket, no access
+to it, or a request failed.
+.SH EXAMPLES
+.RS
+.nf
+# One bucket
+euclid-cli esm verify-objects --bucket file-delivery > file-delivery-check.json
+
+# Everything, after a crash
+euclid-cli esm verify-objects --all-buckets > check.json
+
+# Resume where an interrupted run stopped
+euclid-cli esm verify-objects --bucket file-delivery --after-key "DLI145/9783170359529_COVER_IMAGE_30102026044444425.jpg"
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-count-objects (1),
+.BR euclid-cli-esm-delete-objects (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

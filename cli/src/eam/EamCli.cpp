@@ -283,8 +283,48 @@ namespace Euclid::CLI {
         // Shared because a federated login is not a different kind of session - see the eam
         // module's issueSession() - and because a difference between the two here would be a
         // difference nobody meant to introduce.
+        // The account a session is to work in, from what the user typed - an account id, or an
+        // account's name - checked against the accounts this user may work in. Empty when it is not
+        // one of them, with the reason in `error`.
+        //
+        // Asked of the server with the session just issued, because only the server knows which
+        // accounts a grant covers; and refused here rather than stored, because an account the user
+        // may not work in is one every later command would be refused in, one at a time, for a
+        // reason none of them would say.
+        std::string resolveAccount(const std::string &endpoint, const std::string &caCertPath, const Credentials::Entry &entry,
+                                   const std::string &wanted, std::string &error) {
+
+            const HttpClient client(endpoint, entry, caCertPath);
+            const HttpResponse response = client.Post("eam", "list-my-accounts", boost::json::object{});
+            if (!response.IsSuccess()) {
+                error = "could not list your accounts (HTTP " + std::to_string(response.statusCode) + "): " + boost::json::serialize(response.body);
+                return {};
+            }
+
+            std::vector<std::string> known;
+            std::string byName;
+            for (const auto &value: response.body.at("accounts").as_array()) {
+                const auto &account = value.as_object();
+                const auto id = account.contains("accountId") ? std::string(account.at("accountId").as_string()) : std::string();
+                const auto name = account.contains("name") ? std::string(account.at("name").as_string()) : std::string();
+                // An id is exact and wins outright; a name is taken only if no id matched, since
+                // nothing stops an account being named like another account's id.
+                if (id == wanted) return id;
+                if (!name.empty() && name == wanted && byName.empty()) byName = id;
+                known.push_back(name.empty() || name == id ? id : id + " (" + name + ")");
+            }
+            if (!byName.empty()) return byName;
+
+            error = "'" + wanted + "' is not an account you may work in";
+            if (!known.empty()) {
+                error += "; yours are: ";
+                for (std::size_t i = 0; i < known.size(); ++i) error += (i ? ", " : "") + known[i];
+            }
+            return {};
+        }
+
         int storeSession(const std::string &endpoint, const std::string &caCertPath, const bool pretty,
-                         const boost::json::value &body, const std::string &nameSpace) {
+                         const boost::json::value &body, const std::string &account, const std::string &nameSpace) {
 
             const auto loginResponse = boost::json::value_to<Dto::EAM::LoginResponse>(body);
             if (loginResponse.token.empty()) {
@@ -302,6 +342,22 @@ namespace Euclid::CLI {
                     .isAdmin = loginResponse.isAdmin,
             };
 
+            // The account before the namespace: a namespace belongs to an account, and the one
+            // change-namespace checks it against is whichever the request below carries.
+            if (!account.empty()) {
+                std::string error;
+                const auto accountId = resolveAccount(endpoint, caCertPath, entry, account, error);
+                if (accountId.empty()) {
+                    // Logged in all the same, in the home account: the credentials were right, and
+                    // throwing the session away would make the next attempt a second password entry
+                    // - or a second trip through the browser - for a typo in an account name.
+                    Credentials::Save(entry);
+                    std::cerr << "warning: logged in to your home account " << entry.accountId << ", but " << error << std::endl;
+                    return 1;
+                }
+                entry.accountId = accountId;
+            }
+
             if (!nameSpace.empty()) {
                 Dto::EAM::ChangeNamespaceRequest nsRequest;
                 nsRequest.ns = nameSpace;
@@ -317,7 +373,11 @@ namespace Euclid::CLI {
 
             Credentials::Save(entry);
 
-            Core::WriteJson(std::cout, body, pretty);
+            // What the server answered, but naming the account the session works in now: its
+            // answer says the home account, which after --account is no longer the one in use.
+            auto printed = body;
+            if (printed.is_object()) printed.as_object()["accountId"] = entry.accountId;
+            Core::WriteJson(std::cout, printed, pretty);
             return 0;
         }
 
@@ -520,11 +580,12 @@ namespace Euclid::CLI {
                 ("otp", po::value<std::string>(), "with --onelogin: the one-time code; without it the code is computed from the configured TOTP secret, or asked for")
                 ("device", po::value<std::string>(), "with --onelogin: which enrolled second factor to use, by device id or type (e.g. \"Google Authenticator\"); asked for when several are enrolled")
                 ("show-assertion", po::bool_switch(), "with --onelogin: print what the assertion says - the issuer, audience and recipient euclid has to be configured with - instead of logging in")
-                ("namespace,n", po::value<std::string>(), "namespace to make active for this session");
+                ("account,a", po::value<std::string>(), "account to work in, by id or name; your home account if not given (see list-my-accounts)")
+                ("namespace,n", po::value<std::string>(), "namespace to make active for this session, in that account");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eam", "login",
-                                   "--user <username> --password <password> | --oidc | --saml | --onelogin [--application <name>] [--namespace <name>]",
+                                   "--user <username> --password <password> | --oidc | --saml | --onelogin [--application <name>] [--account <id|name>] [--namespace <name>]",
                                    "Authenticates against the Euclid access module and, on success, stores the "
                                    "returned bearer token locally so it is used automatically to authenticate "
                                    "subsequent commands. Also provisions a SigV4 access key on first login (or "
@@ -538,9 +599,14 @@ namespace Euclid::CLI {
                                    "that password may be given with --password, but is better taken from "
                                    "EUCLID_ONELOGIN_PASSWORD, from euclid.cli.onelogin, or from the prompt. Neither "
                                    "--oidc nor --saml asks for or sends any password at all. "
+                                   "If --account is given, the session works in that account rather than your home "
+                                   "one: by id or by name, and it has to be one list-my-accounts names - your home "
+                                   "account, or one a role granted to you or to a group you are in covers. Every command "
+                                   "afterward runs in it. "
                                    "If --namespace is given, it is validated and set as the session's active namespace "
-                                   "(see euclid-cli-eam-change-namespace(1)) - every namespace-scoped command run "
-                                   "afterward is automatically restricted to it, until changed again.",
+                                   "(see euclid-cli-eam-change-namespace(1)) - in the chosen account, so the two can be "
+                                   "given together - and every namespace-scoped command run afterward is automatically "
+                                   "restricted to it, until changed again.",
                                    desc);
         }
 
@@ -553,6 +619,7 @@ namespace Euclid::CLI {
             return 1;
         }
 
+        const auto account = vm.contains("account") ? vm["account"].as<std::string>() : std::string{};
         const auto nameSpace = vm.contains("namespace") ? vm["namespace"].as<std::string>() : std::string{};
 
         // Checked here rather than through po::required(), because which options are required
@@ -578,7 +645,7 @@ namespace Euclid::CLI {
                 std::cerr << "note: a password on the command line is visible in your shell history and the process list;"
                         " EUCLID_ONELOGIN_PASSWORD avoids both\n";
             }
-            return loginWithOneLogin(nameSpace,
+            return loginWithOneLogin(account, nameSpace,
                                      vm.contains("application") ? vm["application"].as<std::string>() : std::string{},
                                      vm.contains("user") ? vm["user"].as<std::string>() : std::string{},
                                      vm.contains("otp") ? vm["otp"].as<std::string>() : std::string{},
@@ -592,7 +659,7 @@ namespace Euclid::CLI {
                 std::cerr << "error: --oidc and --saml authenticate through the identity provider; --user and --password are not used\n";
                 return 1;
             }
-            return oidc ? loginWithOidc(nameSpace) : loginWithSaml(nameSpace);
+            return oidc ? loginWithOidc(account, nameSpace) : loginWithSaml(account, nameSpace);
         }
 
         if (!vm.contains("user") || !vm.contains("password")) {
@@ -613,7 +680,7 @@ namespace Euclid::CLI {
                 return 1;
             }
 
-            return storeSession(_endpoint, _caCertPath, _pretty, response.body, nameSpace);
+            return storeSession(_endpoint, _caCertPath, _pretty, response.body, account, nameSpace);
 
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
@@ -621,7 +688,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EamCli::loginWithOidc(const std::string &nameSpace) const {
+    int EamCli::loginWithOidc(const std::string &account, const std::string &nameSpace) const {
 
         try {
             // The listener comes first: the redirect URI has to name the port it ended up on, and
@@ -679,7 +746,7 @@ namespace Euclid::CLI {
                 return 1;
             }
 
-            return storeSession(_endpoint, _caCertPath, _pretty, response.body, nameSpace);
+            return storeSession(_endpoint, _caCertPath, _pretty, response.body, account, nameSpace);
 
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
@@ -687,7 +754,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EamCli::loginWithSaml(const std::string &nameSpace) const {
+    int EamCli::loginWithSaml(const std::string &account, const std::string &nameSpace) const {
 
         try {
             CallbackListener listener;
@@ -738,7 +805,7 @@ namespace Euclid::CLI {
                 return 1;
             }
 
-            return storeSession(_endpoint, _caCertPath, _pretty, session, nameSpace);
+            return storeSession(_endpoint, _caCertPath, _pretty, session, account, nameSpace);
 
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
@@ -746,7 +813,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EamCli::loginWithOneLogin(const std::string &nameSpace, const std::string &application,
+    int EamCli::loginWithOneLogin(const std::string &account, const std::string &nameSpace, const std::string &application,
                                   const std::string &user, const std::string &oneTimeCode,
                                   const std::string &device, const std::string &givenPassword,
                                   const bool showAssertion) const {
@@ -857,7 +924,7 @@ namespace Euclid::CLI {
                 return 1;
             }
 
-            return storeSession(_endpoint, _caCertPath, _pretty, response.body, nameSpace);
+            return storeSession(_endpoint, _caCertPath, _pretty, response.body, account, nameSpace);
 
         } catch (const OneLoginError &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
