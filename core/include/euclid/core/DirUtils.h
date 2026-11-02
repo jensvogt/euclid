@@ -163,6 +163,33 @@ namespace Euclid::Core {
          * @return true if a file was removed.
          */
         static bool RemoveFile(const std::filesystem::path &rootDir, const std::string &name, std::error_code &ec);
+
+        /**
+         * @brief Forces a finished file, and the directory entries that lead to it, onto the disk.
+         *
+         * @par
+         * Closing a file is not writing it. ext4 holds a new file's data in memory for up to thirty
+         * seconds - longer under load - and a machine that goes down in that window comes back with
+         * the file empty, or not there at all when its directory entry was not written either. A
+         * store that records an object once its file is closed has then recorded bytes that do not
+         * exist: on 30 October every object written in the five seconds before the host died came
+         * back as a file of zero bytes behind a record saying otherwise. So whatever is about to be
+         * recorded as stored is synced first.
+         *
+         * @par
+         * The file, then its directory and that directory's parent: an object's file sits two
+         * shard levels down (see CreateFilePath()), and either level may have been created for it.
+         * Going further up would only reach directories that already existed.
+         *
+         * @par
+         * On Windows the file's buffers are flushed; NTFS journals the directory entries itself.
+         *
+         * @param path the file.
+         * @param ec   set if the file could not be synced; a directory that cannot be is not an
+         *             error, since some filesystems do not allow it and the file itself is safe.
+         * @return true if the file is on disk.
+         */
+        static bool SyncFile(const std::filesystem::path &path, std::error_code &ec);
     };
 
 }// namespace Euclid::Core

@@ -165,7 +165,7 @@ BOOST_AUTO_TEST_CASE(ReaderIsExactlyTheRuleItClaims) {
     for (const auto &permission: Permissions::All()) {
         const auto action = permission.substr(permission.find(':') + 1);
         const bool reads = action.starts_with("list-") || action.starts_with("get-")
-                           || action.starts_with("describe-") || action.starts_with("count-");
+                           || action.starts_with("describe-") || action.starts_with("count-") || action.starts_with("verify-");
 
         BOOST_TEST(grants(BuiltinRoles::Reader, permission) == reads, permission + " is on the wrong side of the reader rule");
     }

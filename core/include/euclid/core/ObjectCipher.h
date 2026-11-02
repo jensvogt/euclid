@@ -117,6 +117,20 @@ namespace Euclid::Core {
         static std::int64_t PlaintextSize(const std::filesystem::path &path);
 
         /**
+         * @brief The size an encrypted object's file has when it is whole, computed from its own
+         * header: the header, the plaintext, and a frame's overhead per chunk.
+         *
+         * @par
+         * A file of any other length has lost frames off its end or gained bytes it should not
+         * have - which a read only finds out when it gets that far, if it reads that far at all.
+         *
+         * @param path encrypted object file.
+         * @return the length, in bytes, the file should have.
+         * @throws std::runtime_error if the file cannot be opened or is not an encrypted object.
+         */
+        static std::int64_t ExpectedFileSize(const std::filesystem::path &path);
+
+        /**
          * @brief Decrypts an entire encrypted object file.
          *
          * @par

@@ -9,6 +9,14 @@
 // C++ includes
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
+#include <system_error>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 // Euclid includes
 #include <euclid/core/DirUtils.h>
@@ -89,6 +97,55 @@ namespace Euclid::Core {
             }
         }
         return removed;
+    }
+
+    namespace {
+
+#ifndef _WIN32
+        // fsync()s one path, file or directory. Retried on EINTR, which a signal arriving mid-flush
+        // returns without having flushed anything.
+        int syncPath(const std::filesystem::path &path, const int flags) {
+            const int fd = ::open(path.c_str(), flags | O_CLOEXEC);
+            if (fd < 0) return errno;
+            int result;
+            do {
+                result = ::fsync(fd);
+            } while (result != 0 && errno == EINTR);
+            const int error = result == 0 ? 0 : errno;
+            ::close(fd);
+            return error;
+        }
+#endif
+
+    }// namespace
+
+    bool DirUtils::SyncFile(const std::filesystem::path &path, std::error_code &ec) {
+
+        ec.clear();
+#ifdef _WIN32
+        const HANDLE handle = ::CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle == INVALID_HANDLE_VALUE) {
+            ec = std::error_code(static_cast<int>(::GetLastError()), std::system_category());
+            return false;
+        }
+        if (!::FlushFileBuffers(handle)) ec = std::error_code(static_cast<int>(::GetLastError()), std::system_category());
+        ::CloseHandle(handle);
+        return !ec;
+#else
+        if (const int error = syncPath(path, O_RDONLY); error != 0) {
+            ec = std::error_code(error, std::generic_category());
+            return false;
+        }
+        auto directory = path.parent_path();
+        for (int level = 0; level < 2 && !directory.empty(); ++level) {
+            if (const int error = syncPath(directory, O_RDONLY | O_DIRECTORY); error != 0) {
+                log_debug << "Could not sync directory, path: " << directory.string() << ", error: " << std::generic_category().message(error);
+            }
+            directory = directory.parent_path();
+        }
+        return true;
+#endif
     }
 
     DirUtils::DiskUsage DirUtils::MeasureDiskUsage(const std::filesystem::path &root, const std::atomic<bool> *cancel) {

@@ -81,6 +81,7 @@ namespace Euclid::CLI {
                 {"archive-object", "Move an object to the archive: kept, but not readable until restore-object"},
                 {"copy-object", "Copies an object to another key or bucket"},
                 {"count-objects", "Count a bucket's objects, optionally under a prefix"},
+                {"verify-objects", "Find objects whose file on disk does not match their record"},
                 {"create-bucket", "Create a new bucket"},
                 {"delete-objects", "Delete several objects from a bucket, by key or by prefix"},
                 {"delete-bucket", "Delete a bucket"},
@@ -197,6 +198,9 @@ namespace Euclid::CLI {
         }
         if (action == "get-object-count") {
             return getObjectCount(args);
+        }
+        if (action == "verify-objects") {
+            return verifyObjects(args);
         }
         if (action == "count-objects") {
             return countObjects(args);
@@ -1589,6 +1593,106 @@ namespace Euclid::CLI {
             }
             Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::verifyObjects(const std::vector<std::string> &args) const {
+        po::options_description desc("verify objects options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>(), "bucket name; a full ERN also works and is what reaches another namespace")
+                ("all-buckets,a", "every bucket of the account's namespace, one after the other")
+                ("after-key,k", po::value<std::string>()->default_value(""), "start after this key - where an interrupted run stopped")
+                ("page-size,s", po::value<long>()->default_value(10000), "objects looked at per request, 1 to 100000")
+                ("one-page", "check one page and print it, with the key the next one starts after");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "verify-objects", "(--bucket <name|ern> | --all-buckets) [--after-key <key>] [--page-size <n>] [--one-page]",
+                                   "Finds the objects whose file on disk is not the one their record describes: missing, empty, "
+                                   "cut short or too long. That is what a machine going down leaves behind when it takes the last "
+                                   "seconds of written files with it - the record, kept by the database, says COMPLETED with a "
+                                   "size and an MD5, and the file behind it is empty or gone. Reading such an object fails, or "
+                                   "used to return the empty file as if it were the object. By size, not by content: one stat "
+                                   "per object, and a header read for an encrypted one, so it is quick and never reads the "
+                                   "bytes. Objects still being uploaded, archived ones and directory markers are skipped. Walks "
+                                   "the whole bucket a page at a time, printing progress to standard error, and ends with every "
+                                   "problem found; --after-key resumes a run from where the progress said it was. Exit status "
+                                   "2 when anything was found. What to do with an object it reports is to delete it and have "
+                                   "it sent again - the bytes are gone.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+        if (vm.contains("bucket") == vm.contains("all-buckets")) {
+            std::cerr << "error: exactly one of --bucket and --all-buckets is required" << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+
+            std::vector<std::string> buckets;
+            if (vm.contains("bucket")) {
+                buckets.push_back(vm["bucket"].as<std::string>());
+            } else {
+                const HttpResponse response = client.Post("esm", "list-buckets", boost::json::object{});
+                if (!response.IsSuccess()) {
+                    std::cerr << "error: list-buckets failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                    return 1;
+                }
+                for (const auto &bucket: response.body.at("buckets").as_array()) buckets.emplace_back(bucket.at("ern").as_string());
+            }
+
+            const auto pageSize = vm["page-size"].as<long>();
+            boost::json::array results;
+            long totalChecked = 0;
+            long totalProblems = 0;
+            for (const auto &bucket: buckets) {
+                std::string afterKey = buckets.size() == 1 ? vm["after-key"].as<std::string>() : std::string();
+                std::string bucketErn = bucket;
+                long checked = 0;
+                long skipped = 0;
+                boost::json::array problems;
+                do {
+                    const boost::json::object request{{"bucketErn", bucket}, {"afterKey", afterKey}, {"limit", pageSize}};
+                    const HttpResponse response = client.Post("esm", "verify-objects", request);
+                    if (!response.IsSuccess()) {
+                        std::cerr << "error: verify-objects failed (HTTP " << response.statusCode << "), bucket: " << bucket
+                                  << ", after: " << afterKey << ": " << boost::json::serialize(response.body) << std::endl;
+                        return 1;
+                    }
+                    if (vm.contains("one-page")) {
+                        Core::WriteJson(std::cout, response.body, _pretty);
+                        return response.body.at("problems").as_array().empty() ? 0 : 2;
+                    }
+                    const auto &page = response.body.as_object();
+                    bucketErn = std::string(page.at("bucketErn").as_string());
+                    checked += page.at("checked").to_number<long>();
+                    skipped += page.at("skipped").to_number<long>();
+                    for (const auto &problem: page.at("problems").as_array()) problems.push_back(problem);
+                    afterKey = std::string(page.at("nextKey").as_string());
+                    // On standard error, so the report on standard output stays one JSON document -
+                    // and so a run that is stopped says where to resume it from.
+                    std::cerr << bucketErn << ": " << checked << " checked, " << problems.size() << " problems"
+                              << (afterKey.empty() ? ", done" : ", next after: " + afterKey) << std::endl;
+                } while (!afterKey.empty());
+
+                totalChecked += checked;
+                totalProblems += static_cast<long>(problems.size());
+                results.push_back(boost::json::object{{"bucketErn", bucketErn}, {"checked", checked}, {"skipped", skipped}, {"problems", std::move(problems)}});
+            }
+
+            Core::WriteJson(std::cout, boost::json::object{{"checked", totalChecked}, {"problems", totalProblems}, {"buckets", std::move(results)}}, _pretty);
+            return totalProblems == 0 ? 0 : 2;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;

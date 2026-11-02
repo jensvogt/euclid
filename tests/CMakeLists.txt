@@ -1023,6 +1023,16 @@ target_link_libraries(${BACKUP_RETENTION_BINARY} PRIVATE Boost::unit_test_framew
 
 add_test(NAME ${BACKUP_RETENTION_BINARY} COMMAND ${BACKUP_RETENTION_BINARY})
 
+set(OBJECT_FILE_CHECK_BINARY euclid-object-file-check-tests)
+
+add_executable(${OBJECT_FILE_CHECK_BINARY} ObjectFileCheckTest.cpp)
+set_target_properties(${OBJECT_FILE_CHECK_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${OBJECT_FILE_CHECK_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/esm/include)
+target_link_libraries(${OBJECT_FILE_CHECK_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${OBJECT_FILE_CHECK_BINARY} COMMAND ${OBJECT_FILE_CHECK_BINARY})
+
 set(EGRESS_PERMITS_BINARY euclid-egress-permits-tests)
 
 add_executable(${EGRESS_PERMITS_BINARY} EgressPermitsTest.cpp)

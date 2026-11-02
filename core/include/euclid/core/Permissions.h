@@ -176,6 +176,11 @@ namespace Euclid::Core {
          * not be told how many there are would be a strange thing to have built.
          *
          * @par
+         * `verify-` for esm's verify-objects, which compares each object's file with its record
+         * and changes neither: a reader that may list a bucket may also ask whether what it lists
+         * is really there.
+         *
+         * @par
          * Two things depend on this and must not disagree: the `reader` built-in role is every
          * permission that satisfies it, and EAD records the actions that do not - so an action
          * misjudged here is both grantable to a reader and invisible to the audit, which is the
