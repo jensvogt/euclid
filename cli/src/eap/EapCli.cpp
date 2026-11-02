@@ -234,7 +234,7 @@ namespace Euclid::CLI {
         po::options_description desc("create a new application");
         desc.add_options()
                 ("application-id,n", po::value<std::string>()->required(), "name identifying the application, unique across the installation")
-                ("runtime,r", po::value<std::string>()->required(), "runtime the artifact is started with: JAVA, JAVA21, JAVA25, PYTHON, NODEJS or BINARY")
+                ("runtime,r", po::value<std::string>()->required(), "runtime the artifact is started with: JAVA, JAVA21, JAVA25, PYTHON, NODEJS, BINARY or RUST")
                 ("bucket,b", po::value<std::string>()->required(), "name of the ESM bucket holding the artifact")
                 ("artifact,a", po::value<std::string>()->required(), "object key of the artifact within that bucket")
                 ("version", po::value<std::string>(), "version of this build; read out of the artifact name (x.y.z) when not given")
@@ -262,7 +262,7 @@ namespace Euclid::CLI {
                                    "[--max-instances <n>] [--memory-limit <size>] [--cpu-limit <cores>] [--ready-timeout <ms>]",
                                    "Defines a new application from an artifact already stored in an ESM bucket - upload it first with "
                                    "\"esm upload-file\", or through a transfer server. The manager copies the artifact to the host, "
-                                   "starts it with the runtime's interpreter (java -jar, python3, node) or directly for BINARY, and "
+                                   "starts it with the runtime's interpreter (java -jar, python3, node) or directly for BINARY and RUST, and "
                                    "scales it between --min-instances and --max-instances like any other module. An instance counts as "
                                    "started once it is still running a moment after it was spawned, so an application that only does "
                                    "work of its own is never killed for failing to answer a convention it was not written for; a socket "
@@ -895,7 +895,7 @@ namespace Euclid::CLI {
         po::options_description desc("deploy a new build of an application");
         desc.add_options()
                 ("application-id,n", po::value<std::string>()->required(), "name of the application to deploy")
-                ("file,f", po::value<std::string>()->required(), "the new build: the jar for JAVA, the script for PYTHON/NODEJS, the executable for BINARY")
+                ("file,f", po::value<std::string>()->required(), "the new build: the jar for JAVA, the script for PYTHON/NODEJS, the executable for BINARY/RUST")
                 ("artifact,a", po::value<std::string>(), "object key to store it under; defaults to the key the application already uses")
                 ("version", po::value<std::string>(), "version this build is; read out of the file name (x.y.z) when not given")
                 ("force", po::bool_switch(), "deploy even when the build is byte for byte the one already deployed");

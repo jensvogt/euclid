@@ -234,8 +234,8 @@ namespace Euclid::Core {
          * @brief Makes a fetched artifact runnable, if it is what gets exec'd.
          *
          * @par
-         * A BINARY artifact arrives as a plain object with no mode bits worth speaking of. Nothing
-         * to do for anything else, or for a BINARY that names its own command - the command is
+         * A BINARY or RUST artifact arrives as a plain object with no mode bits worth speaking of.
+         * Nothing to do for anything else, or for one that names its own command - the command is
          * what runs, and the artifact is its argument. A no-op on Windows, which has no exec bit.
          */
         void PrepareArtifact(const std::filesystem::path &path, const std::string &runtime, const std::string &command);

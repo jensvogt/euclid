@@ -398,7 +398,8 @@ its own principal with its own short-lived credentials, whatever uid it happens 
 | `JAVA25` | `<java25> -jar <artifact>` | The executable configured for it on that host |
 | `PYTHON` | `python3 <artifact>` | |
 | `NODEJS` | `node <artifact>` | |
-| `BINARY` | `<artifact>` | Rust, C++, Go — anything executable; the manager sets the exec bit |
+| `BINARY` | `<artifact>` | C++, Go — anything executable; the manager sets the exec bit |
+| `RUST` | `<artifact>` | A compiled Rust executable; started exactly like `BINARY` |
 
 `--command` overrides all of it when an application needs something else entirely (a wrapper
 script, an interpreter that isn't on `PATH`).
