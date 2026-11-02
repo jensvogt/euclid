@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.20](https://github.com/jensvogt/euclid/compare/2.1.19...v2.1.20) (2026-11-02)
+
+
+### Bug Fixes
+
+* add account to EAM login, add ESM verify objects command ([ce6c994](https://github.com/jensvogt/euclid/commit/ce6c994f841b62d9a8c96db4cc2469e61c872dd8))
+
 ## [2.1.19](https://github.com/jensvogt/euclid/compare/v2.1.18...v2.1.19) (2026-11-01)
 
 
