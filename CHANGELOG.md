@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.21](https://github.com/jensvogt/euclid/compare/2.1.20...v2.1.21) (2026-11-02)
+
+
+### Bug Fixes
+
+* add Rust client library ([6c2a2ff](https://github.com/jensvogt/euclid/commit/6c2a2ffc646ff386526ef60fdd5bcb85d649be90))
+
 ## [2.1.20](https://github.com/jensvogt/euclid/compare/2.1.19...v2.1.20) (2026-11-02)
 
 
