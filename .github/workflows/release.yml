@@ -1479,9 +1479,22 @@ jobs:
           # given an endpoint and logged in as its own principal, and a service that restart-loops
           # from the moment it is installed buries the one message saying so.
           systemctl enable euclid-wrk.service
-          echo "euclid-wrk installed. Set euclid.worker.endpoint in"
-          echo "/usr/local/euclid/etc/euclid-wrk.json, log in as this node's principal with"
-          echo "'euclid-cli eam login', then: systemctl start euclid-wrk"
+
+          # An upgrade is the exception: a worker that is running has been configured, and left
+          # alone it goes on executing the binary this package just replaced - the new version is
+          # on disk and in nothing, until somebody thinks to restart it. try-restart restarts only
+          # a running service, so a fresh install still starts nothing and a worker somebody
+          # stopped stays stopped. After daemon-reload, so a changed unit (Delegate=, limits) takes
+          # effect with it. Restarting the worker stops and starts every application instance on
+          # this node; that is what installing a new worker means.
+          if systemctl is-active --quiet euclid-wrk.service; then
+            echo "euclid-wrk is running; restarting it on the new version"
+            systemctl try-restart euclid-wrk.service || echo "warning: could not restart euclid-wrk; run: systemctl restart euclid-wrk"
+          else
+            echo "euclid-wrk installed. Set euclid.worker.endpoint in"
+            echo "/usr/local/euclid/etc/euclid-wrk.json, log in as this node's principal with"
+            echo "'euclid-cli eam login', then: systemctl start euclid-wrk"
+          fi
           EOF
 
           cat << EOF > ${{ github.workspace }}/worker-scripts/postremove-deb.sh
