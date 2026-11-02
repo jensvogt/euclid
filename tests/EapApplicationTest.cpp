@@ -150,6 +150,7 @@ BOOST_AUTO_TEST_CASE(EveryVersionedRuntimeGetsItsOwnExecutable) {
 
     // Nothing to name for something that is its own command.
     BOOST_TEST(RuntimeExecutableSetting(Runtime::BINARY).empty());
+    BOOST_TEST(RuntimeExecutableSetting(Runtime::RUST).empty());
     BOOST_TEST(RuntimeExecutableSetting(Runtime::UNKNOWN).empty());
 
     // A key exists for every runtime that has an interpreter, so a host can move any of them.
@@ -167,7 +168,7 @@ BOOST_AUTO_TEST_CASE(TheRuntimeNameOnTheWireSurvivesARoundTrip) {
     // as the plain java this host has - if RuntimeFromString stopped answering for it, every Java
     // application deployed so far would come back UNKNOWN and refuse to start.
     for (const auto runtime: {Runtime::JAVA, Runtime::JAVA21, Runtime::JAVA25, Runtime::PYTHON,
-                              Runtime::NODEJS, Runtime::BINARY}) {
+                              Runtime::NODEJS, Runtime::BINARY, Runtime::RUST}) {
         BOOST_TEST_CONTEXT("runtime " << RuntimeToString(runtime)) {
             BOOST_TEST((RuntimeFromString(RuntimeToString(runtime)) == runtime));
         }

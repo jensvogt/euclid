@@ -25,7 +25,9 @@ namespace Euclid::Database::Entity::EAP {
      * @par
      * Mostly process shapes rather than a version matrix: the runtime decides which interpreter
      * (if any) the artifact is handed to. BINARY covers anything already executable, which is
-     * where C++ and Rust applications land.
+     * where C++ and Go applications land. RUST is started exactly like BINARY - a compiled
+     * executable, no interpreter, exec bit set on fetch - and exists so an application says what
+     * it is written in, which is what a console lists and a log channel is named after.
      *
      * @par Why Java is versioned and nothing else is
      * Because a host runs several JDKs at once and a jar does not start under the wrong one. A
@@ -48,6 +50,7 @@ namespace Euclid::Database::Entity::EAP {
         PYTHON,
         NODEJS,
         BINARY,
+        RUST,
         UNKNOWN
     };
 
@@ -58,6 +61,7 @@ namespace Euclid::Database::Entity::EAP {
             {Runtime::PYTHON, "PYTHON"},
             {Runtime::NODEJS, "NODEJS"},
             {Runtime::BINARY, "BINARY"},
+            {Runtime::RUST, "RUST"},
             {Runtime::UNKNOWN, "UNKNOWN"},
     };
 
@@ -95,7 +99,7 @@ namespace Euclid::Database::Entity::EAP {
      * under the wrong JDK.
      *
      * @param runtime the application's runtime.
-     * @return interpreter and its leading arguments; empty for BINARY, which is its own command.
+     * @return interpreter and its leading arguments; empty for BINARY and RUST, which are their own command.
      */
     [[maybe_unused]]
     static std::vector<std::string> RuntimeCommandPrefix(const Runtime &runtime) {
@@ -136,6 +140,7 @@ namespace Euclid::Database::Entity::EAP {
             case Runtime::NODEJS:
                 return "euclid.modules.eap.runtimes.nodejs";
             case Runtime::BINARY:
+            case Runtime::RUST:
             case Runtime::UNKNOWN:
                 break;
         }

@@ -71,6 +71,8 @@ BOOST_AUTO_TEST_CASE(EachRuntimeStartsWithItsInterpreter) {
     BOOST_TEST(Launch::CommandLine("PYTHON", "", "app.py", {}, unconfigured) == (std::vector<std::string>{"python3", "app.py"}));
     BOOST_TEST(Launch::CommandLine("NODEJS", "", "app.js", {}, unconfigured) == (std::vector<std::string>{"node", "app.js"}));
     BOOST_TEST(Launch::CommandLine("BINARY", "", "./server", {}, unconfigured) == (std::vector<std::string>{"./server"}));
+    // RUST is a compiled executable too: started as itself, never handed to an interpreter.
+    BOOST_TEST(Launch::CommandLine("RUST", "", "./server", {}, unconfigured) == (std::vector<std::string>{"./server"}));
 }
 
 // docs/resource-limits.md §6: a JVM under a memory limit takes only a quarter of it as heap unless
@@ -197,6 +199,7 @@ BOOST_AUTO_TEST_CASE(AnUnknownRuntimeIsTheArtifactItself) {
 
     BOOST_TEST(Launch::CommandLine("", "", "./thing", {}, unconfigured) == (std::vector<std::string>{"./thing"}));
     BOOST_TEST(Launch::RuntimeKey("BINARY").empty());
+    BOOST_TEST(Launch::RuntimeKey("RUST").empty());
     BOOST_TEST(Launch::RuntimeKey("NODEJS") == "nodejs");
 }
 
@@ -351,8 +354,10 @@ BOOST_AUTO_TEST_CASE(ABinaryIsMadeExecutableAndNothingElseIs) {
     const auto binary = scratch.write("server", "#!/bin/sh\n");
     const auto jar = scratch.write("app.jar", "jar");
     const auto wrapped = scratch.write("tool", "#!/bin/sh\n");
+    const auto rust = scratch.write("rust-server", "#!/bin/sh\n");
 
     Launch::PrepareArtifact(binary, "BINARY", "");
+    Launch::PrepareArtifact(rust, "RUST", "");
     Launch::PrepareArtifact(jar, "JAVA", "");
     Launch::PrepareArtifact(wrapped, "BINARY", "/opt/wrapper.sh");
 
@@ -360,6 +365,7 @@ BOOST_AUTO_TEST_CASE(ABinaryIsMadeExecutableAndNothingElseIs) {
         return (std::filesystem::status(path).permissions() & std::filesystem::perms::owner_exec) != std::filesystem::perms::none;
     };
     BOOST_TEST(executable(binary));
+    BOOST_TEST(executable(rust));
     BOOST_TEST(!executable(jar));
     BOOST_TEST(!executable(wrapped));
 }

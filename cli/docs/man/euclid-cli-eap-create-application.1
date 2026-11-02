@@ -33,7 +33,9 @@ or through a transfer server.
 .PP
 The manager copies the artifact to the host, starts it with the
 runtime's interpreter (or directly, for
-.IR BINARY ),
+.IR BINARY
+and
+.IR RUST ),
 and scales it between
 .B \-\-min\-instances
 and
@@ -61,8 +63,9 @@ requests address it by. Required.
 .BR \-r ", " \-\-runtime " " \fIRUNTIME\fR
 What the artifact is started with: \fIJAVA\fR (\fBjava \-jar\fR),
 \fIJAVA21\fR, \fIJAVA25\fR, \fIPYTHON\fR (\fBpython3\fR),
-\fINODEJS\fR (\fBnode\fR) or \fIBINARY\fR (the artifact itself, made
-executable). Required.
+\fINODEJS\fR (\fBnode\fR), \fIBINARY\fR (the artifact itself, made
+executable) or \fIRUST\fR (a compiled Rust executable, started exactly like
+\fIBINARY\fR). Required.
 .IP
 \fIJAVA\fR is whichever \fBjava\fR the host calls java, resolved through
 \fIPATH\fR. \fIJAVA21\fR and \fIJAVA25\fR name a version and are started

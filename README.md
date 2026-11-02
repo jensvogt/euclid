@@ -859,16 +859,16 @@ own process, which is what `SIGUSR1` re-reads.
 
 ## Related projects
 
-| Project                                                    | What it is                                                                                         |
-|------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| [euclid-rui](https://github.com/jensvogt/euclid-rui)       | Rich client UI (Qt/QML) - browse and administer Euclid                                             |
-| [euclid-web](https://github.com/jensvogt/euclid-web)       | Angular admin UI - browser and administer Euclid                                                   |
-| [euclid-jdk](https://github.com/jensvogt/euclid-jdk)       | Java SDK - client library for every module                                                         |
-| [euclid-spring](https://github.com/jensvogt/euclid-spring) | Spring Boot starter - Spring annotations, plus autoconfiguration                                   |
-| [euclid-pdk](https://github.com/jensvogt/euclid-pdk)       | Python client library - client library für Python, and no dependencies beyond the standard library |
-| [euclid-ndk](https://github.com/jensvogt/euclid-ndk)       | Node.js client library - client library for NodeJS, and no runtime dependencies at all             |
-| [euclid-cdk](https://github.com/jensvogt/euclid-cdk)       | C++ client library - client library for C++ as shared and static libraries                         |
-| [euclid-rdk](https://github.com/jensvogt/euclid-rdk)       | Rust client library - client library for Rust                                                      |
+| Project                                                    | What it is                                                                                     |
+|------------------------------------------------------------|------------------------------------------------------------------------------------------------|
+| [euclid-rui](https://github.com/jensvogt/euclid-rui)       | Rich client UI (Qt/QML) - browse and administer Euclid                                         |
+| [euclid-web](https://github.com/jensvogt/euclid-web)       | Angular admin UI - browser and administer Euclid                                               |
+| [euclid-jdk](https://github.com/jensvogt/euclid-jdk)       | Java SDK - client library for every module                                                     |
+| [euclid-spring](https://github.com/jensvogt/euclid-spring) | Spring Boot starter - Spring annotations, plus autoconfiguration                               |
+| [euclid-pdk](https://github.com/jensvogt/euclid-pdk)       | Python client library - client library für Python, no dependencies beyond the standard library |
+| [euclid-ndk](https://github.com/jensvogt/euclid-ndk)       | Node.js client library - client library for NodeJS, and no runtime dependencies at all         |
+| [euclid-cdk](https://github.com/jensvogt/euclid-cdk)       | C++ client library - client library for C++ as shared and static libraries                     |
+| [euclid-rdk](https://github.com/jensvogt/euclid-rdk)       | Rust client library - client library for Rust                                                  |
 
 ---
 
