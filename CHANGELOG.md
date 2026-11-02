@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.22](https://github.com/jensvogt/euclid/compare/2.1.21...v2.1.22) (2026-11-02)
+
+
+### Bug Fixes
+
+* add rust as allowed runtime ([bce6fe4](https://github.com/jensvogt/euclid/commit/bce6fe438dd5e13caefbba4bd4a9a270ec01f056))
+
 ## [2.1.21](https://github.com/jensvogt/euclid/compare/2.1.20...v2.1.21) (2026-11-02)
 
 
