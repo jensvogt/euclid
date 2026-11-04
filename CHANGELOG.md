@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.23](https://github.com/jensvogt/euclid/compare/2.1.22...v2.1.23) (2026-11-04)
+
+
+### Bug Fixes
+
+* add total memory to euclid-wrk reporting ([24b3312](https://github.com/jensvogt/euclid/commit/24b331265d105e3fe5ced31a80e61dfbc9a54e3a))
+
 ## [2.1.22](https://github.com/jensvogt/euclid/compare/2.1.21...v2.1.22) (2026-11-02)
 
 
