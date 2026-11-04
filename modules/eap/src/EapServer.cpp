@@ -2937,6 +2937,11 @@ namespace Euclid::EAP {
                     {"labels", labels},
                     {"cpuCount", node.cpuCount},
                     {"memoryMb", node.memoryMb},
+                    // The machine's installed memory and how much of it was in use at the last
+                    // renewal, both in MiB - "64 GB / 128 GB". memoryMb above is what applications
+                    // are offered, which is less. 0 for a node that has not said.
+                    {"memoryTotalMb", node.memoryTotalMb},
+                    {"memoryUsedMb", node.memoryUsedMb},
                     // The one-minute figure from the node's last heartbeat, set by the same tick
                     // that set lastSeen - so it is exactly as current as lastSeen says it is.
                     // Reported here as well as pushed to EMO because the gauge is not an answer for
@@ -2994,6 +2999,8 @@ namespace Euclid::EAP {
         node.principal = auth.user->userId;
         node.cpuCount = obj.contains("cpuCount") ? obj.at("cpuCount").to_number<long>() : 0;
         node.memoryMb = obj.contains("memoryMb") ? obj.at("memoryMb").to_number<long>() : 0;
+        node.memoryTotalMb = obj.contains("memoryTotalMb") ? obj.at("memoryTotalMb").to_number<long>() : 0;
+        node.memoryUsedMb = obj.contains("memoryUsedMb") ? obj.at("memoryUsedMb").to_number<long>() : 0;
         node.version = stringField(obj, "version");
         node.os = stringField(obj, "os");
         node.arch = stringField(obj, "arch");
@@ -3119,7 +3126,19 @@ namespace Euclid::EAP {
                                          ? jv.as_object().at("loadAverage").to_number<double>()
                                          : 0.0;
 
-        std::ignore = repository->touchNode(auth.user->accountId, claim.node->name, now, loadAverage);
+        // The machine's memory, installed and in use, for the node pages' "used / total". On the
+        // record rather than only a gauge for the reason the load average is: the local node sends
+        // no host gauges (sharesThisHost below), and a page of nodes would otherwise be a
+        // monitoring query per node. Absent from a worker older than the fields.
+        const auto memoryField = [&jv](const char *name) -> std::optional<long> {
+            const auto *value = jv.as_object().if_contains(name);
+            if (value == nullptr || !value->is_number()) return std::nullopt;
+            const auto mb = value->to_number<long>();
+            return mb > 0 ? std::optional<long>(mb) : std::nullopt;
+        };
+
+        std::ignore = repository->touchNode(auth.user->accountId, claim.node->name, now, loadAverage,
+                                            memoryField("memoryTotalMb"), memoryField("memoryUsedMb"));
 
         // What the node says about its own health, recorded under the same metric names the
         // monitoring module records the manager's host under - so anything that reads

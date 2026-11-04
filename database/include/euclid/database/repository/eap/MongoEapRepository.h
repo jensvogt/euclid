@@ -184,7 +184,8 @@ namespace Euclid::Database {
         std::vector<Entity::EAP::Node> listNodes(const std::string &accountId) const override;
 
         bool touchNode(const std::string &accountId, const std::string &name,
-                       std::chrono::system_clock::time_point seenAt, double loadAverage) override;
+                       std::chrono::system_clock::time_point seenAt, double loadAverage,
+                       std::optional<long> memoryTotalMb, std::optional<long> memoryUsedMb) override;
 
         bool setNodeDrained(const std::string &accountId, const std::string &name, bool drained) override;
 

@@ -5,6 +5,7 @@
 // C++ includes
 #include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -127,6 +128,20 @@ namespace Euclid::Worker {
                 return field->to_number<long>();
             } catch (const std::exception &) {
                 return 0;
+            }
+        }
+
+        // The machine's installed memory, and how much of it is in use, in MiB - what the node
+        // pages show as "64 GB / 128 GB". The machine's, not the unit's MemoryMax= nor what is
+        // offered to applications (the registration's memoryMb): this is the hardware. Each only
+        // when it can be read; "used" comes from the same MemAvailable arithmetic as the
+        // system-memory-usage-percent series, so the cache does not count, and macOS has none.
+        void addMachineMemory(boost::json::object &body) {
+            const auto totalMb = Core::SystemUtils::ReadSystemMemoryTotalMb();
+            if (!totalMb.has_value() || *totalMb <= 0) return;
+            body["memoryTotalMb"] = *totalMb;
+            if (const auto percent = Core::SystemUtils::ReadSystemMemoryUsagePercent(); percent.has_value()) {
+                body["memoryUsedMb"] = std::lround(static_cast<double>(*totalMb) * *percent / 100.0);
             }
         }
 
@@ -269,7 +284,7 @@ namespace Euclid::Worker {
             memoryMb = std::max(1L, memoryMb - std::max(0L, reserveMb));
         }
 
-        const boost::json::value body{
+        boost::json::object body{
                 {"node", _options.nodeName},
                 {"address", address},
                 {"labels", labels},
@@ -279,6 +294,7 @@ namespace Euclid::Worker {
                 {"os", Core::SystemUtils::GetOperatingSystem()},
                 {"arch", Core::SystemUtils::GetArchitecture()},
         };
+        addMachineMemory(body);
 
         const auto response = post("eap", "register-node", body);
         if (response.statusCode / 100 != 2) {
@@ -345,6 +361,11 @@ namespace Euclid::Worker {
             // optimistic; there is nothing better to say.
             body["loadAverage"] = 0.0;
         }
+
+        // Installed and used memory, for the node record. Outside the monitoring switch below for
+        // the reason the load average is: it is what the node pages show, not a monitoring series,
+        // and the local node - whose host figures are switched off - is a node like any other there.
+        addMachineMemory(body);
 
         // And this machine's own health, for the same reason and by the same route: the monitoring
         // module reads the host it runs on, which on every host but the manager's is nobody. Sent

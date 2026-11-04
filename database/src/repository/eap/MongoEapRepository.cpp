@@ -427,18 +427,27 @@ namespace Euclid::Database {
 
     bool MongoEapRepository::touchNode(const std::string &accountId, const std::string &name,
                                        const std::chrono::system_clock::time_point seenAt,
-                                       const double loadAverage) {
+                                       const double loadAverage,
+                                       const std::optional<long> memoryTotalMb,
+                                       const std::optional<long> memoryUsedMb) {
 
         try {
             const auto collection = Database::instance().collection(NODE_COLLECTION);
 
-            // Two fields, not the document: this runs on every tick of every worker, and a
+            // A few fields, not the document: this runs on every tick of every worker, and a
             // read-modify-write would race an operator draining the node at the same moment and
             // put `drained` back to whatever the worker last registered with.
+            bsoncxx::builder::basic::document set;
+            set.append(kvp("lastSeen", bsoncxx::types::b_date{
+                                               std::chrono::duration_cast<std::chrono::milliseconds>(seenAt.time_since_epoch())}),
+                       kvp("loadAverage", loadAverage));
+            if (memoryTotalMb.has_value()) set.append(kvp("memoryTotalMb", static_cast<std::int64_t>(*memoryTotalMb)));
+            // The used figure is a reading of this tick: one the node did not send this time is
+            // cleared rather than shown as though it were current.
+            set.append(kvp("memoryUsedMb", static_cast<std::int64_t>(memoryUsedMb.value_or(0))));
+
             const auto update = make_document(
-                    kvp("$set", make_document(kvp("lastSeen", bsoncxx::types::b_date{
-                                                          std::chrono::duration_cast<std::chrono::milliseconds>(seenAt.time_since_epoch())}),
-                                              kvp("loadAverage", loadAverage))),
+                    kvp("$set", set.extract()),
                     kvp("$currentDate", make_document(kvp("modified", true))));
 
             const auto result = collection.update_one(nodeFilter(accountId, name).view(), update.view());

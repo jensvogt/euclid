@@ -7,6 +7,7 @@
 
 // C++ includes
 #include <chrono>
+#include <optional>
 #include <string>
 
 // Euclid includes
@@ -402,7 +403,7 @@ BOOST_AUTO_TEST_CASE(RenewingDoesNotUndoADrain) {
     std::ignore = repo.upsertNode(node);
 
     BOOST_TEST_REQUIRE(repo.setNodeDrained(kAccount, kNode, true));
-    BOOST_TEST_REQUIRE(repo.touchNode(kAccount, kNode, kNow, 0.75));
+    BOOST_TEST_REQUIRE(repo.touchNode(kAccount, kNode, kNow, 0.75, 131072L, 65536L));
 
     const auto stored = repo.findNodeByName(kAccount, kNode);
     BOOST_TEST_REQUIRE(stored.has_value());
@@ -412,6 +413,17 @@ BOOST_AUTO_TEST_CASE(RenewingDoesNotUndoADrain) {
     // And the load average the renewal carried, which placement's third tie-break reads. It
     // travels on the heartbeat because that is the same call and the same tick.
     BOOST_TEST(stored->loadAverage == 0.75);
+
+    // And the machine's memory, installed and in use, which the node pages show as "used / total".
+    BOOST_TEST(stored->memoryTotalMb == 131072);
+    BOOST_TEST(stored->memoryUsedMb == 65536);
+
+    // A renewal without a used figure clears it rather than leave a stale one, and keeps the total.
+    BOOST_TEST_REQUIRE(repo.touchNode(kAccount, kNode, kNow, 0.5, std::nullopt, std::nullopt));
+    const auto again = repo.findNodeByName(kAccount, kNode);
+    BOOST_TEST_REQUIRE(again.has_value());
+    BOOST_TEST(again->memoryTotalMb == 131072);
+    BOOST_TEST(again->memoryUsedMb == 0);
 }
 
 BOOST_AUTO_TEST_CASE(RenewingANodeThatIsNotRegisteredSaysSo) {
@@ -420,7 +432,7 @@ BOOST_AUTO_TEST_CASE(RenewingANodeThatIsNotRegisteredSaysSo) {
     // into nothing.
     auto repo = freshRepository();
 
-    BOOST_TEST(!repo.touchNode(kAccount, "node-never-registered", kNow, 0.0));
+    BOOST_TEST(!repo.touchNode(kAccount, "node-never-registered", kNow, 0.0, std::nullopt, std::nullopt));
 }
 
 BOOST_AUTO_TEST_CASE(NodesAreScopedToTheirAccount) {
