@@ -108,6 +108,27 @@ namespace Euclid::Database::Entity::EAP {
         long memoryMb{};
 
         /**
+         * @brief The machine's installed physical memory, in MiB, as the node last reported it.
+         *
+         * @par
+         * Not @ref memoryMb: that is what applications are offered, after the unit's MemoryMax=
+         * and the reserve, and is what admission reads. This is the machine itself - what an
+         * operator means by "a 128 GB node" - and is shown beside @ref memoryUsedMb. 0 for a
+         * worker too old to say, or a platform with no reading.
+         */
+        long memoryTotalMb{};
+
+        /**
+         * @brief How much of the machine's memory was in use at the node's last renewal, in MiB.
+         *
+         * @par
+         * Total less what the kernel says is available (MemAvailable on Linux, ullAvailPhys on
+         * Windows), so the page cache does not count as used. Refreshed by every renewal, like
+         * @ref loadAverage. 0 when the node has not said.
+         */
+        long memoryUsedMb{};
+
+        /**
          * @brief The euclid version the worker is built from, so a mismatch is visible before it
          * is mysterious.
          */

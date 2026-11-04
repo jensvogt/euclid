@@ -317,11 +317,15 @@ namespace Euclid::Database {
          * third tie-break reads. Travels with the heartbeat because it is the same call and the
          * same tick; a separate action for it would be a second request per tick per node for one
          * number.
+         * @param memoryTotalMb the machine's installed memory, in MiB. Written only when given.
+         * @param memoryUsedMb how much of it is in use, in MiB. Written only when given; a
+         * renewal without it clears the stored figure rather than leave a stale one showing.
          * @return false if no node of that name is registered, which is a worker that must
          * register before it renews.
          */
         virtual bool touchNode(const std::string &accountId, const std::string &name,
-                               std::chrono::system_clock::time_point seenAt, double loadAverage) = 0;
+                               std::chrono::system_clock::time_point seenAt, double loadAverage,
+                               std::optional<long> memoryTotalMb, std::optional<long> memoryUsedMb) = 0;
 
         /**
          * @brief Takes a node out of, or back into, the set new instances may be placed on.

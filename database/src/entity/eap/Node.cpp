@@ -49,6 +49,8 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("labels", labelsDoc.extract()),
                 bsoncxx::builder::basic::kvp("cpuCount", static_cast<std::int64_t>(cpuCount)),
                 bsoncxx::builder::basic::kvp("memoryMb", static_cast<std::int64_t>(memoryMb)),
+                bsoncxx::builder::basic::kvp("memoryTotalMb", static_cast<std::int64_t>(memoryTotalMb)),
+                bsoncxx::builder::basic::kvp("memoryUsedMb", static_cast<std::int64_t>(memoryUsedMb)),
                 bsoncxx::builder::basic::kvp("version", version),
                 bsoncxx::builder::basic::kvp("os", os),
                 bsoncxx::builder::basic::kvp("arch", arch),
@@ -75,6 +77,8 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "principal") node.principal = getBsonString(field);
             else if (key == "cpuCount") node.cpuCount = getBsonInt(field);
             else if (key == "memoryMb") node.memoryMb = getBsonInt(field);
+            else if (key == "memoryTotalMb") node.memoryTotalMb = getBsonInt(field);
+            else if (key == "memoryUsedMb") node.memoryUsedMb = getBsonInt(field);
             else if (key == "version") node.version = getBsonString(field);
             else if (key == "os") node.os = getBsonString(field);
             else if (key == "arch") node.arch = getBsonString(field);
