@@ -17,6 +17,7 @@
 #include <vector>
 
 // Euclid includes
+#include <bsoncxx/builder/concatenate.hpp>
 #include <mongocxx/pipeline.hpp>
 
 #include <euclid/core/Configuration.h>
@@ -129,6 +130,18 @@ namespace Euclid::Database {
 
             ensureLevelIndex();
             ensureArchiveIndex();
+
+            // Non-current versions: addressed by the key's ERN and their own ID, listed by key
+            // newest first, removed with their keys by ERN, and looked for by archive file the way
+            // current objects are - an archived version keeps its zip in use.
+            auto versionCollection = Database::instance().collection(OBJECT_VERSION_COLLECTION);
+            mongocxx::options::index versionIdOpts;
+            versionIdOpts.unique(true);
+            versionCollection.create_index(make_document(kvp("ern", 1), kvp("versionId", 1)), versionIdOpts);
+            versionCollection.create_index(make_document(kvp("ern", 1), kvp("supersededSeq", -1)));
+            mongocxx::options::index versionArchiveOpts;
+            versionArchiveOpts.sparse(true);
+            versionCollection.create_index(make_document(kvp("archiveFile", 1)), versionArchiveOpts);
 
             auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
             mongocxx::options::index subscriptionOpts;
@@ -613,7 +626,11 @@ namespace Euclid::Database {
     bool MongoEsmRepository::archiveInUse(const std::string &archiveFile) const {
 
         try {
-            return Database::instance().collection(OBJECT_COLLECTION).count_documents(make_document(kvp("archiveFile", archiveFile)).view(), 1) > 0;
+            const auto filter = make_document(kvp("archiveFile", archiveFile));
+            // A non-current version archived before it was superseded is in the zip too, and is
+            // as much a reason to keep it as a current object is.
+            return Database::instance().collection(OBJECT_COLLECTION).count_documents(filter.view(), 1) > 0 ||
+                   Database::instance().collection(OBJECT_VERSION_COLLECTION).count_documents(filter.view(), 1) > 0;
         } catch (const std::exception &e) {
             log_error << "Count objects in an archive failed, file: " << archiveFile << ", error: " << e.what();
             // Answered as "still in use": the caller deletes the zip on a no.
@@ -1101,6 +1118,157 @@ namespace Euclid::Database {
         }
     }
 
+    namespace {
+
+        bsoncxx::types::b_date toDate(const std::chrono::system_clock::time_point when) {
+            return bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch())};
+        }
+
+        // The whole row, as Object::fromDocument() reads it back. toDocument() leaves out what
+        // setObjectLifecycle() and upsertObject() write separately - the lifecycle and archive
+        // fields, created and modified - and a version has to keep all of them: it is never
+        // written again, and an archived one is only findable through its archive fields.
+        bsoncxx::document::value versionDocument(const Entity::ESM::Object &object) {
+            // Concatenated as raw BSON rather than copied element by element: re-appending each
+            // element's value wrote every empty string as null, which fromDocument() cannot read.
+            // And held in a variable, since a view of a temporary would dangle before it is read.
+            const auto base = object.toDocument();
+            document doc;
+            doc.append(bsoncxx::builder::concatenate(base.view()));
+            doc.append(kvp("created", toDate(object.created)),
+                       kvp("modified", toDate(object.modified)),
+                       kvp("supersededAt", toDate(std::chrono::system_clock::now())),
+                       // The order versions are listed in, to the nanosecond: two superseded in
+                       // the same millisecond - a burst of uploads to one key - would tie on the
+                       // date and come back in whatever order the store keeps them.
+                       kvp("supersededSeq", static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                    std::chrono::system_clock::now().time_since_epoch()).count())),
+                       kvp("lifecycleState", Entity::ESM::LifecycleStateToString(object.lifecycleState)));
+            if (object.archivedAt.has_value()) doc.append(kvp("archivedAt", toDate(*object.archivedAt)));
+            if (object.restoredAt.has_value()) doc.append(kvp("restoredAt", toDate(*object.restoredAt)));
+            if (object.restoredUntil.has_value()) doc.append(kvp("restoredUntil", toDate(*object.restoredUntil)));
+            if (!object.archiveFile.empty()) {
+                const auto &member = object.archiveMember;
+                doc.append(kvp("archiveFile", object.archiveFile),
+                           kvp("archiveOffset", static_cast<std::int64_t>(member.offset)),
+                           kvp("archiveCompressedSize", static_cast<std::int64_t>(member.compressedSize)),
+                           kvp("archiveSize", static_cast<std::int64_t>(member.size)),
+                           kvp("archiveCrc", static_cast<std::int64_t>(member.crc)),
+                           kvp("archiveMethod", static_cast<std::int32_t>(member.method)));
+            }
+            return doc.extract();
+        }
+
+        bsoncxx::array::value ernArray(const std::vector<std::string> &erns) {
+            bsoncxx::builder::basic::array wanted;
+            for (const auto &ern: erns) wanted.append(ern);
+            return wanted.extract();
+        }
+
+    }// namespace
+
+    void MongoEsmRepository::insertObjectVersion(const Entity::ESM::Object &version) {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "insertObjectVersion");
+
+        // Thrown rather than logged and swallowed: the caller is about to let go of the only other
+        // record of this file, and must not if the version was not kept.
+        if (version.versionId.empty()) throw std::invalid_argument("an object version needs a versionId, ern: " + version.ern);
+        std::ignore = Database::instance().collection(OBJECT_VERSION_COLLECTION).insert_one(versionDocument(version).view());
+    }
+
+    std::vector<Entity::ESM::Object> MongoEsmRepository::listObjectVersions(const std::string &ern) const {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "listObjectVersions");
+
+        std::vector<Entity::ESM::Object> versions;
+        try {
+            mongocxx::options::find opts;
+            opts.sort(make_document(kvp("supersededSeq", -1)));
+            for (auto cursor = Database::instance().collection(OBJECT_VERSION_COLLECTION).find(make_document(kvp("ern", ern)).view(), opts);
+                 const auto &document: cursor) {
+                versions.push_back(Entity::ESM::Object::fromDocument(document));
+            }
+        } catch (const std::exception &e) {
+            log_error << "List object versions failed, ern: " << ern << ", error: " << e.what();
+        }
+        return versions;
+    }
+
+    std::optional<Entity::ESM::Object> MongoEsmRepository::findObjectVersion(const std::string &ern, const std::string &versionId) const {
+
+        try {
+            if (const auto found = Database::instance().collection(OBJECT_VERSION_COLLECTION).find_one(
+                        make_document(kvp("ern", ern), kvp("versionId", versionId)).view())) {
+                return Entity::ESM::Object::fromDocument(found->view());
+            }
+        } catch (const std::exception &e) {
+            log_error << "Find object version failed, ern: " << ern << ", versionId: " << versionId << ", error: " << e.what();
+        }
+        return std::nullopt;
+    }
+
+    bool MongoEsmRepository::deleteObjectVersion(const std::string &ern, const std::string &versionId) {
+
+        try {
+            const auto result = Database::instance().collection(OBJECT_VERSION_COLLECTION).delete_one(
+                    make_document(kvp("ern", ern), kvp("versionId", versionId)).view());
+            return result.has_value() && result->deleted_count() > 0;
+        } catch (const std::exception &e) {
+            log_error << "Delete object version failed, ern: " << ern << ", versionId: " << versionId << ", error: " << e.what();
+            return false;
+        }
+    }
+
+    std::vector<Entity::ESM::Object> MongoEsmRepository::listObjectVersionsByErns(const std::vector<std::string> &erns) const {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "listObjectVersionsByErns");
+
+        std::vector<Entity::ESM::Object> versions;
+        if (erns.empty()) return versions;
+        try {
+            for (auto cursor = Database::instance().collection(OBJECT_VERSION_COLLECTION).find(
+                         make_document(kvp("ern", make_document(kvp("$in", ernArray(erns))))).view());
+                 const auto &document: cursor) {
+                versions.push_back(Entity::ESM::Object::fromDocument(document));
+            }
+        } catch (const std::exception &e) {
+            log_error << "List object versions by ERNs failed, error: " << e.what();
+        }
+        return versions;
+    }
+
+    long MongoEsmRepository::deleteObjectVersionsByErns(const std::vector<std::string> &erns) {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "deleteObjectVersionsByErns");
+
+        if (erns.empty()) return 0;
+        try {
+            const auto result = Database::instance().collection(OBJECT_VERSION_COLLECTION).delete_many(
+                    make_document(kvp("ern", make_document(kvp("$in", ernArray(erns))))).view());
+            return result.has_value() ? static_cast<long>(result->deleted_count()) : 0;
+        } catch (const std::exception &e) {
+            log_error << "Delete object versions by ERNs failed, error: " << e.what();
+            return 0;
+        }
+    }
+
+    long MongoEsmRepository::moveObjectVersions(const std::string &oldErn, const std::string &newBucketErn,
+                                                const std::string &newKey, const std::string &newErn) {
+
+        try {
+            const auto result = Database::instance().collection(OBJECT_VERSION_COLLECTION).update_many(
+                    make_document(kvp("ern", oldErn)).view(),
+                    make_document(kvp("$set", make_document(kvp("bucketErn", newBucketErn), kvp("key", newKey), kvp("ern", newErn),
+                                                            kvp("directory", Entity::ESM::IsDirectoryKey(newKey)),
+                                                            kvp("parent", Entity::ESM::ParentOfKey(newKey))))).view());
+            return result.has_value() ? static_cast<long>(result->modified_count()) : 0;
+        } catch (const std::exception &e) {
+            log_error << "Move object versions failed, from: " << oldErn << ", to: " << newErn << ", error: " << e.what();
+            return 0;
+        }
+    }
+
     long MongoEsmRepository::deleteObjectsByErns(const std::vector<std::string> &erns) {
 
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "deleteObjectsByErns");
@@ -1222,6 +1390,21 @@ namespace Euclid::Database {
                     renamed++;
                 }
             }
+            // Their non-current versions carry the same two fields and go with them. A rewrite
+            // per version, which is the right trade: a bucket has versions only if it had
+            // versioning on, and far fewer of them than objects.
+            auto versionCollection = Database::instance().collection(OBJECT_VERSION_COLLECTION);
+            for (auto cursor = versionCollection.find(make_document(kvp("bucketErn", oldBucketErn))); auto document: cursor) {
+                const auto ern = std::string(document["ern"].get_string().value);
+                const auto position = ern.find(oldSegment);
+                const auto rewritten = position == std::string::npos
+                                               ? ern
+                                               : ern.substr(0, position) + newSegment + ern.substr(position + oldSegment.size());
+                std::ignore = versionCollection.update_one(
+                        make_document(kvp("_id", document["_id"].get_oid().value)),
+                        make_document(kvp("$set", make_document(kvp("bucketErn", newBucketErn), kvp("ern", rewritten)))));
+            }
+
             log_debug << "Bucket objects renamed, count: " << renamed << ", bucket: " << newName;
             return renamed;
 

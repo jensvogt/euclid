@@ -84,6 +84,23 @@ namespace Euclid::ESM {
         constexpr auto kDownloadMetaFile = "download.json";
 
         // Directory a multipart download's metadata is staged in until the download is completed or aborted.
+        // Whether a client-supplied upload or download ID is one ESM could have issued: a UUID in
+        // its canonical form, which is all create-upload and create-download ever hand out. Checked
+        // before the ID is joined onto a path. Without it the ID is a path fragment the caller
+        // chooses, and complete-download's remove_all() of "../objects" is the object store.
+        bool IsTransferId(const std::string &id) {
+            if (id.size() != 36) return false;
+            for (std::size_t i = 0; i < id.size(); ++i) {
+                const char c = id[i];
+                if (i == 8 || i == 13 || i == 18 || i == 23) {
+                    if (c != '-') return false;
+                } else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         std::filesystem::path downloadDirFor(const std::string &downloadId) {
             const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
             return std::filesystem::path(dataDir) / "downloads" / downloadId;
@@ -978,6 +995,12 @@ namespace Euclid::ESM {
             }
         }
 
+        // Their non-current versions with them, a page at a time like the objects: one query to
+        // find them - which finds nothing in a bucket that never had versioning - and one to
+        // delete them. Not counted: the bucket's counters describe its current objects only.
+        for (const auto &version: repo->listObjectVersionsByErns(erns)) removeObjectFile(version);
+        repo->deleteObjectVersionsByErns(erns);
+
         // The rows in one statement rather than one apiece. Measured on this installation under
         // load: 1,000 rows took 13,714 ms one at a time and 19 ms together.
         repo->deleteObjectsByErns(erns);
@@ -1799,6 +1822,112 @@ namespace Euclid::ESM {
                                     {"internal", stored.internal}}));
     }
 
+    response<string_body> EsmServer::handleSetBucketVersioning(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-bucket-versioning");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto ern = Core::resolveErn("esm", "bucket", callerAccountId(req), std::string(req["x-euclid-namespace"]),
+                                          Core::GetStringValue(jv, "ern"));
+        if (ern.empty()) return ErrorResponse(req, status::bad_request, "ern is required");
+
+        // Required rather than defaulted: unlike hiding a bucket, either answer is a change
+        // somebody may not have meant, and the two cost very different amounts of disk.
+        const auto *flag = jv.as_object().if_contains("enabled");
+        if (flag == nullptr || !flag->is_bool()) return ErrorResponse(req, status::bad_request, "enabled (true or false) is required");
+        const bool enabled = flag->as_bool();
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto bucket = repo->findBucketByErn(ern);
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + ern);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, ern)) return *denied;
+
+        bucket->versioning = enabled;
+        const auto stored = repo->upsertBucket(*bucket);
+
+        log_info << "ESM bucket versioning set, bucket: " << stored.name << ", versioning: " << enabled;
+
+        return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                    {"ern", stored.ern},
+                                    {"name", stored.name},
+                                    {"versioning", stored.versioning}}));
+    }
+
+    response<string_body> EsmServer::handleListObjectVersions(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-object-versions");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto bucketErn = Core::resolveErn("esm", "bucket", callerAccountId(req), std::string(req["x-euclid-namespace"]),
+                                                Core::GetStringValue(jv, "bucketErn"));
+        const auto key = Core::GetStringValue(jv, "key");
+        if (bucketErn.empty() || key.empty()) return ErrorResponse(req, status::bad_request, "bucketErn and key are required");
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto bucket = repo->findBucketByErn(bucketErn);
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
+
+        // The key's ERN is what versions are kept under, and it is derived rather than looked up:
+        // a key whose current object was deleted with --version-id down to nothing has no row, and
+        // nothing left to list either - but one that still has a current object names it here.
+        const auto current = repo->findObjectByBucketAndKey(bucketErn, key);
+        const auto ern = current.has_value() ? current->ern
+                                             : Core::createEsmObjectErn(bucket->accountId, bucket->nameSpace, bucket->name + "/" + key);
+        const auto versions = repo->listObjectVersions(ern);
+        if (!current.has_value() && versions.empty()) {
+            return ErrorResponse(req, status::not_found, "Object not found, bucket: " + bucketErn + ", key: " + key);
+        }
+
+        const auto describe = [](const Database::Entity::ESM::Object &object, const bool latest) {
+            return boost::json::object{
+                    {"versionId", object.versionId},
+                    {"latest", latest},
+                    {"size", object.size},
+                    {"md5Sum", object.md5Sum},
+                    {"contentType", object.contentType},
+                    {"status", Database::Entity::ESM::ObjectStatusToString(object.status)},
+                    {"lifecycleState", Database::Entity::ESM::LifecycleStateToString(object.lifecycleState)},
+                    {"owner", object.owner},
+                    {"modified", Core::DateTimeUtils::ToISO8601(object.modified)},
+            };
+        };
+
+        boost::json::array list;
+        if (current.has_value()) list.push_back(describe(*current, true));
+        for (const auto &version: versions) list.push_back(describe(version, false));
+
+        return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                    {"bucketErn", bucketErn},
+                                    {"key", key},
+                                    {"ern", ern},
+                                    {"versioning", bucket->versioning},
+                                    {"versions", list},
+                                    {"total", static_cast<std::int64_t>(list.size())}}));
+    }
+
     response<string_body> EsmServer::handleSetBucketPriority(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-bucket-priority");
@@ -2209,6 +2338,35 @@ namespace Euclid::ESM {
         const auto internalName = Core::UuidUtils::CreateRandomUuid();
         const auto ern = Core::createEsmObjectErn(auth.user->accountId, bucket->nameSpace, bucket->name + "/" + key);
 
+        // Small enough to hash/sniff inline rather than handing off to a background thread the way
+        // complete-upload does for a potentially huge assembled file - this whole handler only
+        // exists for objects under the client's part size in the first place.
+        //
+        // Taken from the bytes the client sent rather than read back off the file: identical for an
+        // object stored in the clear, and for an encrypted one the only way to get a checksum and a
+        // content type that describe the object instead of its ciphertext. And taken before
+        // anything is written, because in a versioned bucket it decides whether anything is.
+        const auto md5Sum = Core::CryptoUtils::md5Sum(data);
+        const auto contentType = contentTypeForBuffer(data, key);
+
+        // The bytes the key already holds: nothing to store, nothing to tell anybody about. The
+        // answer describes what is there, so a client that wanted the object stored learns it is.
+        const auto outcome = Database::Entity::ESM::DecideUploadOutcome(bucket->versioning, existingObject, md5Sum);
+        if (outcome == Database::Entity::ESM::UploadOutcome::UNCHANGED) {
+            log_info << "ESM put object unchanged, bucket: " << bucketErn << ", key: " << key << ", md5Sum: " << md5Sum;
+            Dto::ESM::CompleteUploadResponse response;
+            response.bucketErn = bucketErn;
+            response.key = key;
+            response.ern = existingObject->ern;
+            response.size = existingObject->size;
+            response.status = Database::Entity::ESM::ObjectStatusToString(existingObject->status);
+            response.contentType = existingObject->contentType;
+            response.md5Sum = existingObject->md5Sum;
+            response.versionId = existingObject->versionId;
+            response.unchanged = true;
+            return JsonResponse(req, status::ok, response.toJson());
+        }
+
         // The next of the configured storage directories, or the data directory - see StorageDirs.h.
         const auto storageDir = NextStorageDir(esmDataDir(), data.size());
         if (!storageDir.has_value()) {
@@ -2256,15 +2414,17 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::internal_server_error, "Could not write object");
         }
 
-        // Small enough to hash/sniff inline rather than handing off to a background thread the way
-        // complete-upload does for a potentially huge assembled file - this whole handler only
-        // exists for objects under the client's part size in the first place.
-        //
-        // Taken from the bytes the client sent rather than read back off the file: identical for an
-        // object stored in the clear, and for an encrypted one the only way to get a checksum and a
-        // content type that describe the object instead of its ciphertext.
-        const auto md5Sum = Core::CryptoUtils::md5Sum(data);
-        const auto contentType = contentTypeForBuffer(data, key);
+        // The object being replaced, kept before the row that names its file is overwritten: from
+        // then on this is the only record of where that file is.
+        if (outcome == Database::Entity::ESM::UploadOutcome::NEW_VERSION) {
+            try {
+                repo->insertObjectVersion(Database::Entity::ESM::SupersededVersion(*existingObject));
+            } catch (const std::exception &ex) {
+                log_error << "ESM could not keep the previous version, bucket: " << bucketErn << ", key: " << key << ", error: " << ex.what();
+                discardPartialObject(destPath);
+                return ErrorResponse(req, status::internal_server_error, "Could not keep the previous version");
+            }
+        }
 
         Database::Entity::ESM::Object object;
         if (existingObject) object.oid = existingObject->oid;
@@ -2284,6 +2444,7 @@ namespace Euclid::ESM {
         object.encryptionKeyErn = bucket->encryptionKeyErn;
         object.attributes = *attributes;
         object.systemAttributes = *systemAttributes;
+        if (bucket->versioning) object.versionId = Database::Entity::ESM::NewVersionId();
         // Writing it is using it.
         object.lastAccessed = std::chrono::system_clock::now();
         repo->upsertObject(object);
@@ -2305,8 +2466,10 @@ namespace Euclid::ESM {
                                    isDirectory || existingObject ? 0 : 1,
                                    isDirectory && !existingObject ? 1 : 0);
 
-        // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
-        if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
+        // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file -
+        // unless it was kept as a version, whose row still names it.
+        if (outcome == Database::Entity::ESM::UploadOutcome::REPLACE && existingObject && !existingObject->internalName.empty() &&
+            existingObject->internalName != internalName) {
             removeObjectFile(*existingObject);
         }
 
@@ -2325,6 +2488,7 @@ namespace Euclid::ESM {
         response.status = Database::Entity::ESM::ObjectStatusToString(Database::Entity::ESM::ObjectStatus::COMPLETED);
         response.contentType = contentType;
         response.md5Sum = md5Sum;
+        response.versionId = object.versionId;
 
         return JsonResponse(req, status::ok, response.toJson());
     }
@@ -2456,6 +2620,9 @@ namespace Euclid::ESM {
         if (uploadId.empty()) {
             return ErrorResponse(req, status::bad_request, "Missing x-euclid-upload-id header");
         }
+        if (!IsTransferId(uploadId)) {
+            return ErrorResponse(req, status::bad_request, "Invalid upload id: " + uploadId);
+        }
 
         long partNumber = 0;
         try {
@@ -2533,6 +2700,9 @@ namespace Euclid::ESM {
         const auto request = boost::json::value_to<Dto::ESM::AbortUploadRequest>(jv);
         if (request.uploadId.empty()) {
             return ErrorResponse(req, status::bad_request, "uploadId is required");
+        }
+        if (!IsTransferId(request.uploadId)) {
+            return ErrorResponse(req, status::bad_request, "Invalid upload id: " + request.uploadId);
         }
 
         const auto uploadDir = uploadDirFor(request.uploadId);
@@ -2634,6 +2804,9 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::bad_request, "Malformed x-euclid-system-attributes header");
         }
 
+        if (!IsTransferId(request.uploadId)) {
+            return ErrorResponse(req, status::bad_request, "Invalid upload id: " + request.uploadId);
+        }
         const auto uploadDir = uploadDirFor(request.uploadId);
         const auto metaPath = uploadDir / kUploadMetaFile;
         if (!std::filesystem::exists(metaPath)) {
@@ -2837,11 +3010,38 @@ namespace Euclid::ESM {
                     contentType = contentTypeForBuffer(sniff, key);
                 }
 
+                // Decided now that the MD5 is known. The bytes the key already holds are not stored a
+                // second time: the assembled file goes, the upload's scratch storage with it, and the
+                // current object is put back the way it was before complete-upload marked it
+                // UPLOADED - what a client polling for COMPLETED is waiting to see.
+                const auto outcome = Database::Entity::ESM::DecideUploadOutcome(bucket.has_value() && bucket->versioning, existingObject, md5Sum);
+                if (outcome == Database::Entity::ESM::UploadOutcome::UNCHANGED) {
+                    discardPartialObject(destPath);
+                    std::filesystem::remove_all(uploadDir, ec);
+                    if (ec)
+                        log_warning << "Could not remove upload storage, path: " << uploadDir.string() << ", error: " << ec.message();
+                    if (auto current = repo->findObjectByBucketAndKey(bucketErn, key);
+                        current.has_value() && current->internalName == existingObject->internalName) {
+                        current->status = existingObject->status;
+                        repo->upsertObject(*current);
+                    }
+                    log_info << "Completed upload unchanged, id: " << uploadId << ", key: " << key << ", md5Sum: " << md5Sum;
+                    return;
+                }
+
                 // On disk before the parts go and before the row says COMPLETED: after this the parts
                 // are the only other copy, and after the row nothing would ever look again.
                 if (!persistObjectFile(destPath, "upload id: " + uploadId)) {
                     discardPartialObject(destPath);
                     return;
+                }
+
+                // The object being replaced, kept before the row naming its file is overwritten. The
+                // snapshot is the one taken before complete-upload marked it UPLOADED, so the version
+                // is kept as what it was: COMPLETED. Before the parts go, so a failure here leaves
+                // the upload where a retry can find it.
+                if (outcome == Database::Entity::ESM::UploadOutcome::NEW_VERSION) {
+                    repo->insertObjectVersion(Database::Entity::ESM::SupersededVersion(*existingObject));
                 }
 
                 std::filesystem::remove_all(uploadDir, ec);
@@ -2864,6 +3064,7 @@ namespace Euclid::ESM {
                 object.contentType = contentType;
                 object.md5Sum = md5Sum;
                 object.encryptionKeyErn = encryptionKeyErn;
+                if (bucket.has_value() && bucket->versioning) object.versionId = Database::Entity::ESM::NewVersionId();
 
                 // Merged onto whatever the row carries now, rather than assigned over it. This
                 // pass runs in the background after complete-upload has already answered, so a
@@ -2903,8 +3104,10 @@ namespace Euclid::ESM {
                                            isDirectory || existingObject ? 0 : 1,
                                            isDirectory && !existingObject ? 1 : 0);
 
-                // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
-                if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
+                // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old
+                // file - unless it was kept as a version, whose row still names it.
+                if (outcome == Database::Entity::ESM::UploadOutcome::REPLACE && existingObject && !existingObject->internalName.empty() &&
+                    existingObject->internalName != internalName) {
                     removeObjectFile(*existingObject);
                 }
 
@@ -2950,6 +3153,26 @@ namespace Euclid::ESM {
     // instead of this handler ever risking an unbounded response body.
     //
     // Like download-part, the response body is raw bytes ("application/octet-stream"), not JSON.
+    // The current object at a key, or one of its versions. A version ID that names the current
+    // object is the current object; any other is looked for among the non-current ones, under the
+    // key's ERN - which is the current object's, or derived from the bucket when there is none.
+    static std::optional<Database::Entity::ESM::Object> findObjectOrVersion(const std::string &bucketErn, const std::string &key,
+                                                                            const std::string &versionId) {
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto object = repo->findObjectByBucketAndKey(bucketErn, key);
+        if (versionId.empty() || (object.has_value() && object->versionId == versionId)) return object;
+
+        std::string ern;
+        if (object.has_value()) {
+            ern = object->ern;
+        } else if (const auto bucket = repo->findBucketByErn(bucketErn); bucket.has_value()) {
+            ern = Core::createEsmObjectErn(bucket->accountId, bucket->nameSpace, bucket->name + "/" + key);
+        } else {
+            return std::nullopt;
+        }
+        return repo->findObjectVersion(ern, versionId);
+    }
+
     response<string_body> EsmServer::handleGetObject(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-object");
@@ -2976,12 +3199,13 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::bad_request, "x-euclid-part-size must be >= 1");
         }
 
-        const auto repo = Database::RepositoryFactory::instance().esmRepository();
         if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
 
-        const auto object = repo->findObjectByBucketAndKey(bucketErn, key);
+        const auto versionId = std::string(req["x-euclid-version-id"]);
+        const auto object = findObjectOrVersion(bucketErn, key, versionId);
         if (!object.has_value()) {
-            return ErrorResponse(req, status::not_found, "Object not found, bucket: " + bucketErn + ", key: " + key);
+            return ErrorResponse(req, status::not_found, "Object not found, bucket: " + bucketErn + ", key: " + key +
+                                                                 (versionId.empty() ? "" : ", versionId: " + versionId));
         }
         if (!Database::Entity::ESM::IsDownloadable(object->status)) {
             return ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
@@ -2990,7 +3214,8 @@ namespace Euclid::ESM {
         if (object->size >= maxInlineSize) {
             return ErrorResponse(req, status::payload_too_large, "Object is too large for a single-request download, size: " + std::to_string(object->size));
         }
-        noteAccess(*object);
+        // Reading an old version is not using the object: its lifecycle runs on the current one.
+        if (versionId.empty()) noteAccess(*object);
 
         // The key the object was actually stored under, which is not necessarily the one the bucket
         // names today - see readKeyForObject().
@@ -3049,6 +3274,23 @@ namespace Euclid::ESM {
     // completed object being downloaded and stages a meta file recording where download-part
     // should read bytes *from*, keyed by a download ID the caller carries for the lifetime of the
     // download.
+    // Refuses a download-part or complete-download for a download the caller did not start, or
+    // whose bucket they may no longer read. Every create-download has recorded its owner, so a
+    // download without one is refused rather than served to anybody; its client can start again.
+    static std::optional<response<string_body> > refuseForeignDownload(const request<string_body> &req, const AuthResult &auth,
+                                                                     const boost::json::value &meta, const std::string &downloadId) {
+        const auto *owner = meta.is_object() ? meta.as_object().if_contains("owner") : nullptr;
+        if (owner == nullptr || !owner->is_string() || std::string(owner->as_string()) != auth.user->userId) {
+            log_warning << "ESM download refused, not the caller's, id: " << downloadId << ", userId: " << auth.user->userId;
+            return EsmServer::ErrorResponse(req, status::forbidden, "Download does not belong to the caller, id: " + downloadId);
+        }
+        const auto *bucketErn = meta.as_object().if_contains("bucketErn");
+        if (bucketErn == nullptr || !bucketErn->is_string()) {
+            return EsmServer::ErrorResponse(req, status::forbidden, "Download names no bucket, id: " + downloadId);
+        }
+        return denyUngrantedBucket(req, auth, std::string(bucketErn->as_string()));
+    }
+
     response<string_body> EsmServer::handleCreateDownload(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-download");
@@ -3061,17 +3303,32 @@ namespace Euclid::ESM {
 
         const auto request = boost::json::value_to<Dto::ESM::CreateDownloadRequest>(jv);
 
-        const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        const auto object = repo->findObjectByBucketAndKey(request.bucketErn, request.key);
+        // The same checks get-object makes. This is the read every object over the inline limit
+        // takes, and the download ID it hands out is all download-part asks for - so a bucket the
+        // caller may not read must be refused here, before there is an ID to use.
+        {
+            const auto bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(request.bucketErn);
+            if (!bucket.has_value()) {
+                return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
+            }
+            if (bucket->accountId != auth.user->accountId) {
+                return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+            }
+            if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
+        }
+
+        const auto object = findObjectOrVersion(request.bucketErn, request.key, request.versionId);
         if (!object.has_value()) {
-            return ErrorResponse(req, status::not_found, "Object not found, bucket: " + request.bucketErn + ", key: " + request.key);
+            return ErrorResponse(req, status::not_found, "Object not found, bucket: " + request.bucketErn + ", key: " + request.key +
+                                                                 (request.versionId.empty() ? "" : ", versionId: " + request.versionId));
         }
         if (!Database::Entity::ESM::IsDownloadable(object->status)) {
             return ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
         }
         if (const auto refused = refuseArchived(req, *object)) return *refused;
         // Once per download, here where it starts: its parts are one use of the object, not many.
-        noteAccess(*object);
+        // And only of the current one - reading an old version is not using the object.
+        if (request.versionId.empty()) noteAccess(*object);
 
         const auto downloadId = Core::UuidUtils::CreateRandomUuid();
         const auto downloadDir = downloadDirFor(downloadId);
@@ -3130,7 +3387,8 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "download-part");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         const auto downloadId = std::string(req["x-euclid-download-id"]);
         if (downloadId.empty()) {
@@ -3157,6 +3415,9 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::bad_request, "x-euclid-part-size must be >= 1");
         }
 
+        if (!IsTransferId(downloadId)) {
+            return ErrorResponse(req, status::bad_request, "Invalid download id: " + downloadId);
+        }
         const auto downloadDir = downloadDirFor(downloadId);
         if (!std::filesystem::exists(downloadDir / kDownloadMetaFile)) {
             return ErrorResponse(req, status::not_found, "Download not found, id: " + downloadId);
@@ -3169,6 +3430,12 @@ namespace Euclid::ESM {
             buffer << metaFile.rdbuf();
             meta = boost::json::parse(buffer.str());
         }
+        // A download ID reads the object for whoever started the download, and only for them: the ID
+        // travels in a header and is not a credential. And only while they may still read the
+        // bucket, since a grant revoked mid-download should stop the next part rather than wait
+        // for the download to finish.
+        if (const auto refused = refuseForeignDownload(req, auth, meta, downloadId)) return *refused;
+
         const auto internalName = std::string(meta.at("internalName").as_string());
         // Absent from a download created by an older ESM, whose objects were all in the data
         // directory - which is what an empty internalDir means.
@@ -3242,7 +3509,8 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "complete-download");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = ParseJsonBody(req, jv)) return *err;
@@ -3250,7 +3518,25 @@ namespace Euclid::ESM {
         const auto request = boost::json::value_to<Dto::ESM::CompleteDownloadRequest>(jv);
         log_info << "ESM CompleteDownload, id: " << request.downloadId;
 
+        if (!IsTransferId(request.downloadId)) {
+            return ErrorResponse(req, status::bad_request, "Invalid download id: " + request.downloadId);
+        }
         const auto downloadDir = downloadDirFor(request.downloadId);
+
+        // Nothing to end is not an error - a client that retries a completion it already made
+        // gets the answer it got the first time. A download that is there is ended only by the
+        // user who started it.
+        if (std::filesystem::exists(downloadDir / kDownloadMetaFile)) {
+            boost::json::value meta;
+            {
+                std::ifstream metaFile(downloadDir / kDownloadMetaFile);
+                std::ostringstream buffer;
+                buffer << metaFile.rdbuf();
+                meta = boost::json::parse(buffer.str());
+            }
+            if (const auto refused = refuseForeignDownload(req, auth, meta, request.downloadId)) return *refused;
+        }
+
         std::error_code ec;
         std::filesystem::remove_all(downloadDir, ec);
         if (ec)
@@ -3480,6 +3766,57 @@ namespace Euclid::ESM {
         return JsonResponse(req, status::ok, response.toJson());
     }
 
+    // Deletes one version of an object. A non-current version is its row and its file and
+    // nothing else: the key reads as it did. The current one is replaced by the newest version
+    // left, which becomes the current object - row, file and lifecycle state - so the key goes on
+    // answering with the last thing that was stored in it before the version that was deleted.
+    // The caller has already made sure a current version being deleted has one to fall back to.
+    static response<string_body> deleteObjectVersion(const request<string_body> &req, const AuthResult &auth,
+                                                     const std::string &ern, const std::string &versionId,
+                                                     const std::optional<Database::Entity::ESM::Object> &current) {
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+
+        if (current.has_value() && current->versionId == versionId) {
+            if (const auto denied = denyUngrantedBucket(req, auth, current->bucketErn)) return *denied;
+
+            const auto versions = repo->listObjectVersions(ern);
+            if (versions.empty()) return EsmServer::ErrorResponse(req, status::internal_server_error, "No version to fall back to");
+            auto promoted = versions.front();
+            promoted.oid = current->oid;
+            const auto stored = repo->upsertObject(promoted);
+            // upsertObject() writes neither the lifecycle nor the archive fields, so the row would
+            // otherwise keep the deleted version's - and a promoted version that is archived would
+            // be read from a file it does not have.
+            std::ignore = repo->clearObjectLifecycle(promoted);
+            if (promoted.lifecycleState != Database::Entity::ESM::LifecycleState::STANDARD || promoted.restoredUntil.has_value()) {
+                std::ignore = repo->setObjectLifecycle(promoted, Database::Entity::ESM::LifecycleState::STANDARD);
+            }
+            repo->deleteObjectVersion(ern, promoted.versionId);
+            removeObjectFile(*current);
+            repo->adjustBucketCounters(current->bucketErn, promoted.size - current->size, 0);
+
+            log_info << "ESM current version deleted, ern: " << ern << ", versionId: " << versionId << ", now current: " << promoted.versionId;
+            const auto bucket = repo->findBucketByErn(current->bucketErn);
+            publishObjectEvent(kObjectUpdated, stored, bucket, auth.user->userId);
+            return EsmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                   {"ern", ern}, {"versionId", versionId}, {"currentVersionId", promoted.versionId}}));
+        }
+
+        const auto version = repo->findObjectVersion(ern, versionId);
+        if (!version.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Object version not found, ern: " + ern + ", versionId: " + versionId);
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, version->bucketErn)) return *denied;
+
+        removeObjectFile(*version);
+        repo->deleteObjectVersion(ern, versionId);
+        log_info << "ESM object version deleted, ern: " << ern << ", versionId: " << versionId;
+        return EsmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                               {"ern", ern}, {"versionId", versionId},
+                                               {"currentVersionId", current.has_value() ? current->versionId : std::string()}}));
+    }
+
     response<string_body> EsmServer::handleDeleteObject(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-object");
@@ -3491,7 +3828,7 @@ namespace Euclid::ESM {
         if (const auto err = ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ESM::DeleteObjectRequest>(jv);
-        log_info << "Storage DeleteObject, ern: " << request.ern;
+        log_info << "Storage DeleteObject, ern: " << request.ern << (request.versionId.empty() ? "" : ", versionId: " + request.versionId);
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
 
@@ -3500,6 +3837,13 @@ namespace Euclid::ESM {
         // object is also what the event below is made of, and after the delete there is nothing
         // left to describe it with.
         const auto object = repo->findObjectByErn(request.ern);
+
+        // One version rather than the object. Deleting the current one hands the key to the newest
+        // version left; deleting a non-current one changes nothing anybody reading the key sees.
+        if (!request.versionId.empty() && !(object.has_value() && object->versionId == request.versionId && repo->listObjectVersions(request.ern).empty())) {
+            return deleteObjectVersion(req, auth, request.ern, request.versionId, object);
+        }
+
         std::optional<Database::Entity::ESM::Bucket> bucket;
         if (object.has_value()) {
             // Addressed by object ERN, so which bucket it belongs to is only known now - and that
@@ -3514,6 +3858,10 @@ namespace Euclid::ESM {
 
             removeObjectFile(*object);
         }
+
+        // The key's history goes with it: nothing could reach a version of a key that has no object.
+        for (const auto &version: repo->listObjectVersions(request.ern)) removeObjectFile(version);
+        repo->deleteObjectVersionsByErns({request.ern});
 
         repo->deleteObjectByErn(request.ern);
 
@@ -3800,6 +4148,17 @@ namespace Euclid::ESM {
         }
         const bool reEncrypt = source->encryptionKeyErn != targetBucket->encryptionKeyErn;
 
+        // A move takes the key's history with it, and the versions' files are where they are, under
+        // the key they were stored under. Rewriting each of them into another bucket's encryption
+        // is a copy of every version - refused instead, so a move stays a row edit and nothing
+        // ends up in a bucket under encryption it did not choose.
+        const auto sourceVersions = keepSource ? std::vector<Database::Entity::ESM::Object>{} : repo->listObjectVersions(source->ern);
+        if (!keepSource && reEncrypt && !sourceVersions.empty()) {
+            return EsmServer::ErrorResponse(req, status::conflict,
+                                            "Object has " + std::to_string(sourceVersions.size()) +
+                                                    " non-current version(s) and the target bucket's encryption differs; delete them first, or copy the object instead");
+        }
+
         const auto sourcePath = Core::DirUtils::FindFilePath(objectRoot(*source), source->internalName);
 
         Database::Entity::ESM::Object target = *source;
@@ -3809,6 +4168,9 @@ namespace Euclid::ESM {
         target.ern = Core::createEsmObjectErn(auth.user->accountId, targetBucket->nameSpace, targetBucket->name + "/" + targetKey);
         target.encryptionKeyErn = targetBucket->encryptionKeyErn;
         target.created = std::chrono::system_clock::now();
+        // A copy is a new object with no history of its own; a move is the same object, which
+        // keeps its version - in a bucket with versioning, or one without that it came from.
+        if (keepSource) target.versionId = targetBucket->versioning ? Database::Entity::ESM::NewVersionId() : std::string();
 
         // The file the move leaves behind when it had to rewrite the bytes after all; dropped once
         // no row points at it any more.
@@ -3866,6 +4228,9 @@ namespace Euclid::ESM {
         if (keepSource) noteAccess(*source);
 
         const auto stored = repo->upsertObject(target);
+        if (!keepSource && !sourceVersions.empty()) {
+            std::ignore = repo->moveObjectVersions(source->ern, targetBucketErn, targetKey, stored.ern);
+        }
 
         if (supersedesSource) {
             removeObjectFile(*source);
@@ -4508,6 +4873,7 @@ namespace Euclid::ESM {
             DeleteBucket,
             RenameBucket,
             SetBucketInternal,
+            SetBucketVersioning,
             SetBucketPriority,
             StopBucket,
             SetBucketLifecycle,
@@ -4546,6 +4912,7 @@ namespace Euclid::ESM {
             AddObjectAttribute,
             SetObjectAttribute,
             ListObjectAttributes,
+            ListObjectVersions,
             DeleteObjectAttribute,
             DeleteObject,
             DeleteObjects,
@@ -4583,6 +4950,7 @@ namespace Euclid::ESM {
         if (action == "rename-object") return Command::RenameObject;
         if (action == "rename-bucket") return Command::RenameBucket;
         if (action == "set-bucket-internal") return Command::SetBucketInternal;
+        if (action == "set-bucket-versioning") return Command::SetBucketVersioning;
         if (action == "set-bucket-priority") return Command::SetBucketPriority;
         if (action == "stop-bucket") return Command::StopBucket;
         if (action == "start-bucket") return Command::StartBucket;
@@ -4595,6 +4963,7 @@ namespace Euclid::ESM {
         if (action == "add-object-attribute") return Command::AddObjectAttribute;
         if (action == "set-object-attribute") return Command::SetObjectAttribute;
         if (action == "list-object-attributes") return Command::ListObjectAttributes;
+        if (action == "list-object-versions") return Command::ListObjectVersions;
         if (action == "delete-object-attribute") return Command::DeleteObjectAttribute;
         if (action == "delete-object") return Command::DeleteObject;
         if (action == "delete-objects") return Command::DeleteObjects;
@@ -4860,6 +5229,12 @@ namespace Euclid::ESM {
 
             case Command::SetBucketInternal:
                 return handleSetBucketInternal(req);
+
+            case Command::SetBucketVersioning:
+                return handleSetBucketVersioning(req);
+
+            case Command::ListObjectVersions:
+                return handleListObjectVersions(req);
 
             case Command::SetBucketPriority:
                 return handleSetBucketPriority(req);

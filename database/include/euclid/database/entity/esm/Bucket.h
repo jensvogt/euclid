@@ -128,6 +128,18 @@ namespace Euclid::Database::Entity::ESM {
         bool stopped = false;
 
         /**
+         * @brief Whether an upload over an existing key keeps the object it replaces.
+         *
+         * @par
+         * On, a new upload whose bytes differ from the current object's (by MD5) becomes the
+         * current object, and the one it replaces is kept as a non-current version - its file
+         * stays on disk and its row moves to the version collection. One whose bytes are the same
+         * is ignored: nothing is written and no event is published. Off, an upload replaces the
+         * object and its file, as it always has. Turning it off keeps the versions already made.
+         */
+        bool versioning = false;
+
+        /**
          * @brief What to archive, and when - see LifecycleRule. Empty: nothing in the bucket is ever
          * archived by a rule, which is every bucket made before rules existed.
          */

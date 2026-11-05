@@ -21,6 +21,11 @@ namespace Euclid::Dto::ESM {
         std::string ern;
 
         /**
+         * @brief Only this version of the object; empty deletes the object and every version of it.
+         */
+        std::string versionId;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]]
@@ -41,12 +46,14 @@ namespace Euclid::Dto::ESM {
         friend DeleteObjectRequest tag_invoke(boost::json::value_to_tag<DeleteObjectRequest>, boost::json::value const &v) {
             DeleteObjectRequest r;
             r.ern = Core::GetStringValue(v, "ern");
+            r.versionId = Core::GetStringValue(v, "versionId");
             return r;
         }
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteObjectRequest const &obj) {
             jv = {
                     {"ern", obj.ern},
+                    {"versionId", obj.versionId},
             };
         }
     };

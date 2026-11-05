@@ -35,6 +35,7 @@
 #include <euclid/database/entity/esm/Object.h>
 #include <euclid/database/entity/esm/ObjectStatus.h>
 #include <euclid/database/entity/esm/Subscription.h>
+#include <euclid/database/entity/esm/Versioning.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/esm/CompleteDownloadRequest.h>
 #include <euclid/dto/esm/AbortUploadRequest.h>
@@ -221,6 +222,28 @@ namespace Euclid::ESM {
          * @return HTTP response
          */
         static response<string_body> handleSetBucketInternal(const request<string_body> &req);
+
+        /**
+         * @brief Turns versioning on or off for a bucket.
+         *
+         * @par
+         * On, an upload over an existing key whose bytes differ (by MD5) keeps the object it
+         * replaces as a non-current version, and one whose bytes are the same is ignored. Off,
+         * uploads replace as they always have; the versions already kept stay until deleted.
+         *
+         * @param req HTTP request
+         * @return HTTP response
+         */
+        static response<string_body> handleSetBucketVersioning(const request<string_body> &req);
+
+        /**
+         * @brief Lists every version of one key: the current object first, then the non-current
+         * ones, newest first.
+         *
+         * @param req HTTP request
+         * @return HTTP response
+         */
+        static response<string_body> handleListObjectVersions(const request<string_body> &req);
 
         /**
          * @brief Sets the priority the notifications this bucket sends are given.

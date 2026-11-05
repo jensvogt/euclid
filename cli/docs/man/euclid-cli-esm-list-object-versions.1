@@ -1,0 +1,63 @@
+.TH EUCLID-CLI-ESM-LIST-OBJECT-VERSIONS 1 "November 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-list-object-versions \- list every version of an object
+.SH SYNOPSIS
+.B euclid-cli esm list-object-versions
+.BR \-\-bucket | \-b
+.I NAME|ERN
+.BR \-\-key | \-k
+.I KEY
+.SH DESCRIPTION
+Lists every version of one object: the current one first, marked
+.BR "\(dqlatest\(dq: true" ,
+then the non-current versions a bucket with versioning has kept, the most
+recently replaced first. See
+.BR euclid-cli-esm-set-bucket-versioning (1).
+.PP
+Each version carries its
+.IR versionId ,
+.IR size ,
+.IR md5Sum ,
+.IR contentType ,
+.IR status ,
+.I lifecycleState
+and when it was stored
+.RI ( modified ).
+An object stored before versioning was turned on has an empty
+.I versionId
+until it is replaced, when it is given one.
+.PP
+In a bucket without versioning, the list is the current object alone.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+The object's bucket, by name or ERN. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+The object's key within the bucket. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The versions are printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, the server could not be reached, the
+caller may not read the bucket, or the key has no object and no versions.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli esm list-object-versions --bucket incoming --key feed.xml
+
+# download the version before the current one
+euclid-cli esm download-file --bucket incoming --key feed.xml --file feed-previous.xml \e
+    --version-id "$(euclid-cli esm list-object-versions --bucket incoming --key feed.xml \e
+                    | jq -r '.versions[1].versionId')"
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-set-bucket-versioning (1),
+.BR euclid-cli-esm-download-file (1),
+.BR euclid-cli-esm-delete-object (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

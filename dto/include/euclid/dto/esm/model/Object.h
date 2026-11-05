@@ -57,6 +57,11 @@ namespace Euclid::Dto::ESM {
         std::string md5Sum;
 
         /**
+         * @brief Which version of the key this is; empty for an object stored without versioning.
+         */
+        std::string versionId;
+
+        /**
          * @brief Whether this object's bytes are stored encrypted at rest
          */
         bool encrypted{};
@@ -119,6 +124,7 @@ namespace Euclid::Dto::ESM {
             r.status = Core::GetStringValue(v, "status");
             r.contentType = Core::GetStringValue(v, "contentType");
             r.md5Sum = Core::GetStringValue(v, "md5Sum");
+            r.versionId = Core::GetStringValue(v, "versionId");
             r.encrypted = Core::GetBoolValue(v, "encrypted");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.created = Core::GetDatetimeValue(v, "created");
@@ -138,6 +144,7 @@ namespace Euclid::Dto::ESM {
                     {"status", obj.status},
                     {"contentType", obj.contentType},
                     {"md5Sum", obj.md5Sum},
+                    {"versionId", obj.versionId},
                     {"encrypted", obj.encrypted},
                     {"attributes", boost::json::value_from(obj.attributes)},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},

@@ -174,6 +174,16 @@ namespace Euclid::CLI {
         int setBucketInternal(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Turns versioning on or off for a bucket - "esm set-bucket-versioning".
+         */
+        int setBucketVersioning(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Lists every version of one object - "esm list-object-versions".
+         */
+        int listObjectVersions(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Sets the priority this bucket's notifications are sent with.
          *
          * @param args command line arguments
@@ -633,7 +643,7 @@ namespace Euclid::CLI {
          * otherwise
          */
         [[nodiscard]]
-        BinaryHttpResponse getObject(const std::string &bucketErn, const std::string &key, long maxInlineSize) const;
+        BinaryHttpResponse getObject(const std::string &bucketErn, const std::string &key, long maxInlineSize, const std::string &versionId = {}) const;
 
         /**
          * @brief Starts a multipart download (internal helper used by downloadFile; not a
@@ -650,7 +660,7 @@ namespace Euclid::CLI {
          * already printed to stderr)
          */
         [[nodiscard]]
-        std::optional<Dto::ESM::CreateDownloadResponse> createDownload(const std::string &bucketErn, const std::string &key, int concurrency) const;
+        std::optional<Dto::ESM::CreateDownloadResponse> createDownload(const std::string &bucketErn, const std::string &key, int concurrency, const std::string &versionId = {}) const;
 
         /**
          * @brief Downloads one part of a multipart download and writes it at the right offset in
@@ -702,7 +712,7 @@ namespace Euclid::CLI {
          * @return 0 on success, 1 on failure (error already printed to stderr)
          */
         [[nodiscard]]
-        int downloadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, long partSize, int concurrency, boost::json::value &outResult) const;
+        int downloadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, long partSize, int concurrency, boost::json::value &outResult, const std::string &versionId = {}) const;
 
         /**
          * @brief Fetches every object matching bucketErn/prefix, paging through list-objects

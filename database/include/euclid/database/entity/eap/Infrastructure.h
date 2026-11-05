@@ -218,7 +218,7 @@ namespace Euclid::Database::Entity::EAP {
                     // could only handle small objects would fail on exactly the files worth
                     // storing.
                     {{"buckets", "read"}, {"esm:get-bucket-ern", "esm:get-object", "esm:get-object-size", "esm:list-objects",
-                                           "esm:list-object-attributes", "esm:create-download",
+                                           "esm:list-object-attributes", "esm:list-object-versions", "esm:create-download",
                                            "esm:download-part", "esm:complete-download"}},
                     {{"buckets", "write"}, {"esm:get-bucket-ern", "esm:put-object", "esm:create-upload",
                                             "esm:upload-part", "esm:complete-upload", "esm:abort-upload",

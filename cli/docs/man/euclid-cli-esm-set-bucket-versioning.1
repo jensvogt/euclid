@@ -1,0 +1,105 @@
+.TH EUCLID-CLI-ESM-SET-BUCKET-VERSIONING 1 "November 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-set-bucket-versioning \- keep replaced objects as versions
+.SH SYNOPSIS
+.B euclid-cli esm set-bucket-versioning
+.BR \-\-bucket | \-b
+.I NAME|ERN
+.BR \-\-enabled | \-e
+.IR true | false
+.SH DESCRIPTION
+Turns versioning on or off for a bucket.
+.PP
+With versioning on, an upload to a key that already holds an object is
+compared with that object by MD5, once all of its bytes have arrived:
+.TP
+.B Different bytes
+The upload becomes the current object, with a new
+.IR versionId .
+The object it replaces is kept as a non-current version: its file stays
+on disk and its row moves to the version store. An
+.I esm.object.updated
+event is published, as for any upload over an existing key.
+.TP
+.B The same bytes
+The upload is ignored. Nothing is stored, the current object is left as
+it was, and no event is published. The answer describes the object that
+was already there and carries
+.BR "\(dqunchanged\(dq: true" .
+For a multipart upload, the bytes are compared after
+.I complete-upload
+has assembled them, and the object is
+.I COMPLETED
+again once that is done.
+.PP
+A first upload to a key, and every upload to a bucket without versioning,
+behaves as it always has: the object is stored, and in a bucket without
+versioning an upload over an existing key replaces it, file and all, even
+when the bytes are the same.
+.PP
+Turning versioning off makes uploads replace objects again. The versions
+already kept stay until they are deleted.
+.SH WORKING WITH VERSIONS
+.TP
+.BR euclid-cli-esm-list-object-versions (1)
+lists a key's versions, the current one first.
+.TP
+.BR euclid-cli-esm-download-file (1) " \-\-version\-id"
+downloads an earlier version.
+.TP
+.BR euclid-cli-esm-delete-object (1) " \-\-version\-id"
+deletes one version. Without it, deleting an object deletes every version
+of it.
+.PP
+Moving or renaming an object takes its versions with it. Copying it does
+not: the copy starts a history of its own. A move into a bucket whose
+encryption differs is refused while the object has non-current versions,
+since their files would all have to be re-encrypted.
+.PP
+Purging or deleting a bucket removes the versions of every object it
+removes.
+.SH WHAT VERSIONS COST
+Each non-current version keeps its file. The bucket's
+.I size
+and
+.I objects
+counters describe its current objects only, so they do not show the disk
+the versions use;
+.BR euclid-cli-esm-list-object-versions (1)
+gives each version's size. Lifecycle rules archive current objects only.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+The bucket, by name or ERN. Required.
+.TP
+.BR \-e ", " \-\-enabled " " \fItrue\fR|\fIfalse\fR
+Whether versioning is on. Required: either change may not be what
+somebody meant, and the two cost very different amounts of disk.
+.SH EXIT STATUS
+.TP
+.B 0
+The setting was changed. The bucket's ERN, name and versioning flag are
+printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, the server could not be reached, no such
+bucket exists, or the caller may not change it.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli esm set-bucket-versioning --bucket incoming --enabled true
+
+euclid-cli esm upload-file --bucket incoming --key feed.xml --file feed.xml
+euclid-cli esm upload-file --bucket incoming --key feed.xml --file feed.xml   # "unchanged": true
+euclid-cli esm upload-file --bucket incoming --key feed.xml --file feed-v2.xml
+euclid-cli esm list-object-versions --bucket incoming --key feed.xml
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-list-object-versions (1),
+.BR euclid-cli-esm-download-file (1),
+.BR euclid-cli-esm-delete-object (1),
+.BR euclid-cli-esm-get-bucket (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

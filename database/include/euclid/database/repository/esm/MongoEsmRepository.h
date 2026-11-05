@@ -246,6 +246,21 @@ namespace Euclid::Database {
 
         long deleteObjectsByErns(const std::vector<std::string> &erns) override;
 
+        void insertObjectVersion(const Entity::ESM::Object &version) override;
+
+        std::vector<Entity::ESM::Object> listObjectVersions(const std::string &ern) const override;
+
+        std::optional<Entity::ESM::Object> findObjectVersion(const std::string &ern, const std::string &versionId) const override;
+
+        bool deleteObjectVersion(const std::string &ern, const std::string &versionId) override;
+
+        std::vector<Entity::ESM::Object> listObjectVersionsByErns(const std::vector<std::string> &erns) const override;
+
+        long deleteObjectVersionsByErns(const std::vector<std::string> &erns) override;
+
+        long moveObjectVersions(const std::string &oldErn, const std::string &newBucketErn,
+                                const std::string &newKey, const std::string &newErn) override;
+
         std::optional<Entity::ESM::Bucket> renameBucket(const std::string &ern, const std::string &newName, const std::string &newErn) override;
 
         long repointSubscriptions(const std::string &oldSourceErn, const std::string &newSourceErn) override;
@@ -306,6 +321,11 @@ namespace Euclid::Database {
          * @brief Objects collection name
          */
         static constexpr auto OBJECT_COLLECTION = "esm_object";
+
+        /**
+         * @brief Non-current object versions collection name - see insertObjectVersion().
+         */
+        static constexpr auto OBJECT_VERSION_COLLECTION = "esm_object_version";
 
         /**
          * @brief Subscriptions collection name

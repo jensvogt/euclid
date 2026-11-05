@@ -454,6 +454,68 @@ namespace Euclid::Database {
         virtual long deleteObjectsByErns(const std::vector<std::string> &erns) = 0;
 
         /**
+         * @brief Keeps an object that has just been superseded, as a non-current version.
+         *
+         * @par
+         * The whole row as it was, lifecycle and archive fields included, so a version that was
+         * archived when it was superseded can still be found in its zip. Versions are addressed by
+         * the ERN of the key they belong to and their versionId, which is unique within it.
+         *
+         * @param version the superseded object; its versionId must be set
+         */
+        virtual void insertObjectVersion(const Entity::ESM::Object &version) = 0;
+
+        /**
+         * @brief The non-current versions of one key, newest first. The current object is not
+         * among them - it is the row findObjectByErn() answers with.
+         *
+         * @param ern ERN of the key
+         * @return its non-current versions, the most recently superseded first
+         */
+        virtual std::vector<Entity::ESM::Object> listObjectVersions(const std::string &ern) const = 0;
+
+        /**
+         * @brief One non-current version of a key.
+         *
+         * @param ern ERN of the key
+         * @param versionId the version
+         * @return the version, or nothing if the key has no non-current version of that ID
+         */
+        virtual std::optional<Entity::ESM::Object> findObjectVersion(const std::string &ern, const std::string &versionId) const = 0;
+
+        /**
+         * @brief Removes one non-current version's row. Its file is the caller's to remove.
+         *
+         * @return whether a row was deleted
+         */
+        virtual bool deleteObjectVersion(const std::string &ern, const std::string &versionId) = 0;
+
+        /**
+         * @brief Every non-current version of the given keys, for removing them with their keys.
+         *
+         * @par
+         * One statement for a page of keys, which is how removeObjects() takes them: a purge of a
+         * bucket that never had versioning asks once per page and gets nothing back.
+         */
+        virtual std::vector<Entity::ESM::Object> listObjectVersionsByErns(const std::vector<std::string> &erns) const = 0;
+
+        /**
+         * @brief Removes the rows of every non-current version of the given keys.
+         *
+         * @return how many rows were deleted
+         */
+        virtual long deleteObjectVersionsByErns(const std::vector<std::string> &erns) = 0;
+
+        /**
+         * @brief Moves a key's non-current versions to another key, for move-object and
+         * rename-object, so the history goes where the object goes.
+         *
+         * @return how many versions were moved
+         */
+        virtual long moveObjectVersions(const std::string &oldErn, const std::string &newBucketErn,
+                                        const std::string &newKey, const std::string &newErn) = 0;
+
+        /**
          * @brief Gives an existing bucket another name and ERN, in place.
          *
          * @par

@@ -45,6 +45,7 @@ namespace Euclid::Dto::ESM {
         dto.internal = entity.internal;
         dto.priority = entity.priority;
         dto.stopped = entity.stopped;
+        dto.versioning = entity.versioning;
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;
@@ -69,6 +70,7 @@ namespace Euclid::Dto::ESM {
         dto.status = Database::Entity::ESM::ObjectStatusToString(entity.status);
         dto.contentType = entity.contentType;
         dto.md5Sum = entity.md5Sum;
+        dto.versionId = entity.versionId;
         // The key ERN itself stays inside the module: which key an object is under is what ESM
         // needs to read it back, not something a listing has any use for.
         dto.encrypted = !entity.encryptionKeyErn.empty();

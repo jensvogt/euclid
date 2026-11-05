@@ -103,6 +103,7 @@ namespace Euclid::CLI {
                 {"list-buckets", "List buckets"},
                 {"list-objects", "List objects"},
                 {"list-object-attributes", "Lists the attributes of an object"},
+                {"list-object-versions", "Lists every version of an object in a bucket with versioning"},
                 {"list-subscriptions", "Lists the subscriptions of a bucket"},
                 {"move-object", "Moves an object to another key or bucket"},
                 {"purge-bucket", "Removes all objects from a bucket"},
@@ -110,6 +111,7 @@ namespace Euclid::CLI {
                 {"rename-object", "Renames an object within its bucket"},
                 {"restore-object", "Bring an archived object back online for a grace period"},
                 {"set-bucket-internal", "Hide a bucket from listings, or stop hiding it"},
+                {"set-bucket-versioning", "Keep replaced objects as versions, and ignore uploads of unchanged bytes"},
                 {"set-bucket-lifecycle", "Set the rules that archive a bucket's unused objects"},
                 {"set-bucket-priority", "Set the priority this bucket's notifications are sent with"},
                 {"stop-bucket", "Hold a bucket's events in EES: still made, not delivered until start-bucket"},
@@ -133,6 +135,12 @@ namespace Euclid::CLI {
         }
         if (action == "set-bucket-internal") {
             return setBucketInternal(args);
+        }
+        if (action == "set-bucket-versioning") {
+            return setBucketVersioning(args);
+        }
+        if (action == "list-object-versions") {
+            return listObjectVersions(args);
         }
         if (action == "stop-bucket" || action == "start-bucket") {
             return setBucketStopped(action, args);
@@ -783,12 +791,13 @@ namespace Euclid::CLI {
         return std::nullopt;// unreachable
     }
 
-    BinaryHttpResponse EsmCli::getObject(const std::string &bucketErn, const std::string &key, const long maxInlineSize) const {
-        const std::vector<std::pair<std::string, std::string> > headers{
+    BinaryHttpResponse EsmCli::getObject(const std::string &bucketErn, const std::string &key, const long maxInlineSize, const std::string &versionId) const {
+        std::vector<std::pair<std::string, std::string> > headers{
                 {"x-euclid-bucket-ern", bucketErn},
                 {"x-euclid-key", key},
                 {"x-euclid-part-size", std::to_string(maxInlineSize)},
         };
+        if (!versionId.empty()) headers.emplace_back("x-euclid-version-id", versionId);
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -799,10 +808,11 @@ namespace Euclid::CLI {
         }
     }
 
-    std::optional<Dto::ESM::CreateDownloadResponse> EsmCli::createDownload(const std::string &bucketErn, const std::string &key, const int concurrency) const {
+    std::optional<Dto::ESM::CreateDownloadResponse> EsmCli::createDownload(const std::string &bucketErn, const std::string &key, const int concurrency, const std::string &versionId) const {
         Dto::ESM::CreateDownloadRequest request;
         request.bucketErn = bucketErn;
         request.key = key;
+        request.versionId = versionId;
 
         // Declares the concurrency the download is about to use so the gateway's autoscaler can
         // ramp storage instances toward it directly instead of waiting to sample busy instances -
@@ -1214,7 +1224,7 @@ namespace Euclid::CLI {
         return ok ? 0 : 1;
     }
 
-    int EsmCli::downloadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, const long partSize, const int concurrency, boost::json::value &outResult) const {
+    int EsmCli::downloadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, const long partSize, const int concurrency, boost::json::value &outResult, const std::string &versionId) const {
         if (const auto parent = std::filesystem::path(filePath).parent_path(); !parent.empty()) {
             std::error_code mkEc;
             std::filesystem::create_directories(parent, mkEc);
@@ -1231,7 +1241,7 @@ namespace Euclid::CLI {
         // size isn't known until asked, so this is tried unconditionally first; HTTP 413 means the
         // object turned out to be too large, and the multipart path below takes over instead.
         constexpr int kPayloadTooLarge = 413;
-        if (const auto inlineResponse = getObject(bucketErn, key, partSize); inlineResponse.statusCode != kPayloadTooLarge) {
+        if (const auto inlineResponse = getObject(bucketErn, key, partSize, versionId); inlineResponse.statusCode != kPayloadTooLarge) {
             if (inlineResponse.statusCode == 0) return 1;// network failure, already printed
             if (!inlineResponse.IsSuccess()) {
                 std::cerr << "error: get-object failed (HTTP " << inlineResponse.statusCode << "): " << boost::json::serialize(inlineResponse.errorBody) << std::endl;
@@ -1255,7 +1265,7 @@ namespace Euclid::CLI {
             return 0;
         }
 
-        const auto created = createDownload(bucketErn, key, concurrency);
+        const auto created = createDownload(bucketErn, key, concurrency, versionId);
         if (!created) return 1;
 
         const auto &downloadId = created->downloadId;
@@ -1333,13 +1343,15 @@ namespace Euclid::CLI {
                 ("key,k", po::value<std::string>()->required(), "key (path) of the object within the bucket")
                 ("file,f", po::value<std::string>()->required(), "local destination file")
                 ("part-size,s", po::value<long>()->default_value(DefaultPartSize()), "part size in bytes")
-                ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to download in parallel");
+                ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to download in parallel")
+                ("version-id,V", po::value<std::string>()->default_value(""), "a non-current version to download instead of the current object; see list-object-versions");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "download-file", "--bucket <name|ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
+            return PrintActionHelp("esm", "download-file", "--bucket <name|ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>] [--version-id <id>]",
                                    "Downloads an object from a bucket to a local file. Objects smaller than --part-size are fetched in a "
                                    "single request; larger objects are transparently split into parts for a multipart download, downloading "
-                                   "up to <concurrency> parts at a time in background threads.",
+                                   "up to <concurrency> parts at a time in background threads. In a bucket with versioning, --version-id "
+                                   "downloads an earlier version of the object instead of the current one.",
                                    desc);
         }
 
@@ -1359,7 +1371,7 @@ namespace Euclid::CLI {
         const auto concurrency = std::max(1, vm["concurrency"].as<int>());
 
         boost::json::value result;
-        if (downloadOneFile(bucketErn, key, filePath, partSize, concurrency, result) != 0) return 1;
+        if (downloadOneFile(bucketErn, key, filePath, partSize, concurrency, result, vm["version-id"].as<std::string>()) != 0) return 1;
 
         Core::WriteJson(std::cout, result, _pretty);
         return 0;
@@ -1742,11 +1754,14 @@ namespace Euclid::CLI {
     int EsmCli::deleteObject(const std::vector<std::string> &args) const {
         po::options_description desc("delete object options");
         desc.add_options()
-                ("ern,e", po::value<std::string>()->required(), "euclid resource name");
+                ("ern,e", po::value<std::string>()->required(), "euclid resource name")
+                ("version-id,V", po::value<std::string>()->default_value(""), "delete only this version of the object; see list-object-versions");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "delete-object", "--ern <ern>",
-                                   "Deletes a storage object identified by its Euclid resource name (ERN).",
+            return PrintActionHelp("esm", "delete-object", "--ern <ern> [--version-id <id>]",
+                                   "Deletes a storage object identified by its Euclid resource name (ERN), and every version of it kept by "
+                                   "a bucket with versioning. With --version-id only that version goes: a non-current one is simply "
+                                   "removed, and deleting the current one makes the newest remaining version the current object.",
                                    desc);
         }
 
@@ -1761,6 +1776,7 @@ namespace Euclid::CLI {
 
         Dto::ESM::DeleteObjectRequest request;
         request.ern = vm["ern"].as<std::string>();
+        request.versionId = vm["version-id"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -2218,6 +2234,96 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("esm", "set-bucket-internal", request);
             if (!response.IsSuccess()) {
                 std::cerr << "error: set-bucket-internal failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::setBucketVersioning(const std::vector<std::string> &args) const {
+        po::options_description desc("set bucket versioning options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "bucket to change; a name is enough, a full ERN also works")
+                ("enabled,e", po::value<bool>()->required(), "true to keep replaced objects as versions, false to replace them as before");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "set-bucket-versioning", "--bucket <name|ern> --enabled true|false",
+                                   "Turns versioning on or off for a bucket. With versioning on, an upload to a key that already holds "
+                                   "an object is compared with it by MD5: different bytes become the current object and the one they "
+                                   "replace is kept as a non-current version, file and all; the same bytes are ignored - nothing is "
+                                   "stored, no event is published, and the answer says \"unchanged\": true. "
+                                   "list-object-versions shows a key's versions, download-file --version-id reads one, and "
+                                   "delete-object --version-id removes one. "
+                                   "Turning versioning off makes uploads replace objects again; the versions already kept stay until "
+                                   "they are deleted. The bucket's size and object counters describe its current objects only.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const boost::json::object request{
+                {"ern", vm["bucket"].as<std::string>()},
+                {"enabled", vm["enabled"].as<bool>()}};
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "set-bucket-versioning", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-bucket-versioning failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::listObjectVersions(const std::vector<std::string> &args) const {
+        po::options_description desc("list object versions options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "the object's bucket; a name is enough, a full ERN also works")
+                ("key,k", po::value<std::string>()->required(), "the object's key within the bucket");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "list-object-versions", "--bucket <name|ern> --key <key>",
+                                   "Lists every version of one object: the current one first, marked \"latest\", then the non-current "
+                                   "versions a bucket with versioning kept, newest first. Each carries its versionId, size, MD5, content "
+                                   "type and when it was stored. An object stored before versioning was turned on has an empty versionId "
+                                   "until it is replaced.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const boost::json::object request{
+                {"bucketErn", vm["bucket"].as<std::string>()},
+                {"key", vm["key"].as<std::string>()}};
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "list-object-versions", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-object-versions failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

@@ -26,6 +26,11 @@ namespace Euclid::Dto::ESM {
         std::string key;
 
         /**
+         * @brief A non-current version of the object to download instead; empty for the current one.
+         */
+        std::string versionId;
+
+        /**
          * @brief Deserializes this request from a JSON string
          */
         [[nodiscard]] static CreateDownloadRequest fromJson(const std::string &json) {
@@ -38,6 +43,7 @@ namespace Euclid::Dto::ESM {
             CreateDownloadRequest r;
             r.bucketErn = Core::GetStringValue(v, "bucketErn");
             r.key = Core::GetStringValue(v, "key");
+            r.versionId = Core::GetStringValue(v, "versionId");
             return r;
         }
 
@@ -45,6 +51,7 @@ namespace Euclid::Dto::ESM {
             jv = {
                     {"bucketErn", obj.bucketErn},
                     {"key", obj.key},
+                    {"versionId", obj.versionId},
             };
         }
     };
