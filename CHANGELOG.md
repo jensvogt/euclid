@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.24](https://github.com/jensvogt/euclid/compare/2.1.23...v2.1.24) (2026-11-05)
+
+
+### Bug Fixes
+
+* use several filesystem for ESM storage ([2af61a4](https://github.com/jensvogt/euclid/commit/2af61a47127b04b721b6d1063bf4daaeba76169b))
+
 ## [2.1.23](https://github.com/jensvogt/euclid/compare/2.1.22...v2.1.23) (2026-11-04)
 
 
