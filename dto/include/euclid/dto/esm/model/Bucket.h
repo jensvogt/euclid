@@ -88,6 +88,12 @@ namespace Euclid::Dto::ESM {
         bool stopped = false;
 
         /**
+         * @brief Whether an upload over an existing key keeps the object it replaces as a
+         * non-current version - see "esm set-bucket-versioning".
+         */
+        bool versioning = false;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -128,6 +134,7 @@ namespace Euclid::Dto::ESM {
             r.internal = Core::GetBoolValue(v, "internal");
             r.priority = Core::GetStringValue(v, "priority");
             r.stopped = Core::GetBoolValue(v, "stopped");
+            r.versioning = Core::GetBoolValue(v, "versioning");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -147,6 +154,7 @@ namespace Euclid::Dto::ESM {
                     {"internal", obj.internal},
                     {"priority", obj.priority},
                     {"stopped", obj.stopped},
+                    {"versioning", obj.versioning},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

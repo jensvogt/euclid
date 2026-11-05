@@ -5,13 +5,29 @@ euclid-cli-esm-delete-object \- delete a storage object
 .B euclid-cli esm delete-object
 .BR \-\-ern | \-e
 .I ERN
+[\fB\-\-version\-id\fR|\fB\-V\fR \fIID\fR]
 .SH DESCRIPTION
 Deletes a storage object identified by its Euclid resource name (ERN).
-This cannot be undone.
+In a bucket with versioning, every version kept of the object goes with
+it, files included. This cannot be undone.
+.PP
+With
+.BR \-\-version\-id ,
+only that version is deleted. A non-current version is simply removed,
+and the object reads as before. Deleting the current version makes the
+newest remaining version the current object again, so the key answers
+with the last thing stored in it before the deleted version; the answer
+names it as
+.IR currentVersionId .
+Deleting the only version deletes the object.
 .SH OPTIONS
 .TP
 .BR \-e ", " \-\-ern " " \fIERN\fR
 Euclid resource name of the object to delete. Required.
+.TP
+.BR \-V ", " \-\-version\-id " " \fIID\fR
+Delete only this version; see
+.BR euclid-cli-esm-list-object-versions (1).
 .SH EXIT STATUS
 .TP
 .B 0

@@ -11,6 +11,7 @@ euclid-cli-esm-download-file \- download an object from a bucket to a local file
 .I PATH
 [\fB\-\-part\-size\fR|\fB\-s\fR \fIBYTES\fR]
 [\fB\-\-concurrency\fR|\fB\-j\fR \fIN\fR]
+[\fB\-\-version\-id\fR|\fB\-V\fR \fIID\fR]
 .SH DESCRIPTION
 Downloads an object from a bucket to a local file. This is the mirror
 image of
@@ -57,6 +58,13 @@ Number of parts to download in parallel. Defaults to \fI4\fR, or the
 value of \fIeuclid.modules.esm.concurrency\fR in the loaded
 configuration file if set; values less than \fI1\fR are treated as
 \fI1\fR.
+.TP
+.BR \-V ", " \-\-version\-id " " \fIID\fR
+In a bucket with versioning, download this version of the object instead
+of the current one. The IDs are listed by
+.BR euclid-cli-esm-list-object-versions (1).
+Reading an earlier version does not count as using the object, so it does
+not change when the bucket's lifecycle rules archive it.
 .PP
 The bucket may be given by
 .B name

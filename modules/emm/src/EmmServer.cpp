@@ -74,7 +74,7 @@ namespace Euclid::EMM {
             static const std::unordered_map<std::string, ModuleExportSpec> specs{
                     {"eqs", {.topLevel = {"eqs_queue"}, .fullOnly = {"eqs_message"}}},
                     {"ens", {.topLevel = {"ens_topic", "ens_subscription"}, .fullOnly = {"ens_message"}}},
-                    {"esm", {.topLevel = {"esm_bucket", "esm_subscription"}, .fullOnly = {"esm_object"}}},
+                    {"esm", {.topLevel = {"esm_bucket", "esm_subscription"}, .fullOnly = {"esm_object", "esm_object_version"}}},
                     // Roles and grants belong here for the same reason users do, and more urgently:
                     // an export that restored the users but not what they may do would bring back
                     // an installation nobody can work in.

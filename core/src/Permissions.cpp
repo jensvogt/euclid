@@ -254,7 +254,7 @@ namespace Euclid::Core {
                 "eqs:stop-queue",
                 "eqs:update-message-body",
 
-                // esm - 50 actions
+                // esm - 52 actions
                 "esm:abort-upload",
                 "esm:add-bucket-tag",
                 "esm:add-object-attribute",
@@ -285,6 +285,7 @@ namespace Euclid::Core {
                 "esm:get-object-size",
                 "esm:list-buckets",
                 "esm:list-object-attributes",
+                "esm:list-object-versions",
                 "esm:list-objects",
                 "esm:list-subscriptions",
                 "esm:move-object",
@@ -297,6 +298,7 @@ namespace Euclid::Core {
                 "esm:set-bucket-lifecycle",
                 "esm:set-bucket-priority",
                 "esm:set-bucket-tag",
+                "esm:set-bucket-versioning",
                 "esm:set-object-attribute",
                 "esm:start-bucket",
                 "esm:stop-bucket",

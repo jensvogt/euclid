@@ -46,6 +46,7 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("internal", internal),
                 bsoncxx::builder::basic::kvp("priority", priority),
                 bsoncxx::builder::basic::kvp("stopped", stopped),
+                bsoncxx::builder::basic::kvp("versioning", versioning),
                 bsoncxx::builder::basic::kvp("lifecycleRules", [this] {
                     bsoncxx::builder::basic::array rules;
                     for (const auto &rule: lifecycleRules) {
@@ -81,6 +82,8 @@ namespace Euclid::Database::Entity::ESM {
             else if (key == "priority") bucket.priority = std::string(field.get_string().value);
             // Absent on every bucket written before buckets could be stopped, which were not.
             else if (key == "stopped" && field.type() == bsoncxx::type::k_bool) bucket.stopped = field.get_bool().value;
+            // Absent on every bucket made before versioning existed, which had none.
+            else if (key == "versioning" && field.type() == bsoncxx::type::k_bool) bucket.versioning = field.get_bool().value;
             // Absent on every bucket made before lifecycle rules existed, which has none.
             else if (key == "lifecycleRules" && field.type() == bsoncxx::type::k_array) {
                 for (const auto &entry: field.get_array().value) {

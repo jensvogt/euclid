@@ -57,6 +57,18 @@ namespace Euclid::Dto::ESM {
         std::string md5Sum;
 
         /**
+         * @brief The version the upload became, in a bucket with versioning on; empty otherwise.
+         * For an unchanged upload, the version that already held these bytes.
+         */
+        std::string versionId;
+
+        /**
+         * @brief True when the bucket has versioning on and the bytes were the ones the key
+         * already held: nothing was stored, and the answer describes the object that was there.
+         */
+        bool unchanged = false;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -75,6 +87,8 @@ namespace Euclid::Dto::ESM {
             r.status = Core::GetStringValue(v, "status");
             r.contentType = Core::GetStringValue(v, "contentType");
             r.md5Sum = Core::GetStringValue(v, "md5Sum");
+            r.versionId = Core::GetStringValue(v, "versionId");
+            r.unchanged = Core::GetBoolValue(v, "unchanged");
             return r;
         }
 
@@ -87,6 +101,8 @@ namespace Euclid::Dto::ESM {
                     {"status", obj.status},
                     {"contentType", obj.contentType},
                     {"md5Sum", obj.md5Sum},
+                    {"versionId", obj.versionId},
+                    {"unchanged", obj.unchanged},
             };
         }
     };

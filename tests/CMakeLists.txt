@@ -120,6 +120,30 @@ target_link_libraries(${ESM_LAST_ACCESS_BINARY} PRIVATE eucliddto Boost::thread 
 
 add_test(NAME ${ESM_LAST_ACCESS_BINARY} COMMAND ${ESM_LAST_ACCESS_BINARY})
 
+# esm bucket versioning: new versions on different bytes, unchanged uploads ignored, and versions
+# read, listed, deleted, purged and moved with their keys.
+set(ESM_VERSIONING_BINARY euclid-esm-versioning-tests)
+
+add_executable(${ESM_VERSIONING_BINARY} EsmVersioningTest.cpp ${CMAKE_SOURCE_DIR}/modules/esm/src/EsmServer.cpp)
+set_target_properties(${ESM_VERSIONING_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ESM_VERSIONING_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/esm/include)
+target_link_libraries(${ESM_VERSIONING_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${ESM_VERSIONING_BINARY} COMMAND ${ESM_VERSIONING_BINARY})
+
+# esm create-download checks the bucket grant, a download is served only to whoever started it,
+# and upload and download IDs are refused unless they are IDs ESM could have issued.
+set(ESM_DOWNLOAD_GRANT_BINARY euclid-esm-download-grant-tests)
+
+add_executable(${ESM_DOWNLOAD_GRANT_BINARY} EsmDownloadGrantTest.cpp ${CMAKE_SOURCE_DIR}/modules/esm/src/EsmServer.cpp)
+set_target_properties(${ESM_DOWNLOAD_GRANT_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ESM_DOWNLOAD_GRANT_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/esm/include)
+target_link_libraries(${ESM_DOWNLOAD_GRANT_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${ESM_DOWNLOAD_GRANT_BINARY} COMMAND ${ESM_DOWNLOAD_GRANT_BINARY})
+
 # ESM lifecycle: bucket rules, STANDARD/ARCHIVED, the archive directory, restore grace, the sweep.
 set(ESM_LIFECYCLE_BINARY euclid-esm-lifecycle-tests)
 

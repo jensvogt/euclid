@@ -210,6 +210,10 @@ Changes the value of an attribute an object already carries. See
 Lists every attribute of an object, with each value's type. See
 .BR euclid-cli-esm-list-object-attributes (1).
 .TP
+.B list-object-versions
+Lists every version of an object, the current one first. See
+.BR euclid-cli-esm-list-object-versions (1).
+.TP
 .B delete-object-attribute
 Removes one attribute from an object. See
 .BR euclid-cli-esm-delete-object-attribute (1).
@@ -289,6 +293,11 @@ changing them. See
 .B set-bucket-internal
 Hides a bucket from listings, or stops hiding it. See
 .BR euclid-cli-esm-set-bucket-internal (1).
+.TP
+.B set-bucket-versioning
+Keeps an object replaced by an upload of different bytes as a non-current
+version, and ignores an upload of the bytes a key already holds. See
+.BR euclid-cli-esm-set-bucket-versioning (1).
 .TP
 .B set-bucket-priority
 Sets the priority the notifications this bucket sends are given \(em the

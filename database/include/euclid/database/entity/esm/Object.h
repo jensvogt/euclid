@@ -163,6 +163,17 @@ namespace Euclid::Database::Entity::ESM {
         std::string md5Sum;
 
         /**
+         * @brief Which version of the key this is, in a bucket with versioning on.
+         *
+         * @par
+         * Given to each object stored while its bucket has versioning on, and to an object without
+         * one when it is superseded and kept - so every non-current version has one, and a current
+         * object written before versioning was turned on may not. The current object is always
+         * the row in the object collection; non-current ones are rows in the version collection.
+         */
+        std::string versionId;
+
+        /**
          * @brief User-defined attributes travelling with the object.
          *
          * @par

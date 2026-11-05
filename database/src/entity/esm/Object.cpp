@@ -52,6 +52,7 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("parent", parent),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
                 bsoncxx::builder::basic::kvp("md5Sum", md5Sum),
+                bsoncxx::builder::basic::kvp("versionId", versionId),
                 bsoncxx::builder::basic::kvp("attributes", attributesDoc.extract()),
                 bsoncxx::builder::basic::kvp("systemAttributes", systemAttributesDoc.extract()));
 
@@ -87,6 +88,7 @@ namespace Euclid::Database::Entity::ESM {
             else if (fieldKey == "parent") object.parent = std::string(field.get_string().value);
             else if (fieldKey == "contentType") object.contentType = std::string(field.get_string().value);
             else if (fieldKey == "md5Sum") object.md5Sum = std::string(field.get_string().value);
+            else if (fieldKey == "versionId" && field.type() == bsoncxx::type::k_string) object.versionId = std::string(field.get_string().value);
             else if (fieldKey == "created") object.created = system_clock::time_point{field.get_date().value};
             else if (fieldKey == "modified") object.modified = system_clock::time_point{field.get_date().value};
             else if (fieldKey == "lastAccessed" && field.type() == bsoncxx::type::k_date) object.lastAccessed = system_clock::time_point{field.get_date().value};
