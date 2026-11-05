@@ -597,4 +597,12 @@ namespace Euclid::Core {
             boost::json::string_view(v));
     }
 
+    // An array of strings, read back with getArray<std::string>().
+    template<>
+    inline void Configuration::set<std::vector<std::string> >(const std::string &p, std::vector<std::string> v) {
+        boost::json::array array;
+        for (const auto &element: v) array.emplace_back(boost::json::string_view(element));
+        *resolveOrCreatePath(p) = std::move(array);
+    }
+
 } // namespace Euclid::Core

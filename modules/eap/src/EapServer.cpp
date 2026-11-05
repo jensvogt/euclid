@@ -221,7 +221,10 @@ namespace Euclid::EAP {
             // Wherever ESM put it: objects written since the storage was fanned out live a couple
             // of directories down, older ones are still flat - see Core::DirUtils.
             std::error_code ec;
-            return std::filesystem::exists(Core::DirUtils::FindFilePath(storageDir, object.internalName), ec);
+            // Under the storage directory ESM recorded on the object, when it spread it over several
+            // (euclid.modules.esm.storage-dirs); empty is the data directory.
+            const std::filesystem::path root = object.internalDir.empty() ? std::filesystem::path(storageDir) : std::filesystem::path(object.internalDir);
+            return std::filesystem::exists(Core::DirUtils::FindFilePath(root, object.internalName), ec);
         }
 
         // The message for an artifact whose upload has not settled, kept in one place so all three
@@ -485,7 +488,8 @@ namespace Euclid::EAP {
             constexpr auto kDefaultStorageDir = "/usr/local/euclid/data/esm";
 #endif
             const auto storageDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultStorageDir);
-            const auto path = Core::DirUtils::FindFilePath(storageDir, object->internalName);
+            const std::filesystem::path root = object->internalDir.empty() ? std::filesystem::path(storageDir) : std::filesystem::path(object->internalDir);
+            const auto path = Core::DirUtils::FindFilePath(root, object->internalName);
 
             std::ifstream in(path, std::ios::binary);
             if (!in) {

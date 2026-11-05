@@ -75,6 +75,8 @@
         "data-dir": "C:\\Program Files\\euclid\\data\\esm",
         "last-access-granularity": 3600,
         "archive-dir": "C:\\Program Files\\euclid\\data\\esm-archive",
+        "storage-dirs": [],
+        "storage-min-free-mb": 1024,
         "restore-days": 7,
         "lifecycle-sweep-period": 3600,
         "lifecycle-sweep-budget": 240,
