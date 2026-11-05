@@ -3,8 +3,8 @@
 euclid-cli-eqs-send-message \- send a message to a queue
 .SH SYNOPSIS
 .B euclid-cli eqs send-message
-.BR \-\-ern | \-e
-.I ERN
+.BR \-\-queue | \-q
+.I NAME|ERN
 .BR \-\-body | \-b
 .I BODY
 [\fB\-\-attributes\fR|\fB\-a\fR \fIJSON\fR]
@@ -33,8 +33,8 @@ and influences how the message is prioritized by
 .BR euclid-cli-eqs-receive-messages (1).
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-ern " " \fIERN\fR
-Euclid resource name of the destination queue. Required.
+.BR \-q ", " \-\-queue " " \fINAME|ERN\fR
+Name or ERN of the destination queue. Required.
 .TP
 .BR \-b ", " \-\-body " " \fIBODY\fR
 Message body, given literally or as
@@ -70,10 +70,10 @@ path could not be read, the message body exceeds the queue's
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs send-message \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders --body 'hello world'
+    --queue orders --body 'hello world'
 
 euclid-cli --endpoint http://localhost:5566 eqs send-message \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders \e
+    --queue orders \e
     --body file://./payload.json \e
     --attributes '{"orderId": {"type": "string", "value": "42"}}' \e
     --priority HIGH

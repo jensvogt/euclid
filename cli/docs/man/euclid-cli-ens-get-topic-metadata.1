@@ -9,12 +9,6 @@ euclid-cli-ens-get-topic-metadata \- show a topic's metadata
 Shows the metadata of a topic identified by its Euclid resource name
 (ERN): region, account ID, owner, namespace, name, ERN, size and total
 message count.
-.PP
-.B Not yet implemented server-side in this release:
-the ens service does not currently route this action to a handler, so
-this command returns
-.I "HTTP 404"
-("Action not implemented: get-topic-metadata") regardless of arguments.
 .SH OPTIONS
 .TP
 .BR \-t ", " \-\-topic " " \fIERN\fR
@@ -53,14 +47,13 @@ means the topic follows
 The topic's metadata is printed as JSON.
 .TP
 .B 1
-Missing/invalid arguments, the server could not be reached, no topic
-with that ERN exists, or (currently, always) the action is not yet
-implemented server-side.
+Missing/invalid arguments, the server could not be reached, or no topic
+with that name or ERN exists.
 .SH EXAMPLES
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 ens get-topic-metadata \e
-    --topic ern:ens:eu-central-1:000000000000:topic:order-events
+    --topic ern:ens:eu-central-1:000000000000:development:topic:order-events
 .fi
 .RE
 .SH SEE ALSO

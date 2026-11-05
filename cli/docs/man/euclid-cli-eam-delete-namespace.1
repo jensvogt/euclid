@@ -5,7 +5,7 @@ euclid-cli-eam-delete-namespace \- delete a namespace under an account
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
 .B eam delete-namespace
-.BR \-\-account\-id | \-a
+.BR \-\-account | \-a
 .I ACCOUNTID
 .BR \-\-name | \-n
 .I NAME
@@ -24,7 +24,7 @@ Every user grant referencing this namespace must first be revoked (see
 the server rejects the request with \fIHTTP 409\fR otherwise.
 .SH OPTIONS
 .TP
-.BR \-a ", " \-\-account\-id " " \fIACCOUNTID\fR
+.BR \-a ", " \-\-account " " \fIACCOUNTID\fR
 Account the namespace belongs to. Required.
 .TP
 .BR \-n ", " \-\-name " " \fINAME\fR
@@ -46,7 +46,7 @@ again before retrying.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eam delete-namespace \e
-    --account-id 123456789012 --name staging
+    --account 123456789012 --name staging
 .fi
 .RE
 .SH SEE ALSO

@@ -147,13 +147,15 @@ The transfer server's definition decides everything that distinguishes
 one server from another, and overrides the configuration file where they
 overlap. Only installation-wide settings are read here:
 .TP
-.I euclid.modules.sftp.host\-key
+.I euclid.modules.ets.host\-key
 Host key used when a definition names none. Defaults to
 .IR /usr/local/euclid/etc/ssh_host_key .
 .TP
-.I euclid.modules.sftp.data\-dir
-Root of the spool directory, used for files in flight. Defaults to
-.IR /usr/local/euclid/data/sftp .
+.I euclid.modules.ets.data\-dir
+Root of the spool directory. Each server gets its own subdirectory,
+.IR transfer\- ID,
+used for files in flight. Defaults to
+.IR /usr/local/euclid/data/ets .
 .SH EXIT STATUS
 .TP
 .B 0
@@ -173,8 +175,8 @@ Default configuration file.
 .I /usr/local/euclid/etc/ssh_host_key
 Default private host key.
 .TP
-.I /usr/local/euclid/data/sftp
-Spool directory for in-flight files.
+.I /usr/local/euclid/data/ets/transfer-\fIID\fP
+Spool directory for one transfer server's in-flight files.
 .SH EXAMPLES
 Run a defined server in the foreground to see why it will not start:
 .PP

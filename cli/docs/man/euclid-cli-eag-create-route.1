@@ -12,7 +12,17 @@ euclid-cli-eag-create-route \- publish a path through the API gateway
 .RB | \-\-module | \-M
 .I NAME
 .B \-\-action
-.IR NAME )
+.I NAME
+.RB | " \-\-type upload" " \-\-bucket"
+.IR ERN )
+.RB [ \-\-key\-prefix | \-k
+.IR PREFIX ]
+.RB [ \-\-max\-bytes | \-x
+.IR N ]
+.RB [ \-\-part\-size | \-s
+.IR N ]
+.RB [ \-\-content\-types | \-c
+.IR LIST ]
 .RB [ \-\-methods | \-m
 .IR LIST ]
 .RB [ \-\-region | \-R
@@ -90,6 +100,36 @@ in
 The one action \fB\-\-module\fR answers for on this route, e.g.
 \fIlogin\fR. One per route: a route cannot take its action from the
 path, because that would publish every action the module has.
+.TP
+.BR \-t ", " \-\-type " " \fIproxy\fR|\fIupload\fR
+.I proxy
+(the default) forwards requests to an application or a module.
+.I upload
+makes the gateway the endpoint: see
+.BR "UPLOAD ROUTES" .
+.TP
+.BR \-b ", " \-\-bucket " " \fIERN\fR
+Upload routes only. ERN of the bucket request bodies are written to.
+Required for an upload route.
+.TP
+.BR \-k ", " \-\-key\-prefix " " \fIPREFIX\fR
+Upload routes only. Prefix put in front of every key the route writes,
+which confines the route to that part of the bucket. Without it, anybody who may upload through the route may overwrite any
+object in the bucket.
+.TP
+.BR \-x ", " \-\-max\-bytes " " \fIN\fR
+Upload routes only. Largest body accepted, in bytes;
+.I 0
+for no limit. A larger body is refused before it is read.
+.TP
+.BR \-s ", " \-\-part\-size " " \fIN\fR
+Upload routes only. Bytes held in memory at a time on the way to ESM, and
+the size under which an object is stored in one piece instead of as a
+multipart upload. Defaults to 5 MB.
+.TP
+.BR \-c ", " \-\-content\-types " " \fILIST\fR
+Upload routes only. Comma-separated content types accepted; omit for
+any. Anything else is refused before the body is read.
 .TP
 .BR \-m ", " \-\-methods " " \fILIST\fR
 Comma-separated HTTP methods this route answers for, e.g.
@@ -175,6 +215,27 @@ Create the route but leave it out of service. Nothing is served for its
 path until
 .B "update-route \-\-active true"
 puts it in. Useful for preparing a cutover.
+.SH UPLOAD ROUTES
+With
+.BR "\-\-type upload" ,
+nothing is forwarded. The request body is streamed into the bucket named
+by
+.BR \-\-bucket ,
+under the key given by the rest of the path below the route's prefix.
+When
+.B \-\-key\-prefix
+is set, it is put in front of every such key, so nothing outside it can be
+written. An upload route takes no
+.B \-\-application
+and no
+.BR \-\-module ,
+and must set
+.B \-\-authentication
+to
+.I euclid
+or
+.IR basic :
+without it the route would be a public write endpoint into the bucket.
 .SH EXIT STATUS
 .TP
 .B 0

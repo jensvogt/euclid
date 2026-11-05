@@ -1,0 +1,42 @@
+.TH EUCLID-CLI-EAM-LIST-MY-ACCOUNTS 1 "November 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-list-my-accounts \- list the accounts you may work in
+.SH SYNOPSIS
+.B euclid-cli eam list-my-accounts
+.SH DESCRIPTION
+Lists the accounts the signed-in user may work in: their home account
+(the one they were registered in), and every account named by a role
+granted to them or to a group they belong to.
+.PP
+Unlike
+.BR euclid-cli-eam-list-accounts (1),
+which is an administrator's view of every account there is, this one is
+about the caller and needs no privileges. An administrator gets every
+account, since being an administrator is permission everywhere rather
+than a grant anywhere.
+.PP
+The answer also carries
+.IR homeAccountId :
+the account to work in when nothing else has been chosen.
+.SH OPTIONS
+None.
+.SH EXIT STATUS
+.TP
+.B 0
+The accounts are printed as JSON.
+.TP
+.B 1
+The server could not be reached, or there is no valid session.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eam list-my-accounts
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-list-accounts (1),
+.BR euclid-cli-eam-list-grants (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

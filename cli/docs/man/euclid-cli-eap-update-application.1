@@ -7,15 +7,18 @@ euclid-cli-eap-update-application \- change an application's definition
 .I NAME
 [\fB\-\-runtime\fR|\fB\-r\fR \fIRUNTIME\fR]
 [\fB\-\-artifact\fR|\fB\-a\fR \fIKEY\fR]
-[\fB\-\-version\fR \fIX.Y.Z\fR]
 [\fB\-\-command\fR|\fB\-c\fR \fICMD\fR]
 [\fB\-\-arguments\fR \fILIST\fR]
 [\fB\-\-environment\fR|\fB\-e\fR \fILIST\fR]
 [\fB\-\-buckets\fR \fILIST\fR]
 [\fB\-\-queues\fR \fILIST\fR]
+[\fB\-\-manifest\fR \fIDIR\fR]
+[\fB\-\-namespace\fR \fINAME\fR]
 [\fB\-\-node\-labels\fR \fILIST\fR]
 [\fB\-\-min\-instances\fR \fIN\fR]
 [\fB\-\-max\-instances\fR \fIN\fR]
+[\fB\-\-type\fR \fIPROCESS|JOB\fR]
+[\fB\-\-schedule\fR \fICRON\fR]
 [\fB\-\-memory\-limit\fR \fISIZE\fR]
 [\fB\-\-cpu\-limit\fR \fICORES\fR]
 [\fB\-\-ready\-timeout\fR \fIMS\fR]
@@ -42,9 +45,9 @@ version is deliberately rebuilt in place, or rolled back to bytes already
 seen. Changing
 .B \-\-artifact
 re-reads the artifact's MD5 onto the definition, so what it records is
-always the artifact it points at; the recorded version follows only when
-.B \-\-version
-says so.
+always the artifact it points at. The recorded version is left as it
+was; to record a new one, use
+.BR euclid-cli-eap-redeploy-application (1).
 .PP
 .B \-\-user
 points the application at a different EAM identity. It has to exist and
@@ -80,10 +83,6 @@ restarts the application's instances under the new one.
 .BR \-a ", " \-\-artifact " " \fIKEY\fR
 Object key of the artifact within the application's bucket. Must exist.
 .TP
-.B \-\-version " " \fIX.Y.Z\fR
-Version recorded for the application. Taken as given - this is the one
-place a version can be set to anything, including one already deployed.
-.TP
 .BR \-u ", " \-\-user " " \fIUSERID\fR
 EAM user the application runs as. Must exist and have an access key.
 Replaces the technical principal EAP issued the application, if it had
@@ -109,6 +108,18 @@ enforced where a request is served rather than where a process starts.
 Comma-separated queue names the application may use; replaces the
 current list.
 .TP
+.B \-\-manifest " " \fIDIR\fR
+An application's
+.I euclid/
+directory. The objects it declares become the resources the application
+is granted, instead of every resource in its namespace. See
+.BR euclid-cli-eap-apply (1).
+.TP
+.B \-\-namespace " " \fINAME\fR
+Namespace the application's own requests run in, which lets it name a
+queue or topic instead of spelling out a full ERN. An empty string moves
+it back to the account root.
+.TP
 .B \-\-node\-labels " " \fILIST\fR
 Comma-separated \fIkey=value\fR labels a worker node must carry to be
 given the application, for example \fBos=windows\fR; replaces the current
@@ -121,6 +132,22 @@ Smallest number of instances the autoscaler keeps running.
 .TP
 .B \-\-max\-instances " " \fIN\fR
 Largest number of instances the autoscaler may scale out to.
+.TP
+.B \-\-type " " \fIPROCESS|JOB\fR
+.I PROCESS
+for something that stays up, or
+.I JOB
+for something that runs once and finishes. A JOB is not restarted when it
+exits with status 0, and is not autoscaled.
+.TP
+.B \-\-schedule " " \fICRON\fR
+Cron expression a JOB runs on, in UTC, for example
+.B \(dq0 2 * * *\(dq
+or
+.BR @daily .
+Only valid with
+.BR "\-\-type JOB" ;
+an empty value unschedules it.
 .TP
 .B \-\-memory\-limit " " \fISIZE\fR
 The most memory one instance may use, as for

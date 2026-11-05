@@ -10,6 +10,7 @@ euclid-cli-eqs-create-queue \- create a new queue
 [\fB\-\-max\-length\fR|\fB\-l\fR \fIBYTES\fR]
 [\fB\-\-dlq\-name\fR|\fB\-d\fR \fINAME\fR]
 [\fB\-\-delay\fR|\fB\-e\fR \fISECONDS\fR]
+[\fB\-\-priority\fR|\fB\-p\fR \fIPRIORITY\fR]
 .SH DESCRIPTION
 Creates a new queue with the given name, max retries, max message
 length, dead letter queue name, and visibility timeout. The dead letter
@@ -40,6 +41,18 @@ omitted, messages that exceed \fB\-\-max\-retries\fR are dropped.
 .BR \-e ", " \-\-delay " " \fISECONDS\fR
 Delay before newly sent messages become visible to receivers. Defaults
 to \fI0\fR.
+.TP
+.BR \-p ", " \-\-priority " " \fIPRIORITY\fR
+Default priority for messages sent to the queue:
+.IR HIGH ,
+.I MEDIUM
+or
+.IR LOW .
+Defaults to \fIMEDIUM\fR. A message sent with its own
+.B \-\-priority
+(see
+.BR euclid-cli-eqs-send-message (1))
+keeps that one.
 .SH EXIT STATUS
 .TP
 .B 0

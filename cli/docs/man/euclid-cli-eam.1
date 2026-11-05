@@ -64,6 +64,11 @@ theirs, which requires administrator privileges and no old password.
 See
 .BR euclid-cli-eam-change-password (1).
 .TP
+.B change-email
+Gives a user a different email address. Requires administrator
+privileges. See
+.BR euclid-cli-eam-change-email (1).
+.TP
 .B change-userid
 Gives a user a different user ID, taking their ERN, their grants and
 their group memberships with it. Requires administrator privileges. See
@@ -119,6 +124,11 @@ global administrator privileges. See
 Lists accounts, optionally filtered by account ID prefix, paged and
 sorted. Requires global administrator privileges. See
 .BR euclid-cli-eam-list-accounts (1).
+.TP
+.B list-my-accounts
+Lists the accounts the signed-in user may work in. Needs no
+privileges. See
+.BR euclid-cli-eam-list-my-accounts (1).
 .TP
 .B get-account
 Shows one account by its id: its name, ERN, description and when it was

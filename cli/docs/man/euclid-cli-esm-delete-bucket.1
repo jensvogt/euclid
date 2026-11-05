@@ -3,9 +3,10 @@
 euclid-cli-esm-delete-bucket \- delete a storage bucket
 .SH SYNOPSIS
 .B euclid-cli esm delete-bucket
-.BR \-\-ern | \-e
-.I ERN
+.BR \-\-bucket | \-b
+.I NAME|ERN
 [\fB\-\-async\fR]
+[\fB\-\-if\-empty\fR]
 .SH DESCRIPTION
 Deletes a storage bucket identified by its Euclid resource name (ERN),
 along with every object it contains.
@@ -27,8 +28,17 @@ instead.
 This cannot be undone.
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-ern " " \fIERN\fR
-Euclid resource name of the bucket to delete. Required.
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+Name or ERN of the bucket to delete. Required. A name is resolved in
+your session's account and namespace.
+.TP
+.B \-\-if\-empty
+Delete the bucket only if it holds no objects. The request is refused
+with
+.I "HTTP 409"
+otherwise, and nothing is removed. This takes precedence over
+.BR \-\-async ,
+since an empty bucket has nothing to remove in the background.
 .TP
 .B \-\-async
 Answer at once and remove the objects in the background, for a bucket
@@ -89,7 +99,7 @@ bucket with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm delete-bucket \e
-    --ern ern:esm:eu-central-1:000000000000:bucket:reports
+    --bucket reports
 .fi
 .RE
 .SH SEE ALSO

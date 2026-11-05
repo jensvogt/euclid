@@ -1,0 +1,56 @@
+.TH EUCLID-CLI-EAP-DELETE-EGRESS-SITE 1 "November 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-delete-egress-site \- forget one outside site of an application
+.SH SYNOPSIS
+.B euclid-cli eap delete-egress-site
+.BR \-\-application\-id | \-n
+.I NAME
+.BR \-\-site | \-s
+.I HOST
+.SH DESCRIPTION
+Forgets one outside site of one application entirely: its limit, its
+token bucket, its concurrency slots and when it was last called. Where
+.BR euclid-cli-eap-delete-egress-limit (1)
+takes back a limit and leaves the site listed, this leaves nothing.
+.PP
+It is not a ban. A site is listed because the application asked for a
+permit to call it, so a site it still calls is listed again on its next
+request, under whatever limit it inherits. Use this for a site that is
+finished with: a decommissioned host, or a limit set on a misspelled
+name.
+.PP
+Anything in flight for the site loses its slots at once, since the
+permits were counted in the state this removes. The release that follows
+finds nothing and does nothing.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fINAME\fR
+The application the site belongs to. Required.
+.TP
+.BR \-s ", " \-\-site " " \fIHOST\fR
+Host name of the outside site, or
+.B *
+for the application's default. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The site was removed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or the
+caller may not change the application.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eap list-egress-sites --application-id onix-parser
+euclid-cli eap delete-egress-site --application-id onix-parser \e
+    --site api.old-supplier.example
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-list-egress-sites (1),
+.BR euclid-cli-eap-set-egress-limit (1),
+.BR euclid-cli-eap-delete-egress-limit (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

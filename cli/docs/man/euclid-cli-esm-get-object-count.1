@@ -53,7 +53,7 @@ Count every object in a bucket:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm get-object-count \e
-    --bucket ern:esm:eu-central-1:000000000000:bucket:reports
+    --bucket reports
 .fi
 .RE
 .PP
@@ -62,7 +62,7 @@ command:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm count-objects \e
-    --bucket ern:esm:eu-central-1:000000000000:bucket:reports \e
+    --bucket reports \e
     --prefix 2025/
 .fi
 .RE

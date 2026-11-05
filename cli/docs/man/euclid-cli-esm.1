@@ -433,11 +433,11 @@ euclid-cli --endpoint http://localhost:5566 esm create-bucket \e
     --name reports
 
 euclid-cli --endpoint http://localhost:5566 esm upload-file \e
-    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
+    --bucket reports \e
     --key 2026-08.csv --file ./2026-08.csv
 
 euclid-cli --endpoint http://localhost:5566 esm list-objects \e
-    --bucket ern:esm:eu-central-1:000000000000:bucket:reports
+    --bucket reports
 .fi
 .RE
 .PP
@@ -446,7 +446,7 @@ Download that file back down under a different name:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm download-file \e
-    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
+    --bucket reports \e
     --key 2026-08.csv --file ./2026-08-restored.csv
 .fi
 .RE
@@ -456,13 +456,13 @@ Check a bucket's size, then delete an object and the bucket:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm get-bucket-size \e
-    --ern ern:esm:eu-central-1:000000000000:bucket:reports
+    --bucket reports
 
 euclid-cli --endpoint http://localhost:5566 esm delete-object \e
-    --ern ern:esm:eu-central-1:000000000000:object:2026-08.csv
+    --ern ern:esm:eu-central-1:000000000000:development:object:reports/2026-08.csv
 
 euclid-cli --endpoint http://localhost:5566 esm delete-bucket \e
-    --ern ern:esm:eu-central-1:000000000000:bucket:reports
+    --bucket reports
 .fi
 .RE
 .PP
@@ -471,7 +471,7 @@ Empty a bucket without deleting it:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
-    --bucket ern:esm:eu-central-1:000000000000:bucket:reports
+    --bucket reports
 .fi
 .RE
 .PP
@@ -481,11 +481,11 @@ subscription:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm subscribe \e
-    --source-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
-    --target-ern ern:eqs:eu-central-1:000000000000:queue:upload-events
+    --source-ern ern:esm:eu-central-1:000000000000:development:bucket:reports \e
+    --target-ern ern:eqs:eu-central-1:000000000000:development:queue:upload-events
 
 euclid-cli --endpoint http://localhost:5566 esm list-subscriptions \e
-    --bucket ern:esm:eu-central-1:000000000000:bucket:reports
+    --bucket reports
 
 euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
     --subscription ern:esm:eu-central-1:000000000000:subscription:6f1b1e2e...

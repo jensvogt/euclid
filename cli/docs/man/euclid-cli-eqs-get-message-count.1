@@ -3,16 +3,16 @@
 euclid-cli-eqs-get-message-count \- return a queue's message counters
 .SH SYNOPSIS
 .B euclid-cli eqs get-message-count
-.BR \-\-ern | \-e
-.I ERN
+.BR \-\-queue | \-q
+.I NAME|ERN
 .SH DESCRIPTION
 Returns a queue's message counters, such as the total number of
 messages, the number currently invisible (in flight to a receiver), and
 the number delayed (not yet visible due to the queue's delivery delay).
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-ern " " \fIERN\fR
-Euclid resource name of the queue. Required.
+.BR \-q ", " \-\-queue " " \fINAME|ERN\fR
+Name or ERN of the queue. Required.
 .PP
 The queue may be given by
 .B name
@@ -33,7 +33,7 @@ with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs get-message-count \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders
+    --queue orders
 .fi
 .RE
 .SH SEE ALSO

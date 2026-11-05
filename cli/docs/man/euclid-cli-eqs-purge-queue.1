@@ -3,8 +3,8 @@
 euclid-cli-eqs-purge-queue \- delete all messages from a queue
 .SH SYNOPSIS
 .B euclid-cli eqs purge-queue
-.BR \-\-ern | \-e
-.I ERN
+.BR \-\-queue | \-q
+.I NAME|ERN
 .SH DESCRIPTION
 Deletes all messages from a queue identified by its Euclid resource
 name (ERN). The queue itself is not deleted; see
@@ -12,8 +12,8 @@ name (ERN). The queue itself is not deleted; see
 for that. This cannot be undone.
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-ern " " \fIERN\fR
-Euclid resource name of the queue to purge. Required.
+.BR \-q ", " \-\-queue " " \fINAME|ERN\fR
+Name or ERN of the queue to purge. Required.
 .PP
 The queue may be given by
 .B name
@@ -34,7 +34,7 @@ with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs purge-queue \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders
+    --queue orders
 .fi
 .RE
 .SH SEE ALSO

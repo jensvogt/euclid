@@ -9,6 +9,7 @@ euclid-cli-esm-list-objects \- list a bucket's objects
 [\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
 [\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
 [\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
+[\fB\-\-sort\-direction\fR|\fB\-d\fR \fIDIRECTION\fR]
 .SH DESCRIPTION
 Lists a bucket's objects, optionally filtered by key prefix and
 paginated.
@@ -29,6 +30,9 @@ Defaults to \fI-1\fR.
 .TP
 .BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
 Column to sort results by. Defaults to \fIname\fR.
+.TP
+.BR \-d ", " \-\-sort\-direction " " \fIDIRECTION\fR
+\fIasc\fR or \fIdesc\fR. Defaults to \fIasc\fR.
 .PP
 The bucket may be given by
 .B name
@@ -49,10 +53,10 @@ server rejected the request.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm list-objects \e
-    --bucket ern:esm:eu-central-1:000000000000:bucket:reports
+    --bucket reports
 
 euclid-cli --endpoint http://localhost:5566 esm list-objects \e
-    --bucket ern:esm:eu-central-1:000000000000:bucket:reports \e
+    --bucket reports \e
     --prefix archive/ --page-size 20 --page-index 0
 .fi
 .RE

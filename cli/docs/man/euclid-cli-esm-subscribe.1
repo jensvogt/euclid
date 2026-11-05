@@ -79,8 +79,8 @@ referenced bucket/queue/topic does not exist.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm subscribe \e
-    --source-ern ern:esm:eu-central-1:000000000000:bucket:uploads \e
-    --target-ern ern:eqs:eu-central-1:000000000000:queue:upload-events
+    --source-ern ern:esm:eu-central-1:000000000000:development:bucket:uploads \e
+    --target-ern ern:eqs:eu-central-1:000000000000:development:queue:upload-events
 .fi
 .RE
 .PP
@@ -90,8 +90,8 @@ topic is subscribed to:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm subscribe \e
-    --source-ern ern:esm:eu-central-1:000000000000:bucket:uploads \e
-    --target-ern ern:ens:eu-central-1:000000000000:topic:upload-events \e
+    --source-ern ern:esm:eu-central-1:000000000000:development:bucket:uploads \e
+    --target-ern ern:ens:eu-central-1:000000000000:development:topic:upload-events \e
     --type SNS
 .fi
 .RE
