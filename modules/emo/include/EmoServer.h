@@ -204,7 +204,8 @@ namespace Euclid::Monitoring {
         /**
          * @brief Records how much each module's data directory holds on disk, everything beneath it
          * included: module-disk-usage (bytes), module-disk-files and module-disk-scan-seconds,
-         * labelled by module.
+         * labelled by module. ESM's figure covers its data directory and every one of
+         * euclid.modules.esm.storage-dirs, summed, so it is the whole object store wherever it lives.
          *
          * @par
          * A walk of the directory, a stat per file, which for ESM - a file per object - is the

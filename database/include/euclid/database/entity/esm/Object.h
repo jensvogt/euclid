@@ -66,6 +66,20 @@ namespace Euclid::Database::Entity::ESM {
         std::string internalName;
 
         /**
+         * @brief The storage directory the file named by internalName was written under, or empty
+         * for euclid.modules.esm.data-dir.
+         *
+         * @par
+         * One of euclid.modules.esm.storage-dirs, as configured when the object was written - ESM
+         * spreads new objects over those round-robin, typically one per filesystem. Recorded rather
+         * than recomputed so the configuration can change without losing anything: a directory
+         * taken out of the list gets no new objects, and the ones on it stay readable. Empty for
+         * every object written before the field, and for an installation that configures no
+         * storage-dirs, which is the data directory as it always was.
+         */
+        std::string internalDir;
+
+        /**
          * @brief Object ERN
          */
         std::string ern;

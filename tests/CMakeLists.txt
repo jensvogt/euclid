@@ -131,6 +131,17 @@ target_link_libraries(${ESM_LIFECYCLE_BINARY} PRIVATE eucliddto Boost::thread Bo
 
 add_test(NAME ${ESM_LIFECYCLE_BINARY} COMMAND ${ESM_LIFECYCLE_BINARY})
 
+# ESM storage-dirs: new objects spread round-robin over several directories, recorded as internalDir.
+set(ESM_STORAGE_DIRS_BINARY euclid-esm-storage-dirs-tests)
+
+add_executable(${ESM_STORAGE_DIRS_BINARY} EsmStorageDirsTest.cpp ${CMAKE_SOURCE_DIR}/modules/esm/src/EsmServer.cpp)
+set_target_properties(${ESM_STORAGE_DIRS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ESM_STORAGE_DIRS_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/esm/include)
+target_link_libraries(${ESM_STORAGE_DIRS_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${ESM_STORAGE_DIRS_BINARY} COMMAND ${ESM_STORAGE_DIRS_BINARY})
+
 # The worker on the manager's own host, as EAP provisions it - docs/worker-nodes.md §13.3.
 set(LOCAL_NODE_BINARY euclid-local-node-tests)
 

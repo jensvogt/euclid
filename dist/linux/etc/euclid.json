@@ -100,6 +100,8 @@
         "data-dir": "/usr/local/euclid/data/esm",
         "last-access-granularity": 3600,
         "archive-dir": "/usr/local/euclid/data/esm-archive",
+        "storage-dirs": [],
+        "storage-min-free-mb": 1024,
         "restore-days": 7,
         "lifecycle-sweep-period": 3600,
         "lifecycle-sweep-budget": 240,

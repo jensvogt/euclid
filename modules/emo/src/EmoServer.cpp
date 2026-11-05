@@ -5,6 +5,7 @@
 // C++ includes
 #include <atomic>
 #include <chrono>
+#include <algorithm>
 #include <filesystem>
 #include <cmath>
 #include <map>
@@ -76,28 +77,66 @@ namespace Euclid::Monitoring {
         std::atomic s_diskWalkRunning{false};
         std::atomic s_stopping{false};
 
+        // Whether @p path is @p dir or somewhere inside it - both already resolved.
+        bool isWithin(const std::filesystem::path &path, const std::filesystem::path &dir) {
+            const auto pathText = path.generic_string();
+            const auto dirText = dir.generic_string();
+            return pathText == dirText || pathText.starts_with(dirText.ends_with('/') ? dirText : dirText + "/");
+        }
+
         // Where the modules keep their files: every directory directly in euclid.data-dir, by its
-        // name, and any module whose own data-dir is somewhere else.
-        std::map<std::string, std::filesystem::path> moduleDataDirectories() {
+        // name, and any module whose own data-dir is somewhere else. Several directories for one
+        // module are walked and recorded as one figure - ESM's storage-dirs below.
+        std::map<std::string, std::vector<std::filesystem::path> > moduleDataDirectories() {
             const auto &configuration = Core::Configuration::instance();
             const std::filesystem::path root = configuration.getOr<std::string>("euclid.data-dir", "/usr/local/euclid/data");
 
-            std::map<std::string, std::filesystem::path> directories;
+            std::map<std::string, std::vector<std::filesystem::path> > directories;
             std::error_code ec;
             for (const auto &entry: std::filesystem::directory_iterator(root, ec)) {
                 if (std::error_code typeError; entry.is_directory(typeError) && !entry.is_symlink(typeError)) {
-                    directories[entry.path().filename().string()] = entry.path();
+                    directories[entry.path().filename().string()] = {std::filesystem::weakly_canonical(entry.path(), typeError)};
                 }
             }
 
-            const auto rootText = std::filesystem::weakly_canonical(root, ec).string();
+            const auto resolvedRoot = std::filesystem::weakly_canonical(root, ec);
             for (const auto &module: configuration.getKeys("euclid.modules")) {
                 const auto configured = configuration.getOr<std::string>("euclid.modules." + module + ".data-dir", "");
                 if (configured.empty()) continue;
                 const auto resolved = std::filesystem::weakly_canonical(configured, ec);
                 // Inside the root it is already counted, under its directory's name.
-                if (resolved.string().starts_with(rootText + "/") || resolved.string() == rootText) continue;
-                directories[module] = resolved;
+                if (isWithin(resolved, resolvedRoot)) continue;
+                directories[module] = {resolved};
+            }
+
+            // The filesystems ESM spreads objects over (euclid.modules.esm.storage-dirs), counted as
+            // ESM's: they hold its objects, and "module-disk-usage" for esm should be the whole
+            // store, not the part that happens to sit in its data directory. One already inside a
+            // directory being walked is counted there; one that is a directory of its own in
+            // euclid.data-dir is moved under esm rather than counted twice.
+            if (configuration.has("euclid.modules.esm.storage-dirs")) {
+                std::vector<std::string> storageDirs;
+                try {
+                    storageDirs = configuration.getArray<std::string>("euclid.modules.esm.storage-dirs");
+                } catch (const std::exception &e) {
+                    log_warning << "Monitoring disk-usage could not read euclid.modules.esm.storage-dirs, error: " << e.what();
+                }
+                for (const auto &configured: storageDirs) {
+                    if (configured.empty()) continue;
+                    const auto resolved = std::filesystem::weakly_canonical(configured, ec);
+                    std::erase_if(directories, [&resolved](const auto &entry) {
+                        return entry.first != "esm" && entry.second.size() == 1 && entry.second.front() == resolved;
+                    });
+                    const bool counted = std::ranges::any_of(directories, [&resolved](const auto &entry) {
+                        return std::ranges::any_of(entry.second, [&resolved](const auto &dir) { return isWithin(resolved, dir); });
+                    });
+                    if (counted) continue;
+                    // And the other way round: a storage directory that contains one already listed
+                    // for esm replaces it, rather than walking those files twice.
+                    auto &esm = directories["esm"];
+                    std::erase_if(esm, [&resolved](const auto &dir) { return isWithin(dir, resolved); });
+                    esm.push_back(resolved);
+                }
             }
             return directories;
         }
@@ -1508,40 +1547,68 @@ namespace Euclid::Monitoring {
         lowerIoPriority();
 #endif
 
-        for (const auto &[module, directory]: moduleDataDirectories()) {
+        for (const auto &[module, directories]: moduleDataDirectories()) {
             const auto started = std::chrono::steady_clock::now();
-            const auto usage = Core::DirUtils::MeasureDiskUsage(directory, &s_stopping);
-            if (s_stopping.load()) return;
+
+            // Summed over the module's directories - one, except for ESM with storage-dirs.
+            std::uint64_t bytes = 0;
+            std::uint64_t files = 0;
+            bool complete = true;
+            for (const auto &directory: directories) {
+                const auto part = Core::DirUtils::MeasureDiskUsage(directory, &s_stopping);
+                if (s_stopping.load()) return;
+                // A walk that could not finish has counted part of the directory, and a part would
+                // read as the directory shrinking. Said, and the module not recorded.
+                if (!part.complete) {
+                    log_warning << "Monitoring disk-usage could not walk all of " << directory.string() << ", module: " << module << ", unreadable entries: " << part.unreadable;
+                    complete = false;
+                    break;
+                }
+                bytes += part.bytes;
+                files += part.files;
+            }
+            if (!complete) continue;
             const auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
 
-            // A walk that could not finish has counted part of the directory, and a part would read
-            // as the directory shrinking. Said, and not recorded.
-            if (!usage.complete) {
-                log_warning << "Monitoring disk-usage could not walk all of " << directory.string() << ", module: " << module << ", unreadable entries: " << usage.unreadable;
-                continue;
-            }
-            recordSample("module-disk-usage", "module", module, static_cast<double>(usage.bytes), MetricType::GAUGE);
-            recordSample("module-disk-files", "module", module, static_cast<double>(usage.files), MetricType::GAUGE);
+            recordSample("module-disk-usage", "module", module, static_cast<double>(bytes), MetricType::GAUGE);
+            recordSample("module-disk-files", "module", module, static_cast<double>(files), MetricType::GAUGE);
             recordSample("module-disk-scan-seconds", "module", module, seconds, MetricType::GAUGE);
-            log_info << "Monitoring disk-usage, module: " << module << ", bytes: " << usage.bytes << ", files: " << usage.files
-                     << ", seconds: " << static_cast<long>(seconds);
+            log_info << "Monitoring disk-usage, module: " << module << ", directories: " << directories.size() << ", bytes: " << bytes
+                     << ", files: " << files << ", seconds: " << static_cast<long>(seconds);
         }
     }
 
     void EmoServer::collectDiskSpace() {
 
-        const auto root = Core::Configuration::instance().getOr<std::string>("euclid.data-dir", "/usr/local/euclid/data");
-        std::error_code ec;
-        const auto space = std::filesystem::space(root, ec);
-        if (ec) {
-            log_warning << "Monitoring disk-space could not read the volume of " << root << ", error: " << ec.message();
-            return;
+        const auto &configuration = Core::Configuration::instance();
+
+        // The data directory's volume, and each of the filesystems ESM spreads objects over
+        // (euclid.modules.esm.storage-dirs) - they are there to be on other volumes, and one of
+        // them filling up is exactly what the data directory's figure would not show.
+        std::vector<std::string> paths{configuration.getOr<std::string>("euclid.data-dir", "/usr/local/euclid/data")};
+        if (configuration.has("euclid.modules.esm.storage-dirs")) {
+            try {
+                for (auto &dir: configuration.getArray<std::string>("euclid.modules.esm.storage-dirs")) {
+                    if (!dir.empty() && std::ranges::find(paths, dir) == paths.end()) paths.push_back(std::move(dir));
+                }
+            } catch (const std::exception &e) {
+                log_warning << "Monitoring disk-space could not read euclid.modules.esm.storage-dirs, error: " << e.what();
+            }
         }
-        // Free and available differ by what the filesystem keeps back for root: available is what
-        // euclid can actually still write, and the one to alert on.
-        recordSample("disk-capacity", "path", root, static_cast<double>(space.capacity), MetricType::GAUGE);
-        recordSample("disk-free", "path", root, static_cast<double>(space.free), MetricType::GAUGE);
-        recordSample("disk-available", "path", root, static_cast<double>(space.available), MetricType::GAUGE);
+
+        for (const auto &root: paths) {
+            std::error_code ec;
+            const auto space = std::filesystem::space(root, ec);
+            if (ec) {
+                log_warning << "Monitoring disk-space could not read the volume of " << root << ", error: " << ec.message();
+                continue;
+            }
+            // Free and available differ by what the filesystem keeps back for root: available is
+            // what euclid can actually still write, and the one to alert on.
+            recordSample("disk-capacity", "path", root, static_cast<double>(space.capacity), MetricType::GAUGE);
+            recordSample("disk-free", "path", root, static_cast<double>(space.free), MetricType::GAUGE);
+            recordSample("disk-available", "path", root, static_cast<double>(space.available), MetricType::GAUGE);
+        }
     }
 
     response<string_body> EmoServer::DispatchAction(const request<string_body> &req) {

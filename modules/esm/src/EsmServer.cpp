@@ -5,6 +5,7 @@
 // Euclid includes
 #include <EsmServer.h>
 #include <ObjectFileCheck.h>
+#include <StorageDirs.h>
 
 #include <euclid/core/ArchiveZip.h>
 
@@ -369,15 +370,22 @@ namespace Euclid::ESM {
         return Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.archive-dir", kDefaultArchiveDir);
     }
 
-    // Removes an object's file from the data directory. An archived object has none there; its
+    // The directory an object's file lives under: the storage directory it was written to, or the
+    // data directory for one written before there was a choice - see StorageDirs.h.
+    static std::filesystem::path objectRoot(const Database::Entity::ESM::Object &object) {
+        return ObjectRoot(object.internalDir, esmDataDir());
+    }
+
+    // Removes an object's file from its storage directory. An archived object has none there; its
     // member in the month's zip is simply no longer referenced, and goes with the zip - see
     // reclaimArchives().
-    static void removeObjectFile(const std::filesystem::path &dataDir, const std::string &internalName) {
-        if (internalName.empty()) return;
+    static void removeObjectFile(const Database::Entity::ESM::Object &object) {
+        if (object.internalName.empty()) return;
         std::error_code ec;
-        Core::DirUtils::RemoveFile(dataDir, internalName, ec);
+        Core::DirUtils::RemoveFile(objectRoot(object), object.internalName, ec);
         if (ec)
-            log_warning << "Could not remove object file, internalName: " << internalName << ", error: " << ec.message();
+            log_warning << "Could not remove object file, internalName: " << object.internalName << ", internalDir: " << object.internalDir
+                        << ", error: " << ec.message();
     }
 
     // The answer to reading an archived object: not gone, but not here either.
@@ -421,7 +429,7 @@ namespace Euclid::ESM {
     // mark, the object reads as it always did from its own file.
     static bool archiveObject(const Database::Entity::ESM::Object &object, const Database::Entity::ESM::Bucket &bucket, std::string &error) {
 
-        const auto source = Core::DirUtils::FindFilePath(esmDataDir(), object.internalName);
+        const auto source = Core::DirUtils::FindFilePath(objectRoot(object), object.internalName);
         std::error_code ec;
         if (!std::filesystem::exists(source, ec)) {
             error = "the object's file is not on disk";
@@ -456,7 +464,7 @@ namespace Euclid::ESM {
             error = "object changed or is already archived";
             return false;
         }
-        removeObjectFile(esmDataDir(), object.internalName);
+        removeObjectFile(object);
         log_info << "ESM object archived, bucket: " << object.bucketErn << ", key: " << object.key << ", archive: " << archived.archiveFile
                  << ", offset: " << archived.archiveMember.offset << ", size: " << archived.archiveMember.size
                  << ", stored: " << archived.archiveMember.compressedSize;
@@ -479,7 +487,9 @@ namespace Euclid::ESM {
     // stays in the zip, unreferenced.
     static bool restoreObject(const Database::Entity::ESM::Object &object, const long days, std::string &error) {
 
-        const auto dataDir = esmDataDir();
+        // Back where it came from: the row still names that directory, and changing it here would
+        // take a write of its own that setObjectLifecycle() does not make.
+        const auto dataDir = objectRoot(object);
         if (object.archiveFile.empty()) {
             error = "the object is marked archived but names no archive";
             return false;
@@ -509,7 +519,7 @@ namespace Euclid::ESM {
             // Restored by somebody else, whose file this is too; or deleted or replaced, in which
             // case what was just extracted belongs to nothing.
             if (const auto current = repo->findObjectByErn(object.ern); !current || current->internalName != object.internalName) {
-                removeObjectFile(dataDir, object.internalName);
+                removeObjectFile(object);
             }
             error = "object changed while it was being restored";
             return false;
@@ -945,7 +955,6 @@ namespace Euclid::ESM {
                                         const std::string &userId, const bool notify) {
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
 
         RemovedObjects removed;
         if (objects.empty()) return removed;
@@ -956,7 +965,7 @@ namespace Euclid::ESM {
         std::vector<std::string> erns;
         erns.reserve(objects.size());
         for (const auto &object: objects) {
-            removeObjectFile(dataDir, object.internalName);
+            removeObjectFile(object);
             erns.push_back(object.ern);
 
             removed.size += object.size;
@@ -2200,17 +2209,16 @@ namespace Euclid::ESM {
         const auto internalName = Core::UuidUtils::CreateRandomUuid();
         const auto ern = Core::createEsmObjectErn(auth.user->accountId, bucket->nameSpace, bucket->name + "/" + key);
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
-        std::error_code ec;
-        std::filesystem::create_directories(dataDir, ec);
-        if (ec) {
-            log_error << "ESM could not create storage data directory, path: " << dataDir << ", error: " << ec.message();
+        // The next of the configured storage directories, or the data directory - see StorageDirs.h.
+        const auto storageDir = NextStorageDir(esmDataDir(), data.size());
+        if (!storageDir.has_value()) {
+            log_error << "ESM could not create any storage directory, bucket: " << bucketErn << ", key: " << key;
             return ErrorResponse(req, status::internal_server_error, "Could not store object");
         }
 
         // Fanned out over two levels of its own name rather than written straight into the storage
         // directory - see Core::DirUtils, and the nine million entries that made it necessary.
-        const std::filesystem::path destPath = Core::DirUtils::CreateFilePath(dataDir, internalName);
+        const std::filesystem::path destPath = Core::DirUtils::CreateFilePath(storageDir->root, internalName);
         try {
             std::ofstream dest(destPath, std::ios::binary | std::ios::trunc);
             if (!dest.is_open()) {
@@ -2263,6 +2271,7 @@ namespace Euclid::ESM {
         object.bucketErn = bucketErn;
         object.key = key;
         object.internalName = internalName;
+        object.internalDir = storageDir->internalDir;
         object.ern = ern;
         object.owner = auth.user->userId;
         object.region = auth.user->region;
@@ -2298,7 +2307,7 @@ namespace Euclid::ESM {
 
         // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
         if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
-            removeObjectFile(dataDir, existingObject->internalName);
+            removeObjectFile(*existingObject);
         }
 
         log_info << "ESM put object, bucket: " << bucketErn << ", key: " << key << ", internalName: " << internalName << ", size: " << data.size();
@@ -2689,6 +2698,15 @@ namespace Euclid::ESM {
         std::size_t totalSize = 0;
         for (const auto &partPath: parts) totalSize += std::filesystem::file_size(partPath);
 
+        // Chosen here, where the assembled size is known, so a filesystem without room for it is
+        // passed over - see StorageDirs.h. Before the row is touched below, so a refusal here
+        // leaves a re-uploaded key readable as it was.
+        const auto storageDir = NextStorageDir(esmDataDir(), totalSize);
+        if (!storageDir.has_value()) {
+            log_error << "ESM could not create any storage directory, upload id: " << request.uploadId;
+            return ErrorResponse(req, status::internal_server_error, "Could not store object");
+        }
+
         // All parts are in (that's what calling complete-upload means) but post-processing -
         // assembly, MD5, content-type detection - hasn't run yet. Marking UPLOADED now and
         // returning immediately makes that in-between window observable instead of blocking the
@@ -2701,7 +2719,6 @@ namespace Euclid::ESM {
             repo->upsertObject(uploaded);
         }
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
         const auto owner = auth.user->userId;
         const auto region = auth.user->region;
         const auto accountId = auth.user->accountId;
@@ -2715,7 +2732,7 @@ namespace Euclid::ESM {
         // detached thread's entry function calls std::terminate() and takes down the entire
         // process, unlike an exception in a normal request handler which route()/Dispatch() would
         // otherwise catch.
-        std::thread([repo, uploadDir, parts, dataDir, internalName, ern, bucketErn, bucket, key, owner, region, accountId, ns, existingObject, replaces, attributes = *attributes, systemAttributes = *systemAttributes, encryptionKeyErn = bucket->encryptionKeyErn, keyMaterial = writeKey.material, uploadId = request.uploadId] {
+        std::thread([repo, uploadDir, parts, storageDir = *storageDir, internalName, ern, bucketErn, bucket, key, owner, region, accountId, ns, existingObject, replaces, attributes = *attributes, systemAttributes = *systemAttributes, encryptionKeyErn = bucket->encryptionKeyErn, keyMaterial = writeKey.material, uploadId = request.uploadId] {
 
             // Declared out here so the handlers below can discard a half-written file: it is
             // assigned as soon as the storage directory is known to exist, and an empty path means
@@ -2723,15 +2740,10 @@ namespace Euclid::ESM {
             std::filesystem::path destPath;
             try {
                 std::error_code ec;
-                std::filesystem::create_directories(dataDir, ec);
-                if (ec) {
-                    log_error << "Could not create storage data storage, path: " << dataDir << ", error: " << ec.message();
-                    return;
-                }
 
                 // Fanned out over two levels of its own name rather than written straight into the
-                // storage directory - see Core::DirUtils.
-                destPath = Core::DirUtils::CreateFilePath(dataDir, internalName);
+                // storage directory - see Core::DirUtils. NextStorageDir() created the directory.
+                destPath = Core::DirUtils::CreateFilePath(storageDir.root, internalName);
 
                 std::size_t assembledSize = 0;
                 std::string md5Sum;
@@ -2841,6 +2853,7 @@ namespace Euclid::ESM {
                 object.bucketErn = bucketErn;
                 object.key = key;
                 object.internalName = internalName;
+                object.internalDir = storageDir.internalDir;
                 object.ern = ern;
                 object.owner = owner;
                 object.region = region;
@@ -2892,7 +2905,7 @@ namespace Euclid::ESM {
 
                 // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
                 if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
-                    removeObjectFile(dataDir, existingObject->internalName);
+                    removeObjectFile(*existingObject);
                 }
 
                 log_info << "Completed upload, id: " << uploadId << ", key: " << key << ", internalName: " << internalName << ", size: " << assembledSize;
@@ -2986,8 +2999,7 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::conflict, readKey.error);
         }
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
-        const auto path = Core::DirUtils::FindFilePath(dataDir, object->internalName);
+        const auto path = Core::DirUtils::FindFilePath(objectRoot(*object), object->internalName);
 
         std::string data;
         try {
@@ -3082,6 +3094,7 @@ namespace Euclid::ESM {
                 {"bucketErn", object->bucketErn},
                 {"key", object->key},
                 {"internalName", object->internalName},
+                {"internalDir", object->internalDir},
                 {"encryptionKeyErn", object->encryptionKeyErn},
                 {"size", object->size},
                 {"owner", auth.user->userId},
@@ -3157,6 +3170,10 @@ namespace Euclid::ESM {
             meta = boost::json::parse(buffer.str());
         }
         const auto internalName = std::string(meta.at("internalName").as_string());
+        // Absent from a download created by an older ESM, whose objects were all in the data
+        // directory - which is what an empty internalDir means.
+        const auto *internalDirValue = meta.is_object() ? meta.as_object().if_contains("internalDir") : nullptr;
+        const auto internalDir = internalDirValue != nullptr && internalDirValue->is_string() ? std::string(internalDirValue->as_string()) : std::string();
         const auto totalSize = meta.at("size").as_int64();
         // Absent from a download created by an older ESM, in which case the object predates
         // encryption at rest and is stored in the clear - which is what an empty key ERN means.
@@ -3173,8 +3190,7 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::conflict, readKey.error);
         }
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
-        const auto path = Core::DirUtils::FindFilePath(dataDir, internalName);
+        const auto path = Core::DirUtils::FindFilePath(ObjectRoot(internalDir, esmDataDir()), internalName);
         const auto readSize = std::min<std::int64_t>(partSize, totalSize - offset);
 
         std::string data;
@@ -3376,7 +3392,6 @@ namespace Euclid::ESM {
         if (!bucket.has_value()) return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
         if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
 
-        const auto dataDir = esmDataDir();
         const auto objects = repo->listObjectsAfter(bucketErn, afterKey, limit);
 
         long checked = 0;
@@ -3389,7 +3404,7 @@ namespace Euclid::ESM {
                 continue;
             }
             ++checked;
-            const auto path = Core::DirUtils::FindFilePath(dataDir, object.internalName);
+            const auto path = Core::DirUtils::FindFilePath(objectRoot(object), object.internalName);
             const auto problem = CheckObjectFile(path, object.size, !object.encryptionKeyErn.empty());
             if (!problem) continue;
             boost::json::object entry{
@@ -3400,6 +3415,7 @@ namespace Euclid::ESM {
                     {"fileSize", problem->fileSize},
                     {"expectedFileSize", problem->expectedSize},
                     {"internalName", object.internalName},
+                    {"internalDir", object.internalDir},
                     {"created", Core::DateTimeUtils::ToISO8601(object.created)},
             };
             if (!problem->detail.empty()) entry["detail"] = problem->detail;
@@ -3496,8 +3512,7 @@ namespace Euclid::ESM {
             repo->adjustBucketCounters(object->bucketErn, -object->size, wasDirectory ? 0 : -1,
                                        wasDirectory ? -1 : 0);
 
-            const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
-            removeObjectFile(dataDir, object->internalName);
+            removeObjectFile(*object);
         }
 
         repo->deleteObjectByErn(request.ern);
@@ -3785,8 +3800,7 @@ namespace Euclid::ESM {
         }
         const bool reEncrypt = source->encryptionKeyErn != targetBucket->encryptionKeyErn;
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
-        const auto sourcePath = Core::DirUtils::FindFilePath(dataDir, source->internalName);
+        const auto sourcePath = Core::DirUtils::FindFilePath(objectRoot(*source), source->internalName);
 
         Database::Entity::ESM::Object target = *source;
         target.oid.clear();// a new row, not an edit of the source's
@@ -3798,12 +3812,20 @@ namespace Euclid::ESM {
 
         // The file the move leaves behind when it had to rewrite the bytes after all; dropped once
         // no row points at it any more.
-        std::string supersededFile;
+        bool supersedesSource = false;
 
         if (keepSource || reEncrypt) {
-            // Its own copy of the bytes, under its own internal name.
+            // Its own copy of the bytes, under its own internal name - and in the next storage
+            // directory, like any other new object. A move that keeps the bytes keeps the
+            // source's directory with them (target is a copy of the source row).
+            const auto storageDir = NextStorageDir(esmDataDir(), static_cast<std::uintmax_t>(std::max<long>(0, source->size)));
+            if (!storageDir.has_value()) {
+                log_error << "ESM could not create any storage directory, key: " << targetKey;
+                return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not copy object");
+            }
             target.internalName = Core::UuidUtils::CreateRandomUuid();
-            const auto targetPath = Core::DirUtils::CreateFilePath(dataDir, target.internalName);
+            target.internalDir = storageDir->internalDir;
+            const auto targetPath = Core::DirUtils::CreateFilePath(storageDir->root, target.internalName);
 
             if (reEncrypt) {
                 try {
@@ -3829,7 +3851,7 @@ namespace Euclid::ESM {
                 discardPartialObject(targetPath);
                 return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not copy object");
             }
-            if (!keepSource) supersededFile = source->internalName;
+            if (!keepSource) supersedesSource = true;
         }
 
         if (!keepSource) {
@@ -3845,8 +3867,8 @@ namespace Euclid::ESM {
 
         const auto stored = repo->upsertObject(target);
 
-        if (!supersededFile.empty()) {
-            removeObjectFile(dataDir, supersededFile);
+        if (supersedesSource) {
+            removeObjectFile(*source);
         }
 
         // Each key moves the counter it belongs to, and a marker moves the directory one rather
