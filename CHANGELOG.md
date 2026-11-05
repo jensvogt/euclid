@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.25](https://github.com/jensvogt/euclid/compare/2.1.24...v2.1.25) (2026-11-05)
+
+
+### Bug Fixes
+
+* add wiki pages, fix some man pages. ([5fc42aa](https://github.com/jensvogt/euclid/commit/5fc42aa43b34c0ea79b9175a32eadf1632d3f737))
+
 ## [2.1.24](https://github.com/jensvogt/euclid/compare/2.1.23...v2.1.24) (2026-11-05)
 
 
