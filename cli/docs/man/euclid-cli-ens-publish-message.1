@@ -60,11 +60,11 @@ path could not be read, or no topic with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 ens publish-message \e
-    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --topic ern:ens:eu-central-1:000000000000:development:topic:order-events \e
     --body 'hello world'
 
 euclid-cli --endpoint http://localhost:5566 ens publish-message \e
-    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --topic ern:ens:eu-central-1:000000000000:development:topic:order-events \e
     --body file://./payload.json \e
     --attributes '{"orderId": {"type": "string", "value": "42"}}'
 .fi

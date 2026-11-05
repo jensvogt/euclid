@@ -3,15 +3,23 @@
 euclid-cli-eqs-delete-queue \- delete a queue
 .SH SYNOPSIS
 .B euclid-cli eqs delete-queue
-.BR \-\-ern | \-e
-.I ERN
+.BR \-\-queue | \-q
+.I NAME|ERN
+[\fB\-\-if\-empty\fR]
 .SH DESCRIPTION
 Deletes a queue identified by its Euclid resource name (ERN), along
 with all of its remaining messages. This cannot be undone.
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-ern " " \fIERN\fR
-Euclid resource name of the queue to delete. Required.
+.BR \-q ", " \-\-queue " " \fINAME|ERN\fR
+Name or ERN of the queue to delete. Required.
+.TP
+.B \-\-if\-empty
+Delete the queue only if it is empty. The request is refused with
+.I "HTTP 409"
+while the queue holds any message, or while events are still being
+delivered into it from a topic subscription. Without it, the queue and
+all of its messages are deleted.
 .PP
 The queue may be given by
 .B name
@@ -26,13 +34,15 @@ in
 The queue was deleted. No output is printed.
 .TP
 .B 1
-Missing/invalid arguments, the server could not be reached, or no queue
-with that ERN exists.
+Missing/invalid arguments, the server could not be reached, no queue
+with that name or ERN exists, or
+.B \-\-if\-empty
+was given and the queue is not empty.
 .SH EXAMPLES
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders
+    --queue orders
 .fi
 .RE
 .SH SEE ALSO

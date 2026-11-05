@@ -15,12 +15,15 @@ euclid-cli-eap-create-application \- define an application from an artifact in a
 [\fB\-\-user\fR|\fB\-u\fR \fIUSER\fR]
 [\fB\-\-buckets\fR \fILIST\fR]
 [\fB\-\-queues\fR \fILIST\fR]
+[\fB\-\-manifest\fR \fIDIR\fR]
 [\fB\-\-command\fR|\fB\-c\fR \fICMD\fR]
 [\fB\-\-arguments\fR \fILIST\fR]
 [\fB\-\-environment\fR|\fB\-e\fR \fILIST\fR]
 [\fB\-\-node\-labels\fR \fILIST\fR]
 [\fB\-\-min\-instances\fR \fIN\fR]
 [\fB\-\-max\-instances\fR \fIN\fR]
+[\fB\-\-type\fR \fIPROCESS|JOB\fR]
+[\fB\-\-schedule\fR \fICRON\fR]
 [\fB\-\-memory\-limit\fR \fISIZE\fR]
 [\fB\-\-cpu\-limit\fR \fICORES\fR]
 [\fB\-\-ready\-timeout\fR \fIMS\fR]
@@ -127,6 +130,13 @@ remove it. One application cannot reach another's, and a queue the
 application deployed under a real name is still held to this list even
 though it created that one too.
 .TP
+.B \-\-manifest " " \fIDIR\fR
+An application's
+.I euclid/
+directory. The objects it declares become the resources the application
+is granted, instead of every resource in its namespace. See
+.BR euclid-cli-eap-apply (1).
+.TP
 .BR \-c ", " \-\-command " " \fICMD\fR
 Command to run instead of the runtime's default, for an application that
 needs a wrapper script or an interpreter that is not on \fIPATH\fR. The
@@ -155,6 +165,21 @@ Smallest number of instances the autoscaler keeps running. Defaults to
 .B \-\-max\-instances " " \fIN\fR
 Largest number of instances the autoscaler may scale out to. Defaults to
 1, which pins the application to a single process.
+.TP
+.B \-\-type " " \fIPROCESS|JOB\fR
+.I PROCESS
+(the default) for something that stays up, or
+.I JOB
+for something that runs once and finishes. A JOB is not restarted when it
+exits with status 0, and is not autoscaled.
+.TP
+.B \-\-schedule " " \fICRON\fR
+Cron expression a JOB runs on, in UTC, for example
+.B \(dq0 2 * * *\(dq
+or
+.BR @daily .
+Only valid with
+.BR "\-\-type JOB" .
 .TP
 .B \-\-memory\-limit " " \fISIZE\fR
 The most memory one instance may use: a number of MiB, or a number with

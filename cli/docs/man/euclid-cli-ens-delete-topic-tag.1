@@ -9,16 +9,14 @@ euclid-cli-ens-delete-topic-tag \- delete a tag from a topic
 .I KEY
 .SH DESCRIPTION
 Deletes a tag from a topic identified by its Euclid resource name (ERN).
+Deleting a key the topic does not have is not an error.
 .PP
-.B Not yet functional in this release:
-this command currently sends its request to the
-.I eqs
-service instead of
-.IR ens ,
-so it cannot succeed against a topic regardless of arguments. Both this
-routing issue and the lack of a server-side handler (see
-.BR euclid-cli-ens-add-topic-tag (1))
-need to be fixed before this action works.
+The
+.I euclid:application
+tag records which application owns the topic and is written by
+.BR euclid-cli-eap-apply (1);
+only an administrator may change it, and anyone else is refused with
+.IR "HTTP 403" .
 .SH OPTIONS
 .TP
 .BR \-t ", " \-\-topic " " \fIERN\fR
@@ -40,13 +38,14 @@ in
 The tag was deleted. No output is printed.
 .TP
 .B 1
-Missing/invalid arguments, the server could not be reached, or
-(currently, always) the request cannot be routed to the topic.
+Missing/invalid arguments, the server could not be reached, no topic
+with that name or ERN exists, or the tag is one only an administrator
+may change.
 .SH EXAMPLES
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 ens delete-topic-tag \e
-    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --topic ern:ens:eu-central-1:000000000000:development:topic:order-events \e
     --key team
 .fi
 .RE

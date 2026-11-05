@@ -8,6 +8,7 @@ euclid-cli-ens-list-messages \- list a topic's messages
 [\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
 [\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
 [\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
+[\fB\-\-sort\-direction\fR|\fB\-d\fR \fIDIRECTION\fR]
 .SH DESCRIPTION
 Lists a topic's messages without changing their status. This is a
 read-only, non-destructive inspection of the topic's contents, and is
@@ -25,6 +26,9 @@ Zero-based page index to return. Defaults to \fI0\fR.
 .TP
 .BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
 Column to sort results by. Defaults to \fIcreated\fR.
+.TP
+.BR \-d ", " \-\-sort\-direction " " \fIDIRECTION\fR
+\fIasc\fR or \fIdesc\fR. Defaults to \fIasc\fR.
 .PP
 The topic may be given by
 .B name
@@ -45,10 +49,10 @@ with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 ens list-messages \e
-    --topic ern:ens:eu-central-1:000000000000:topic:order-events
+    --topic ern:ens:eu-central-1:000000000000:development:topic:order-events
 
 euclid-cli --endpoint http://localhost:5566 ens list-messages \e
-    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --topic ern:ens:eu-central-1:000000000000:development:topic:order-events \e
     --page-size 25 --page-index 1 --sort-column created
 .fi
 .RE

@@ -3,8 +3,8 @@
 euclid-cli-esm-upload-directory \- upload every file in a local directory to a bucket
 .SH SYNOPSIS
 .B euclid-cli esm upload-directory
-.BR \-\-bucket\-ern | \-b
-.I ERN
+.BR \-\-bucket | \-b
+.I NAME|ERN
 .BR \-\-dir | \-d
 .I PATH
 [\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
@@ -48,8 +48,9 @@ doesn't block the rest of the directory; the command's own exit status
 reflects whether every file succeeded.
 .SH OPTIONS
 .TP
-.BR \-b ", " \-\-bucket\-ern " " \fIERN\fR
-Euclid resource name of the destination bucket. Required.
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+Name or ERN of the destination bucket. A name is resolved in your session's account and
+namespace. Required.
 .TP
 .BR \-d ", " \-\-dir " " \fIPATH\fR
 Local directory to upload. Required; the command fails immediately if
@@ -113,7 +114,7 @@ prefix:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm upload-directory \e
-    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
+    --bucket reports \e
     --dir ./reports --prefix 2026-08/
 .fi
 .RE
@@ -123,7 +124,7 @@ concurrency:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm upload-directory \e
-    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
+    --bucket reports \e
     --dir ./reports --prefix archive/ --recursive \e
     --part-size 8388608 --concurrency 8
 .fi

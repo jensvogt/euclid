@@ -651,7 +651,7 @@ namespace Euclid::CLI {
         desc.add_options()("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "get-topic-metadata", "--ern <name|ern>",
+            return PrintActionHelp("ens", "get-topic-metadata", "--topic <name|ern>",
                                    "Shows the metadata of a topic, i.e. region, accountId, namespace, size, number of messages.",
                                    desc);
         }
@@ -774,7 +774,7 @@ namespace Euclid::CLI {
                 ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "get-message-count", "--ern <ern>",
+            return PrintActionHelp("ens", "get-message-count", "--topic <name|ern>",
                                    "Returns the message counter, like available, send, resend.",
                                    desc);
         }

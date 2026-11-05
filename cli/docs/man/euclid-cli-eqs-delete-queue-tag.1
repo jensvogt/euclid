@@ -13,7 +13,7 @@ Deleting a key that has no matching tag is not an error.
 .SH OPTIONS
 .TP
 .BR \-q ", " \-\-queue " " \fIERN\fR
-Euclid resource name of the queue. Required.
+Name or ERN of the queue. Required.
 .TP
 .BR \-k ", " \-\-key " " \fIKEY\fR
 Key of the tag to delete. Required.
@@ -37,7 +37,7 @@ with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs delete-queue-tag \e
-    --queue ern:eqs:eu-central-1:000000000000:queue:orders --key team
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:orders --key team
 .fi
 .RE
 .SH SEE ALSO

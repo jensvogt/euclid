@@ -7,7 +7,27 @@ euclid-cli-eag-update-route \- change an existing gateway route
 .I ID
 .RB [ \-\-path | \-p
 .IR PREFIX ]
+.RB [ \-\-type | \-t
+.IR proxy | upload ]
 .RB [ \-\-application | \-a
+.IR NAME ]
+.RB [ \-\-module | \-M
+.IR NAME ]
+.RB [ \-\-action
+.IR NAME ]
+.RB [ \-\-bucket | \-b
+.IR ERN ]
+.RB [ \-\-key\-prefix | \-k
+.IR PREFIX ]
+.RB [ \-\-max\-bytes | \-x
+.IR N ]
+.RB [ \-\-part\-size | \-s
+.IR N ]
+.RB [ \-\-content\-types | \-c
+.IR LIST ]
+.RB [ \-\-region | \-R
+.IR NAME ]
+.RB [ \-\-namespace | \-N
 .IR NAME ]
 .RB [ \-\-methods | \-m
 .IR LIST ]
@@ -19,7 +39,10 @@ euclid-cli-eag-update-route \- change an existing gateway route
 .IR true | false ]
 .SH DESCRIPTION
 Changes an existing route. Anything not named is left as it is, so one
-setting can be changed without restating the rest.
+setting can be changed without restating the rest. The result is checked
+as a whole: an upload route must still name a bucket and no application,
+and must still require authentication, however few of those this command
+changed.
 .PP
 The gateway re-reads its routes every
 .I euclid.modules.eag.refresh\-seconds
@@ -51,6 +74,40 @@ route already claims.
 Application the requests are sent to. Must already exist. Changing this
 moves the path to another application without any URL changing, since
 the path is forwarded unchanged either way.
+.TP
+.BR \-t ", " \-\-type " " \fIproxy\fR|\fIupload\fR
+Change what kind of route this is; see
+.BR euclid-cli-eag-create-route (1).
+.TP
+.BR \-M ", " \-\-module " " \fINAME\fR
+Euclid module the requests are sent to instead of an application.
+.TP
+.B \-\-action " " \fINAME\fR
+The one action the module answers for on this route.
+.TP
+.BR \-b ", " \-\-bucket " " \fIERN\fR
+Upload routes only. ERN of the bucket bodies are written to.
+.TP
+.BR \-k ", " \-\-key\-prefix " " \fIPREFIX\fR
+Upload routes only. Prefix every key is confined to.
+.TP
+.BR \-x ", " \-\-max\-bytes " " \fIN\fR
+Upload routes only. Largest body accepted, in bytes;
+.I 0
+for no limit.
+.TP
+.BR \-s ", " \-\-part\-size " " \fIN\fR
+Upload routes only. Bytes per part streamed to ESM.
+.TP
+.BR \-c ", " \-\-content\-types " " \fILIST\fR
+Upload routes only. Comma-separated content types accepted; an empty
+string for any.
+.TP
+.BR \-R ", " \-\-region " " \fINAME\fR
+Region requests on this route act in.
+.TP
+.BR \-N ", " \-\-namespace " " \fINAME\fR
+Namespace requests on this route act in.
 .TP
 .BR \-m ", " \-\-methods " " \fILIST\fR
 Comma-separated HTTP methods. Replaces the whole list rather than adding

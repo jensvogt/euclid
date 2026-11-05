@@ -3,8 +3,8 @@
 euclid-cli-esm-upload-file \- upload a local file to a bucket
 .SH SYNOPSIS
 .B euclid-cli esm upload-file
-.BR \-\-bucket\-ern | \-b
-.I ERN
+.BR \-\-bucket | \-b
+.I NAME|ERN
 .BR \-\-key | \-k
 .I KEY
 .BR \-\-file | \-f
@@ -31,8 +31,9 @@ server error (HTTP 5xx) before the whole upload is aborted; a rejected
 part (HTTP 4xx) is not retried.
 .SH OPTIONS
 .TP
-.BR \-b ", " \-\-bucket\-ern " " \fIERN\fR
-Euclid resource name of the destination bucket. Required.
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+Name or ERN of the destination bucket. A name is resolved in your session's account and
+namespace. Required.
 .TP
 .BR \-k ", " \-\-key " " \fIKEY\fR
 Destination key (path) within the bucket. Required.
@@ -75,11 +76,11 @@ after retries.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm upload-file \e
-    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
+    --bucket reports \e
     --key 2026-08.csv --file ./2026-08.csv
 
 euclid-cli --endpoint http://localhost:5566 esm upload-file \e
-    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
+    --bucket reports \e
     --key archive/2026-08.csv --file ./2026-08.csv \e
     --part-size 8388608 --concurrency 8
 .fi

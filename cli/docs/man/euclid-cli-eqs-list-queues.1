@@ -7,6 +7,7 @@ euclid-cli-eqs-list-queues \- list queues
 [\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
 [\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
 [\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
+[\fB\-\-sort\-direction\fR|\fB\-d\fR \fIDIRECTION\fR]
 .SH DESCRIPTION
 Lists queues, optionally filtered by name prefix and paginated.
 .SH OPTIONS
@@ -24,6 +25,9 @@ Defaults to \fI-1\fR.
 .TP
 .BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
 Column to sort results by. Defaults to \fIname\fR.
+.TP
+.BR \-d ", " \-\-sort\-direction " " \fIDIRECTION\fR
+\fIasc\fR or \fIdesc\fR. Defaults to \fIasc\fR.
 .SH EXIT STATUS
 .TP
 .B 0

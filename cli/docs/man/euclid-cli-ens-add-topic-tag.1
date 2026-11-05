@@ -12,12 +12,14 @@ euclid-cli-ens-add-topic-tag \- add a tag to a topic
 .SH DESCRIPTION
 Adds a tag (a key/value pair) to a topic identified by its Euclid
 resource name (ERN).
+A tag that already exists with that key is overwritten.
 .PP
-.B Not yet implemented server-side in this release:
-the ens service does not currently route this action to a handler, so
-this command returns
-.I "HTTP 404"
-("Action not implemented: add-topic-tag") regardless of arguments.
+The
+.I euclid:application
+tag records which application owns the topic and is written by
+.BR euclid-cli-eap-apply (1);
+only an administrator may change it, and anyone else is refused with
+.IR "HTTP 403" .
 .SH OPTIONS
 .TP
 .BR \-t ", " \-\-topic " " \fIERN\fR
@@ -43,13 +45,13 @@ The tag was added. No output is printed.
 .TP
 .B 1
 Missing/invalid arguments, the server could not be reached, no topic
-with that ERN exists, or (currently, always) the action is not yet
-implemented server-side.
+with that name or ERN exists, or the tag is one only an administrator
+may change.
 .SH EXAMPLES
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 ens add-topic-tag \e
-    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --topic ern:ens:eu-central-1:000000000000:development:topic:order-events \e
     --key team --value payments
 .fi
 .RE

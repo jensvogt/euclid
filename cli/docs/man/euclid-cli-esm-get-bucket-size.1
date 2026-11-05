@@ -3,15 +3,15 @@
 euclid-cli-esm-get-bucket-size \- return a bucket's size in bytes
 .SH SYNOPSIS
 .B euclid-cli esm get-bucket-size
-.BR \-\-ern | \-e
-.I ERN
+.BR \-\-bucket | \-b
+.I NAME|ERN
 .SH DESCRIPTION
 Returns the total size, in bytes, of all objects currently stored in a
 bucket.
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-ern " " \fIERN\fR
-Euclid resource name of the bucket. Required.
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+Name or ERN of the bucket. Required.
 .PP
 The bucket may be given by
 .B name
@@ -32,7 +32,7 @@ bucket with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm get-bucket-size \e
-    --ern ern:esm:eu-central-1:000000000000:bucket:reports
+    --bucket reports
 .fi
 .RE
 .SH SEE ALSO

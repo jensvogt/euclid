@@ -65,6 +65,11 @@ Deletes a queue by its ERN. See
 Deletes all messages from a single queue. See
 .BR euclid-cli-eqs-purge-queue (1).
 .TP
+.B redrive-dlq
+Moves messages out of a dead letter queue and back into the queue they
+failed in. See
+.BR euclid-cli-eqs-redrive-dlq (1).
+.TP
 .B purge-all-queues
 Deletes all messages from every queue in a region/account. See
 .BR euclid-cli-eqs-purge-all-queues (1).
@@ -138,6 +143,10 @@ Sets the value of a single message attribute, creating it if it doesn't
 exist yet. See
 .BR euclid-cli-eqs-set-message-attribute (1).
 .TP
+.B update-message-body
+Replaces the body of a message already on a queue. See
+.BR euclid-cli-eqs-update-message-body (1).
+.TP
 .B add-queue-tag
 Adds a tag to a queue. See
 .BR euclid-cli-eqs-add-queue-tag (1).
@@ -172,11 +181,6 @@ names were accepted already passes. Both forms are accepted everywhere
 below; a value beginning with
 .I ern:
 is used as given, anything else is treated as a name.
-.TP
-.B redrive-dlq
-Moves messages out of a dead letter queue and back into the queue they
-failed in. See
-.BR euclid-cli-eqs-redrive-dlq (1).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -277,10 +281,10 @@ euclid-cli --endpoint http://localhost:5566 eqs get-queue-ern \e
     --name orders
 
 euclid-cli --endpoint http://localhost:5566 eqs send-message \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders --body 'hello'
+    --queue orders --body 'hello'
 
 euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders
+    --queue orders
 .fi
 .RE
 .PP
@@ -289,10 +293,10 @@ Purge and delete a queue:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs purge-queue \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders
+    --queue orders
 
 euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders
+    --queue orders
 .fi
 .RE
 .SH SEE ALSO

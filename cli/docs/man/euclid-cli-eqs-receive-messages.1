@@ -3,8 +3,8 @@
 euclid-cli-eqs-receive-messages \- receive messages from a queue
 .SH SYNOPSIS
 .B euclid-cli eqs receive-messages
-.BR \-\-ern | \-e
-.I ERN
+.BR \-\-queue | \-q
+.I NAME|ERN
 [\fB\-\-maxCount\fR|\fB\-m\fR \fIN\fR]
 [\fB\-\-waitTime\fR|\fB\-w\fR \fISECONDS\fR]
 .SH DESCRIPTION
@@ -25,8 +25,8 @@ or per-message via
 until it is deleted or the timeout expires.
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-ern " " \fIERN\fR
-Euclid resource name of the queue to receive from. Required.
+.BR \-q ", " \-\-queue " " \fINAME|ERN\fR
+Name or ERN of the queue to receive from. Required.
 .TP
 .BR \-m ", " \-\-maxCount " " \fIN\fR
 Maximum number of messages to receive. Defaults to \fI10\fR.
@@ -54,10 +54,10 @@ with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders
+    --queue orders
 
 euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders \e
+    --queue orders \e
     --maxCount 5 --waitTime 10
 .fi
 .RE

@@ -3,11 +3,12 @@
 euclid-cli-eqs-list-messages \- list a queue's messages without receiving them
 .SH SYNOPSIS
 .B euclid-cli eqs list-messages
-.BR \-\-queue\-ern | \-e
-.I ERN
+.BR \-\-queue | \-q
+.I NAME|ERN
 [\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
 [\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
 [\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
+[\fB\-\-sort\-direction\fR|\fB\-d\fR \fIDIRECTION\fR]
 .SH DESCRIPTION
 Lists a queue's messages without receiving them, i.e. without changing
 their status or visibility. Unlike
@@ -16,8 +17,8 @@ this is a read-only, non-destructive inspection of the queue's
 contents, and is paginated.
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-queue\-ern " " \fIERN\fR
-Euclid resource name of the queue to list messages from. Required.
+.BR \-q ", " \-\-queue " " \fINAME|ERN\fR
+Name or ERN of the queue to list messages from. Required.
 .TP
 .BR \-s ", " \-\-page\-size " " \fIN\fR
 Maximum number of messages to return. Defaults to \fI10\fR.
@@ -27,6 +28,9 @@ Zero-based page index to return. Defaults to \fI0\fR.
 .TP
 .BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
 Column to sort results by. Defaults to \fIcreated\fR.
+.TP
+.BR \-d ", " \-\-sort\-direction " " \fIDIRECTION\fR
+\fIasc\fR or \fIdesc\fR. Defaults to \fIasc\fR.
 .PP
 The queue may be given by
 .B name
@@ -47,10 +51,10 @@ with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs list-messages \e
-    --queue-ern ern:queues:eu-central-1:000000000000:queue:orders
+    --queue orders
 
 euclid-cli --endpoint http://localhost:5566 eqs list-messages \e
-    --queue-ern ern:queues:eu-central-1:000000000000:queue:orders \e
+    --queue orders \e
     --page-size 25 --page-index 1 --sort-column created
 .fi
 .RE

@@ -3,8 +3,8 @@
 euclid-cli-eqs-get-queue-metadata \- show a queue's metadata
 .SH SYNOPSIS
 .B euclid-cli eqs get-queue-metadata
-.BR \-\-ern | \-e
-.I ERN
+.BR \-\-queue | \-q
+.I NAME|ERN
 .SH DESCRIPTION
 Shows the metadata of a queue: region, accountId, namespace, size, and
 number of messages. See
@@ -12,8 +12,8 @@ number of messages. See
 for how to resolve a queue's ERN from its name.
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-ern " " \fIERN\fR
-Euclid resource name of the queue. Required.
+.BR \-q ", " \-\-queue " " \fINAME|ERN\fR
+Name or ERN of the queue. Required.
 .PP
 The queue may be given by
 .B name
@@ -34,7 +34,7 @@ with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs get-queue-metadata \e
-    --ern ern:queues:eu-central-1:000000000000:queue:orders
+    --queue orders
 .fi
 .RE
 .SH SEE ALSO

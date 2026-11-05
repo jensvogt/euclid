@@ -3,9 +3,12 @@
 euclid-cli-eap-deploy-infrastructure \- the older name of eap apply
 .SH SYNOPSIS
 .B euclid-cli eap deploy-infrastructure
-.BR \-\-application\-id | \-n
+.RB ( \-\-application\-id | \-n
 .I NAME
-.RB [ \-\-dir | \-d
+|
+.BR \-\-platform | \-P
+.RI [ NAME ])
+.RB [ \-\-directory | \-\-dir | \-d
 .IR FOLDER ]
 .RB [ \-\-dry\-run ]
 .RB [ \-\-no\-prune ]
@@ -18,7 +21,9 @@ one stored the declaration and had EAP apply it, dropping every setting;
 .B apply
 created objects from the CLI with their settings but granted no access.
 Both now store the folder and have EAP apply it, settings and grants
-included.
+included. It takes the same options, which
+.BR euclid-cli-eap-apply (1)
+describes.
 .PP
 One difference from before:
 .B \-\-dry\-run

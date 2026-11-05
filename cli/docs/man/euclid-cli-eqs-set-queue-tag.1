@@ -17,7 +17,7 @@ otherwise an error is returned.
 .SH OPTIONS
 .TP
 .BR \-q ", " \-\-queue " " \fIERN\fR
-Euclid resource name of the queue. Required.
+Name or ERN of the queue. Required.
 .TP
 .BR \-k ", " \-\-key " " \fIKEY\fR
 Key of the tag to update. Required.
@@ -44,7 +44,7 @@ with that ERN exists, or the queue has no tag with that key.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs set-queue-tag \e
-    --queue ern:eqs:eu-central-1:000000000000:queue:orders \e
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:orders \e
     --key team --value fulfillment
 .fi
 .RE

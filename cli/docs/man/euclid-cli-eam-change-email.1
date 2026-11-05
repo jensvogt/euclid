@@ -1,0 +1,58 @@
+.TH EUCLID-CLI-EAM-CHANGE-EMAIL 1 "November 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-change-email \- give a user a different email address
+.SH SYNOPSIS
+.B euclid-cli eam change-email
+.BR \-\-user | \-u
+.I USERID
+.BR \-\-email | \-e
+.I ADDRESS
+.SH DESCRIPTION
+Gives a user a different email address. Requires administrator
+privileges.
+.PP
+An address is a way in, not just a detail recorded about a user:
+.BR euclid-cli-eam-login (1)
+accepts one in place of a user ID. That is why this command always names
+the user it changes, rather than meaning "me" when it names nobody.
+.PP
+It is refused when another user already holds the address. Addresses are
+unique across the installation, since two users sharing one would make
+login ambiguous.
+.PP
+Nothing else about the user changes: the user ID, the ERN built from it,
+their grants, group memberships and access keys all stay as they were. A
+session already open keeps working. The next login has to use the new
+address, or the user ID, which keeps working throughout.
+.PP
+An address cannot be cleared here. An empty one is refused rather than
+stored.
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-user " " \fIUSERID\fR
+User whose address is changing. Required.
+.TP
+.BR \-e ", " \-\-email " " \fIADDRESS\fR
+The address they should have from now on. Required, and not empty.
+.SH EXIT STATUS
+.TP
+.B 0
+The address was changed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, the caller
+lacks administrator privileges, no such user exists, or another user
+already holds the address.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eam change-email --user jdoe --email jane.doe@example.com
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-get-user (1),
+.BR euclid-cli-eam-change-userid (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

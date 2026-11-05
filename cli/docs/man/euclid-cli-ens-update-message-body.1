@@ -1,0 +1,57 @@
+.TH EUCLID-CLI-ENS-UPDATE-MESSAGE-BODY 1 "November 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-update-message-body \- replace the body of a published message
+.SH SYNOPSIS
+.B euclid-cli ens update-message-body
+.BR \-\-message\-id | \-m
+.I MESSAGE-ID
+.BR \-\-body | \-b
+.I BODY
+.SH DESCRIPTION
+Replaces the body of a message already published to a topic. The whole
+body is replaced, not part of it.
+.PP
+This changes the copy ENS holds: what
+.BR euclid-cli-ens-list-messages (1)
+and
+.BR euclid-cli-ens-get-message (1)
+answer with, and what
+.BR euclid-cli-ens-resend-messages (1)
+would send. The copies subscribers already received were delivered when
+the message was published, and are not changed.
+.PP
+The topic's maximum message length applies as it does to
+.BR euclid-cli-ens-publish-message (1).
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-message\-id " " \fIMESSAGE-ID\fR
+ID of the message to change. Required.
+.TP
+.BR \-b ", " \-\-body " " \fIBODY\fR
+The new body. Required. A value starting with
+.I file://
+is read from the file it names instead of being taken literally.
+.SH EXIT STATUS
+.TP
+.B 0
+The body was replaced. The message ID, the topic, the new size, the size
+it replaced and the new content type are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, no message
+with that ID exists, or the new body is longer than the topic allows.
+.SH EXAMPLES
+Correct a message, then deliver the corrected copy again:
+.RS
+.nf
+euclid-cli ens update-message-body \e
+    --message-id 6f1b1e2e-... --body file://./corrected.json
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-get-message (1),
+.BR euclid-cli-ens-resend-messages (1),
+.BR euclid-cli-ens-publish-message (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

@@ -134,18 +134,18 @@ overlap \- the definition is the record the manager started this process
 from, and letting a stale configuration key win would make the two
 disagree. Only installation-wide settings are read here:
 .TP
-.I euclid.modules.ftp.advertised\-address
+.I euclid.modules.ets.advertised\-address
 Address given to clients in the
 .B PASV
 response. This describes the host's own NAT situation rather than any
 one server's, which is why it is not part of a definition. Empty means
 the address the control connection arrived on.
 .TP
-.I euclid.modules.ftp.data\-dir
+.I euclid.modules.ets.data\-dir
 Root of the spool directory. Each server gets its own subdirectory,
 .IR transfer\- ID,
 used for files in flight. Defaults to
-.IR /usr/local/euclid/data/ftp .
+.IR /usr/local/euclid/data/ets .
 .SH EXIT STATUS
 .TP
 .B 0
@@ -162,7 +162,7 @@ that could not be created.
 .I /usr/local/euclid/etc/euclid.json
 Default configuration file.
 .TP
-.I /usr/local/euclid/data/ftp/transfer-\fIID\fP
+.I /usr/local/euclid/data/ets/transfer-\fIID\fP
 Spool directory for one transfer server's in-flight files.
 .SH EXAMPLES
 Run a defined server in the foreground to see why it will not start:

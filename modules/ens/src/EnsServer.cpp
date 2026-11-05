@@ -633,7 +633,7 @@ namespace Euclid::ENS {
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
         const std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(request.ern);
         if (!topic.has_value()) {
-            return EnsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + request.ern);
         }
 
         Dto::ENS::GetTopicMetadataResponse response;
@@ -644,7 +644,9 @@ namespace Euclid::ENS {
         response.name = topic->name;
         response.ern = topic->ern;
         response.size = topic->size;
-        response.messages = topic->available + topic->send + topic->send;
+        // The messages the topic holds now. "send" and "resend" are lifetime totals that survive
+        // a purge, so adding them in would count the same message again on every delivery.
+        response.messages = topic->available;
         response.status = topic->status();
         response.retentionPeriod = topic->retentionPeriod;
         response.deleteAfterDelivery = topic->deleteAfterDelivery;

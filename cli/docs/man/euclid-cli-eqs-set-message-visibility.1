@@ -2,7 +2,7 @@
 .SH NAME
 euclid-cli-eqs-set-message-visibility \- set a message's visibility timeout
 .SH SYNOPSIS
-.B euclid-cli eqs set-visibility
+.B euclid-cli eqs set-message-visibility
 .BR \-\-message\-id | \-m
 .I MESSAGE-ID
 .BR \-\-visibility | \-v
@@ -23,7 +23,7 @@ This action was called
 before its queue-level counterpart existed. That name still works, both
 on the command line and as an
 .I x-euclid-action
-- euclid-jdk sends it - but the two-word spelling is the one that says
+- euclid-jdk sends it - but the longer name is the one that says
 which visibility it changes.
 .SH OPTIONS
 .TP
@@ -43,7 +43,7 @@ message with that ID exists.
 .SH EXAMPLES
 .RS
 .nf
-euclid-cli --endpoint http://localhost:5566 eqs set-visibility \e
+euclid-cli --endpoint http://localhost:5566 eqs set-message-visibility \e
     --message-id 6f1b1e2e-... --visibility 60
 .fi
 .RE

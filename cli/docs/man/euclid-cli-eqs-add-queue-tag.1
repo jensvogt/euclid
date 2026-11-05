@@ -16,7 +16,7 @@ value is overwritten.
 .SH OPTIONS
 .TP
 .BR \-q ", " \-\-queue " " \fIERN\fR
-Euclid resource name of the queue to tag. Required.
+Name or ERN of the queue to tag. Required.
 .TP
 .BR \-k ", " \-\-key " " \fIKEY\fR
 Tag key. Required.
@@ -43,7 +43,7 @@ with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs add-queue-tag \e
-    --queue ern:eqs:eu-central-1:000000000000:queue:orders \e
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:orders \e
     --key team --value payments
 .fi
 .RE

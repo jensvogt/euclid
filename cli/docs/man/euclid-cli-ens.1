@@ -148,6 +148,10 @@ Sets the value of a single message attribute, creating it if it doesn't
 exist yet. See
 .BR euclid-cli-ens-set-message-attribute (1).
 .TP
+.B update-message-body
+Replaces the body of a message already published to a topic. See
+.BR euclid-cli-ens-update-message-body (1).
+.TP
 .B subscribe
 Subscribes a target resource (an EQS queue) to a topic, so published
 messages are also delivered to it. See
@@ -163,7 +167,6 @@ Lists the subscriptions of a topic. See
 .TP
 .B add-topic-tag
 Adds a tag to a topic.
-.B Not yet wired to a server handler in this release.
 See
 .BR euclid-cli-ens-add-topic-tag (1).
 .TP
@@ -194,13 +197,11 @@ it, rather than keeping it for the retention period. See
 .TP
 .B set-topic-tag
 Sets the value of an existing topic tag.
-.B Not yet wired to a server handler in this release.
 See
 .BR euclid-cli-ens-set-topic-tag (1).
 .TP
 .B delete-topic-tag
 Deletes a tag from a topic.
-.B Not yet wired to a server handler in this release.
 See
 .BR euclid-cli-ens-delete-topic-tag (1).
 .TP
@@ -339,7 +340,7 @@ euclid-cli --endpoint http://localhost:5566 ens get-topic-ern \e
     --name order-events
 
 euclid-cli --endpoint http://localhost:5566 ens publish-message \e
-    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --topic ern:ens:eu-central-1:000000000000:development:topic:order-events \e
     --body '{"orderId": "42", "status": "shipped"}'
 .fi
 .RE
@@ -349,8 +350,8 @@ Subscribe a queue to a topic, then remove the subscription:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 ens subscribe \e
-    --source-ern ern:ens:eu-central-1:000000000000:topic:order-events \e
-    --target-ern ern:eqs:eu-central-1:000000000000:queue:orders
+    --source-ern ern:ens:eu-central-1:000000000000:development:topic:order-events \e
+    --target-ern ern:eqs:eu-central-1:000000000000:development:queue:orders
 
 euclid-cli --endpoint http://localhost:5566 ens unsubscribe \e
     --subscription ern:ens:eu-central-1:000000000000:subscription:6f1b1e2e...
@@ -364,10 +365,10 @@ List every topic, inspect one topic's messages, then delete the topic:
 euclid-cli --endpoint http://localhost:5566 ens list-topics
 
 euclid-cli --endpoint http://localhost:5566 ens list-messages \e
-    --topic ern:ens:eu-central-1:000000000000:topic:order-events
+    --topic ern:ens:eu-central-1:000000000000:development:topic:order-events
 
 euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
-    --topic ern:ens:eu-central-1:000000000000:topic:order-events
+    --topic ern:ens:eu-central-1:000000000000:development:topic:order-events
 .fi
 .RE
 .SH SEE ALSO
