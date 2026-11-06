@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.28](https://github.com/jensvogt/euclid/compare/2.1.27...v2.1.28) (2026-11-06)
+
+
+### Bug Fixes
+
+* add ESM maxVersions ([116eedb](https://github.com/jensvogt/euclid/commit/116eedb6fe382ed88cc6b6c2f9a2e3764b422d08))
+* add ESM maxVersions ([ee3ed48](https://github.com/jensvogt/euclid/commit/ee3ed485568548182cd1735018729e3e48bd1776))
+
 ## [2.1.27](https://github.com/jensvogt/euclid/compare/2.1.26...v2.1.27) (2026-11-06)
 
 
