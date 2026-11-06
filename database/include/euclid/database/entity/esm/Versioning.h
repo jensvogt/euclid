@@ -5,8 +5,10 @@
 #pragma once
 
 // C++ includes
+#include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 // Euclid includes
 #include <euclid/core/UuidUtils.h>
@@ -54,6 +56,18 @@ namespace Euclid::Database::Entity::ESM {
         if (!versioning || !existing.has_value()) return UploadOutcome::REPLACE;
         if (existing->status != ObjectStatus::COMPLETED || existing->md5Sum.empty()) return UploadOutcome::REPLACE;
         return existing->md5Sum == md5Sum ? UploadOutcome::UNCHANGED : UploadOutcome::NEW_VERSION;
+    }
+
+    /**
+     * @brief The non-current versions a key no longer keeps under its bucket's limit.
+     *
+     * @param versions the key's non-current versions, newest first - as listObjectVersions() gives them
+     * @param maxVersions the bucket's limit; 0 or less keeps them all
+     * @return the oldest versions beyond the limit, in the order given
+     */
+    [[nodiscard]] inline std::vector<Object> VersionsBeyondLimit(const std::vector<Object> &versions, const std::int64_t maxVersions) {
+        if (maxVersions <= 0 || static_cast<std::int64_t>(versions.size()) <= maxVersions) return {};
+        return {versions.begin() + maxVersions, versions.end()};
     }
 
     /**

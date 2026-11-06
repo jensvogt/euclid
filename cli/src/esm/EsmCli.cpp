@@ -2248,10 +2248,11 @@ namespace Euclid::CLI {
         po::options_description desc("set bucket versioning options");
         desc.add_options()
                 ("bucket,b", po::value<std::string>()->required(), "bucket to change; a name is enough, a full ERN also works")
-                ("enabled,e", po::value<bool>()->required(), "true to keep replaced objects as versions, false to replace them as before");
+                ("enabled,e", po::value<bool>(), "true to keep replaced objects as versions, false to replace them as before")
+                ("max-versions,m", po::value<long>(), "the most non-current versions an object keeps, oldest deleted first; 0 keeps them all");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "set-bucket-versioning", "--bucket <name|ern> --enabled true|false",
+            return PrintActionHelp("esm", "set-bucket-versioning", "--bucket <name|ern> [--enabled true|false] [--max-versions <n>]",
                                    "Turns versioning on or off for a bucket. With versioning on, an upload to a key that already holds "
                                    "an object is compared with it by MD5: different bytes become the current object and the one they "
                                    "replace is kept as a non-current version, file and all; the same bytes are ignored - nothing is "
@@ -2259,7 +2260,11 @@ namespace Euclid::CLI {
                                    "list-object-versions shows a key's versions, download-file --version-id reads one, and "
                                    "delete-object --version-id removes one. "
                                    "Turning versioning off makes uploads replace objects again; the versions already kept stay until "
-                                   "they are deleted. The bucket's size and object counters describe its current objects only.",
+                                   "they are deleted. The bucket's size and object counters describe its current objects only. "
+                                   "--max-versions caps how many non-current versions each object keeps, not counting the current one: "
+                                   "when an upload makes a new version, the oldest beyond the limit are deleted, files included. "
+                                   "Lowering it applies to each object the next time it gets a new version. Give --enabled, "
+                                   "--max-versions or both; the one left out is not changed.",
                                    desc);
         }
 
@@ -2272,9 +2277,18 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        const boost::json::object request{
-                {"ern", vm["bucket"].as<std::string>()},
-                {"enabled", vm["enabled"].as<bool>()}};
+        if (!vm.contains("enabled") && !vm.contains("max-versions")) {
+            std::cerr << "error: give --enabled, --max-versions or both\n\n" << desc << std::endl;
+            return 1;
+        }
+        if (vm.contains("max-versions") && vm["max-versions"].as<long>() < 0) {
+            std::cerr << "error: --max-versions must be 0 (keep every version) or more" << std::endl;
+            return 1;
+        }
+
+        boost::json::object request{{"ern", vm["bucket"].as<std::string>()}};
+        if (vm.contains("enabled")) request["enabled"] = vm["enabled"].as<bool>();
+        if (vm.contains("max-versions")) request["maxVersions"] = vm["max-versions"].as<long>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);

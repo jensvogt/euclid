@@ -486,3 +486,77 @@ BOOST_FIXTURE_TEST_CASE(AMultipartUploadOfNewBytesMakesAVersion, Fixture) {
     BOOST_TEST((kept.front().status == ObjectStatus::COMPLETED));
     BOOST_TEST(onDisk(first->internalName));
 }
+
+// ── maxVersions ─────────────────────────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(TheLimitKeepsTheNewestNonCurrentVersions) {
+    std::vector<Object> newestFirst(5);
+    for (std::size_t i = 0; i < newestFirst.size(); ++i) newestFirst[i].versionId = "v" + std::to_string(5 - i);
+
+    const auto beyond = Euclid::Database::Entity::ESM::VersionsBeyondLimit(newestFirst, 2);
+    BOOST_REQUIRE(beyond.size() == 3u);
+    BOOST_TEST(beyond.front().versionId == "v3");
+    BOOST_TEST(beyond.back().versionId == "v1");
+
+    BOOST_TEST(Euclid::Database::Entity::ESM::VersionsBeyondLimit(newestFirst, 0).empty());
+    BOOST_TEST(Euclid::Database::Entity::ESM::VersionsBeyondLimit(newestFirst, 5).empty());
+    BOOST_TEST(Euclid::Database::Entity::ESM::VersionsBeyondLimit(newestFirst, 9).empty());
+}
+
+BOOST_FIXTURE_TEST_CASE(AnObjectKeepsAtMostMaxVersions, Fixture) {
+    addBucket("capped", true);
+    BOOST_REQUIRE(ask("set-bucket-versioning", {{"ern", bucketErn("capped")}, {"maxVersions", 2}}).status == 200);
+
+    std::vector<Object> stored;
+    for (const auto *data: {"one", "two", "three", "four", "five"}) {
+        BOOST_REQUIRE(put("capped", "c.txt", data).status == 200);
+        stored.push_back(*current("capped", "c.txt"));
+    }
+
+    // "five" is current; "four" and "three" are kept; "two" and "one" went, files and all.
+    const auto kept = versions("capped", "c.txt");
+    BOOST_REQUIRE(kept.size() == 2u);
+    BOOST_TEST(kept.at(0).md5Sum == md5("four"));
+    BOOST_TEST(kept.at(1).md5Sum == md5("three"));
+    BOOST_TEST(!onDisk(stored.at(0).internalName));
+    BOOST_TEST(!onDisk(stored.at(1).internalName));
+    BOOST_TEST(onDisk(stored.at(2).internalName));
+    BOOST_TEST(get("capped", "c.txt").body == "five");
+    BOOST_TEST(get("capped", "c.txt", stored.at(0).versionId).status == 404);
+}
+
+BOOST_FIXTURE_TEST_CASE(AMultipartUploadIsHeldToTheLimitToo, Fixture) {
+    addBucket("capped-mp", true);
+    BOOST_REQUIRE(ask("set-bucket-versioning", {{"ern", bucketErn("capped-mp")}, {"maxVersions", 1}}).status == 200);
+    BOOST_REQUIRE(put("capped-mp", "m.bin", "a").status == 200);
+    const auto a = current("capped-mp", "m.bin");
+    BOOST_REQUIRE(put("capped-mp", "m.bin", "b").status == 200);
+
+    multipart("capped-mp", "m.bin", "c");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (std::chrono::steady_clock::now() < deadline && current("capped-mp", "m.bin")->md5Sum != md5("c")) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    const auto kept = versions("capped-mp", "m.bin");
+    BOOST_REQUIRE(kept.size() == 1u);
+    BOOST_TEST(kept.front().md5Sum == md5("b"));
+    BOOST_TEST(!onDisk(a->internalName));
+}
+
+BOOST_FIXTURE_TEST_CASE(TheLimitIsSetWithoutTouchingVersioning, Fixture) {
+    addBucket("limited", false);
+
+    const auto limited = ask("set-bucket-versioning", {{"ern", bucketErn("limited")}, {"maxVersions", 4}});
+    BOOST_REQUIRE(limited.status == 200);
+    BOOST_TEST(!limited.json().at("versioning").as_bool());
+    BOOST_TEST(limited.json().at("maxVersions").as_int64() == 4);
+
+    const auto on = ask("set-bucket-versioning", {{"ern", bucketErn("limited")}, {"enabled", true}});
+    BOOST_TEST(on.json().at("versioning").as_bool());
+    BOOST_TEST(on.json().at("maxVersions").as_int64() == 4);
+
+    BOOST_TEST(ask("set-bucket-versioning", {{"ern", bucketErn("limited")}, {"maxVersions", -1}}).status == 400);
+    BOOST_TEST(ask("set-bucket-versioning", {{"ern", bucketErn("limited")}, {"maxVersions", "3"}}).status == 400);
+    BOOST_TEST(Euclid::Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(bucketErn("limited"))->maxVersions == 4);
+}

@@ -405,6 +405,25 @@ namespace Euclid::ESM {
                         << ", error: " << ec.message();
     }
 
+    // Deletes the oldest non-current versions of a key beyond its bucket's maxVersions, file and
+    // row. Called once a new version has been kept, which is the only time a key gains one, so a
+    // key is never over the limit for longer than that upload takes. A version that cannot be
+    // deleted is logged and left for the next upload to try again.
+    static void pruneVersions(const std::optional<Database::Entity::ESM::Bucket> &bucket, const std::string &ern) {
+        if (!bucket.has_value() || bucket->maxVersions <= 0) return;
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        for (const auto &version: Database::Entity::ESM::VersionsBeyondLimit(repo->listObjectVersions(ern), bucket->maxVersions)) {
+            if (!repo->deleteObjectVersion(ern, version.versionId)) {
+                log_warning << "ESM could not prune object version, ern: " << ern << ", versionId: " << version.versionId;
+                continue;
+            }
+            // The row first: a file left behind is disk nothing accounts for, a row left without
+            // its file is a version that answers 500 when somebody reads it.
+            removeObjectFile(version);
+            log_info << "ESM object version pruned, ern: " << ern << ", versionId: " << version.versionId << ", maxVersions: " << bucket->maxVersions;
+        }
+    }
+
     // The answer to reading an archived object: not gone, but not here either.
     static std::optional<response<string_body> > refuseArchived(const request<string_body> &req, const Database::Entity::ESM::Object &object) {
         if (object.lifecycleState != Database::Entity::ESM::LifecycleState::ARCHIVED) return std::nullopt;
@@ -1844,11 +1863,19 @@ namespace Euclid::ESM {
                                           Core::GetStringValue(jv, "ern"));
         if (ern.empty()) return ErrorResponse(req, status::bad_request, "ern is required");
 
-        // Required rather than defaulted: unlike hiding a bucket, either answer is a change
-        // somebody may not have meant, and the two cost very different amounts of disk.
+        // Either or both, and nothing assumed for the one left out: unlike hiding a bucket, turning
+        // versioning on or off is a change somebody may not have meant, and the two cost very
+        // different amounts of disk - so a request that only sets the limit leaves it as it is.
         const auto *flag = jv.as_object().if_contains("enabled");
-        if (flag == nullptr || !flag->is_bool()) return ErrorResponse(req, status::bad_request, "enabled (true or false) is required");
-        const bool enabled = flag->as_bool();
+        const auto *limit = jv.as_object().if_contains("maxVersions");
+        if (flag != nullptr && !flag->is_bool()) return ErrorResponse(req, status::bad_request, "enabled must be true or false");
+        if (limit != nullptr && !(limit->is_int64() || limit->is_uint64())) return ErrorResponse(req, status::bad_request, "maxVersions must be a whole number");
+        if (flag == nullptr && limit == nullptr) return ErrorResponse(req, status::bad_request, "enabled (true or false), maxVersions, or both are required");
+        std::optional<std::int64_t> maxVersions;
+        if (limit != nullptr) {
+            maxVersions = limit->is_int64() ? limit->as_int64() : static_cast<std::int64_t>(limit->as_uint64());
+            if (*maxVersions < 0) return ErrorResponse(req, status::bad_request, "maxVersions must be 0 (keep every version) or more");
+        }
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         auto bucket = repo->findBucketByErn(ern);
@@ -1860,15 +1887,18 @@ namespace Euclid::ESM {
         }
         if (const auto denied = denyUngrantedBucket(req, auth, ern)) return *denied;
 
-        bucket->versioning = enabled;
+        if (flag != nullptr) bucket->versioning = flag->as_bool();
+        if (maxVersions.has_value()) bucket->maxVersions = *maxVersions;
         const auto stored = repo->upsertBucket(*bucket);
 
-        log_info << "ESM bucket versioning set, bucket: " << stored.name << ", versioning: " << enabled;
+        log_info << "ESM bucket versioning set, bucket: " << stored.name << ", versioning: " << stored.versioning
+                 << ", maxVersions: " << stored.maxVersions;
 
         return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
                                     {"ern", stored.ern},
                                     {"name", stored.name},
-                                    {"versioning", stored.versioning}}));
+                                    {"versioning", stored.versioning},
+                                    {"maxVersions", stored.maxVersions}}));
     }
 
     response<string_body> EsmServer::handleListObjectVersions(const request<string_body> &req) {
@@ -1931,6 +1961,7 @@ namespace Euclid::ESM {
                                     {"key", key},
                                     {"ern", ern},
                                     {"versioning", bucket->versioning},
+                                    {"maxVersions", bucket->maxVersions},
                                     {"versions", list},
                                     {"total", static_cast<std::int64_t>(list.size())}}));
     }
@@ -2479,6 +2510,7 @@ namespace Euclid::ESM {
             existingObject->internalName != internalName) {
             removeObjectFile(*existingObject);
         }
+        if (outcome == Database::Entity::ESM::UploadOutcome::NEW_VERSION) pruneVersions(bucket, ern);
 
         log_info << "ESM put object, bucket: " << bucketErn << ", key: " << key << ", internalName: " << internalName << ", size: " << data.size();
 
@@ -3117,6 +3149,7 @@ namespace Euclid::ESM {
                     existingObject->internalName != internalName) {
                     removeObjectFile(*existingObject);
                 }
+                if (outcome == Database::Entity::ESM::UploadOutcome::NEW_VERSION) pruneVersions(bucket, ern);
 
                 log_info << "Completed upload, id: " << uploadId << ", key: " << key << ", internalName: " << internalName << ", size: " << assembledSize;
 

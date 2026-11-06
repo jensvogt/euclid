@@ -5,10 +5,16 @@ euclid-cli-esm-set-bucket-versioning \- keep replaced objects as versions
 .B euclid-cli esm set-bucket-versioning
 .BR \-\-bucket | \-b
 .I NAME|ERN
-.BR \-\-enabled | \-e
-.IR true | false
+.RB [ \-\-enabled | \-e
+.IR true | false ]
+.RB [ \-\-max\-versions | \-m
+.IR N ]
 .SH DESCRIPTION
-Turns versioning on or off for a bucket.
+Turns versioning on or off for a bucket, and sets how many versions each
+object keeps. Give
+.BR \-\-enabled ,
+.B \-\-max\-versions
+or both; the one left out is not changed.
 .PP
 With versioning on, an upload to a key that already holds an object is
 compared with that object by MD5, once all of its bytes have arrived:
@@ -58,8 +64,29 @@ since their files would all have to be re-encrypted.
 .PP
 Purging or deleting a bucket removes the versions of every object it
 removes.
+.SH HOW MANY VERSIONS ARE KEPT
+.B \-\-max\-versions
+caps the non-current versions each object keeps, not counting the current
+one:
+.B 3
+keeps the object and the three versions before it. When an upload makes a
+new version, the oldest versions beyond the limit are deleted, files
+included, and can no longer be read.
+.B 0
+(the default) keeps every version.
+.PP
+Lowering the limit applies to each object the next time it gets a new
+version, rather than to every object at once; until then, an object keeps
+the versions it already had. The limit is reported by
+.BR euclid-cli-esm-get-bucket (1)
+and
+.BR euclid-cli-esm-list-object-versions (1)
+as
+.IR maxVersions .
 .SH WHAT VERSIONS COST
-Each non-current version keeps its file. The bucket's
+Each non-current version keeps its file, so
+.B \-\-max\-versions
+is the way to bound what a frequently replaced object costs. The bucket's
 .I size
 and
 .I objects
@@ -73,21 +100,30 @@ gives each version's size. Lifecycle rules archive current objects only.
 The bucket, by name or ERN. Required.
 .TP
 .BR \-e ", " \-\-enabled " " \fItrue\fR|\fIfalse\fR
-Whether versioning is on. Required: either change may not be what
+Whether versioning is on. Never assumed: either change may not be what
 somebody meant, and the two cost very different amounts of disk.
+.TP
+.BR \-m ", " \-\-max\-versions " " \fIN\fR
+The most non-current versions an object keeps, the oldest deleted first;
+.B 0
+keeps them all. Must be 0 or more.
 .SH EXIT STATUS
 .TP
 .B 0
-The setting was changed. The bucket's ERN, name and versioning flag are
-printed as JSON.
+The setting was changed. The bucket's ERN, name, versioning flag and
+version limit are printed as JSON.
 .TP
 .B 1
 Missing or invalid arguments, the server could not be reached, no such
-bucket exists, or the caller may not change it.
+bucket exists, the caller may not change it, or neither
+.B \-\-enabled
+nor
+.B \-\-max\-versions
+was given.
 .SH EXAMPLES
 .RS
 .nf
-euclid-cli esm set-bucket-versioning --bucket incoming --enabled true
+euclid-cli esm set-bucket-versioning --bucket incoming --enabled true --max-versions 5
 
 euclid-cli esm upload-file --bucket incoming --key feed.xml --file feed.xml
 euclid-cli esm upload-file --bucket incoming --key feed.xml --file feed.xml   # "unchanged": true

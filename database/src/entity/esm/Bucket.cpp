@@ -47,6 +47,7 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("priority", priority),
                 bsoncxx::builder::basic::kvp("stopped", stopped),
                 bsoncxx::builder::basic::kvp("versioning", versioning),
+                bsoncxx::builder::basic::kvp("maxVersions", static_cast<int64_t>(maxVersions)),
                 bsoncxx::builder::basic::kvp("lifecycleRules", [this] {
                     bsoncxx::builder::basic::array rules;
                     for (const auto &rule: lifecycleRules) {
@@ -84,6 +85,9 @@ namespace Euclid::Database::Entity::ESM {
             else if (key == "stopped" && field.type() == bsoncxx::type::k_bool) bucket.stopped = field.get_bool().value;
             // Absent on every bucket made before versioning existed, which had none.
             else if (key == "versioning" && field.type() == bsoncxx::type::k_bool) bucket.versioning = field.get_bool().value;
+            // Absent on every bucket made before the limit existed, which kept every version.
+            else if (key == "maxVersions" && field.type() == bsoncxx::type::k_int64) bucket.maxVersions = field.get_int64().value;
+            else if (key == "maxVersions" && field.type() == bsoncxx::type::k_int32) bucket.maxVersions = field.get_int32().value;
             // Absent on every bucket made before lifecycle rules existed, which has none.
             else if (key == "lifecycleRules" && field.type() == bsoncxx::type::k_array) {
                 for (const auto &entry: field.get_array().value) {

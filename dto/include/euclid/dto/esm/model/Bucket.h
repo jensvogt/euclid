@@ -94,6 +94,11 @@ namespace Euclid::Dto::ESM {
         bool versioning = false;
 
         /**
+         * @brief The most non-current versions an object keeps; 0 keeps them all.
+         */
+        long maxVersions = 0;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -135,6 +140,7 @@ namespace Euclid::Dto::ESM {
             r.priority = Core::GetStringValue(v, "priority");
             r.stopped = Core::GetBoolValue(v, "stopped");
             r.versioning = Core::GetBoolValue(v, "versioning");
+            r.maxVersions = Core::GetLongValue(v, "maxVersions");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -155,6 +161,7 @@ namespace Euclid::Dto::ESM {
                     {"priority", obj.priority},
                     {"stopped", obj.stopped},
                     {"versioning", obj.versioning},
+                    {"maxVersions", obj.maxVersions},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };
