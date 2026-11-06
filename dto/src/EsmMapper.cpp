@@ -46,6 +46,7 @@ namespace Euclid::Dto::ESM {
         dto.priority = entity.priority;
         dto.stopped = entity.stopped;
         dto.versioning = entity.versioning;
+        dto.maxVersions = static_cast<long>(entity.maxVersions);
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;

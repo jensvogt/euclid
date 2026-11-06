@@ -140,6 +140,17 @@ namespace Euclid::Database::Entity::ESM {
         bool versioning = false;
 
         /**
+         * @brief The most non-current versions an object keeps; 0 keeps them all.
+         *
+         * @par
+         * Counted per key, and not counting the current object: 3 keeps the object and the three
+         * versions before it. Applied when an upload makes a new version - the oldest beyond the
+         * limit go, file and row - so lowering it takes effect for each key the next time that key
+         * gets a new version, not all at once.
+         */
+        int64_t maxVersions = 0;
+
+        /**
          * @brief What to archive, and when - see LifecycleRule. Empty: nothing in the bucket is ever
          * archived by a rule, which is every bucket made before rules existed.
          */
