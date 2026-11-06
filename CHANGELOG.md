@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.27](https://github.com/jensvogt/euclid/compare/2.1.26...v2.1.27) (2026-11-06)
+
+
+### Bug Fixes
+
+* add ESM versioning ([7c77dbd](https://github.com/jensvogt/euclid/commit/7c77dbd01f6fdcc9a45db17aad14b3817f0a2174))
+
 ## [2.1.26](https://github.com/jensvogt/euclid/compare/2.1.25...v2.1.26) (2026-11-05)
 
 
