@@ -357,7 +357,7 @@ namespace Euclid::ESM {
     // to know both.
     static void notifyBucketSubscriptions(const std::string &eventType, const std::string &bucketErn, const std::string &key,
                                           const std::string &ern, long size, const std::string &contentType,
-                                          const std::string &md5Sum, bool directory,
+                                          const std::string &md5Sum, const std::string &versionId, bool directory,
                                           const boost::json::object &attributes,
                                           const boost::json::object &systemAttributes,
                                           const std::string &bucketPriority,
@@ -723,30 +723,33 @@ namespace Euclid::ESM {
         const auto heldBy = heldByOf(bucket);
 
         notifyBucketSubscriptions(eventType, object.bucketErn, object.key, object.ern, object.size,
-                                  object.contentType, object.md5Sum,
+                                  object.contentType, object.md5Sum, object.versionId,
                                   Database::Entity::ESM::IsDirectoryKey(object.key),
                                   asJson(object.attributes), asJson(object.systemAttributes),
                                   bucket.has_value() ? bucket->priority : std::string{}, resolved, heldBy);
 
-        Database::EventBus::instance().Publish(
-                eventType,
-                boost::json::value{
-                        {"ern", object.ern},
-                        {"bucketErn", object.bucketErn},
-                        {"bucketName", bucket.has_value() ? bucket->name : std::string()},
-                        {"key", object.key},
-                        {"prefix", prefix},
-                        {"directory", Database::Entity::ESM::IsDirectoryKey(object.key)},
-                        {"size", object.size},
-                        {"contentType", object.contentType},
-                        {"md5Sum", object.md5Sum},
-                        {"owner", object.owner},
-                        {"userId", userId},
-                        {"accountId", accountId},
-                        {"region", object.region},
-                        {"namespace", object.nameSpace},
-                        {"eventTime", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())}},
-                "esm", Database::EventBus::Delivery{.heldBy = heldBy});
+        boost::json::object event{
+                {"ern", object.ern},
+                {"bucketErn", object.bucketErn},
+                {"bucketName", bucket.has_value() ? bucket->name : std::string()},
+                {"key", object.key},
+                {"prefix", prefix},
+                {"directory", Database::Entity::ESM::IsDirectoryKey(object.key)},
+                {"size", object.size},
+                {"contentType", object.contentType},
+                {"md5Sum", object.md5Sum},
+                {"owner", object.owner},
+                {"userId", userId},
+                {"accountId", accountId},
+                {"region", object.region},
+                {"namespace", object.nameSpace},
+                {"eventTime", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())}};
+        // Which version the event is about, in a versioned bucket - without it a listener cannot
+        // fetch the version the event describes once a later write has replaced it. Omitted where
+        // there is none, so an unversioned bucket's events look exactly as they did before.
+        if (!object.versionId.empty()) event["versionId"] = object.versionId;
+
+        Database::EventBus::instance().Publish(eventType, event, "esm", Database::EventBus::Delivery{.heldBy = heldBy});
     }
 
     // The same events publishObjectEvent() writes, for a whole page at once.
@@ -800,7 +803,7 @@ namespace Euclid::ESM {
 
             // ── the bucket's own subscriptions ──────────────────────────────
             if (!subscriptions.empty()) {
-                const boost::json::value notification = {
+                boost::json::object notification = {
                         {"eventType", eventType},
                         {"bucketErn", object.bucketErn},
                         {"key", object.key},
@@ -811,6 +814,7 @@ namespace Euclid::ESM {
                         {"attributes", attributes},
                         {"systemAttributes", systemAttributes},
                 };
+                if (!object.versionId.empty()) notification["versionId"] = object.versionId;
                 const auto body = boost::json::serialize(notification);
 
                 for (const auto &subscription: subscriptions) {
@@ -842,23 +846,24 @@ namespace Euclid::ESM {
             }
 
             // ── the event bus ───────────────────────────────────────────────
-            events.emplace_back(boost::json::value{
-                                        {"ern", object.ern},
-                                        {"bucketErn", object.bucketErn},
-                                        {"bucketName", bucket.has_value() ? bucket->name : std::string()},
-                                        {"key", object.key},
-                                        {"prefix", prefix},
-                                        {"directory", directory},
-                                        {"size", object.size},
-                                        {"contentType", object.contentType},
-                                        {"md5Sum", object.md5Sum},
-                                        {"owner", object.owner},
-                                        {"userId", userId},
-                                        {"accountId", accountId},
-                                        {"region", object.region},
-                                        {"namespace", object.nameSpace},
-                                        {"eventTime", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())}},
-                                Database::EventBus::Delivery{.heldBy = heldBy});
+            boost::json::object event{
+                    {"ern", object.ern},
+                    {"bucketErn", object.bucketErn},
+                    {"bucketName", bucket.has_value() ? bucket->name : std::string()},
+                    {"key", object.key},
+                    {"prefix", prefix},
+                    {"directory", directory},
+                    {"size", object.size},
+                    {"contentType", object.contentType},
+                    {"md5Sum", object.md5Sum},
+                    {"owner", object.owner},
+                    {"userId", userId},
+                    {"accountId", accountId},
+                    {"region", object.region},
+                    {"namespace", object.nameSpace},
+                    {"eventTime", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())}};
+            if (!object.versionId.empty()) event["versionId"] = object.versionId;
+            events.emplace_back(std::move(event), Database::EventBus::Delivery{.heldBy = heldBy});
         }
 
         auto &bus = Database::EventBus::instance();
@@ -1265,7 +1270,7 @@ namespace Euclid::ESM {
     // it is what a queue-backed subscription needs in order to replace it.
     static void notifyBucketSubscriptions(const std::string &eventType, const std::string &bucketErn, const std::string &key,
                                           const std::string &ern, const long size, const std::string &contentType,
-                                          const std::string &md5Sum, const bool directory,
+                                          const std::string &md5Sum, const std::string &versionId, const bool directory,
                                           const boost::json::object &attributes,
                                           const boost::json::object &systemAttributes,
                                           const std::string &bucketPriority,
@@ -1283,7 +1288,7 @@ namespace Euclid::ESM {
         const auto &subscriptions = *resolved;
         if (subscriptions.empty()) return;
 
-        const boost::json::value notification = {
+        boost::json::object notification = {
                 {"eventType", eventType},
                 {"bucketErn", bucketErn},
                 {"key", key},
@@ -1294,6 +1299,8 @@ namespace Euclid::ESM {
                 {"attributes", attributes},
                 {"systemAttributes", systemAttributes},
         };
+        // See publishObjectEvent: only in a versioned bucket, so other events keep their shape.
+        if (!versionId.empty()) notification["versionId"] = versionId;
         const auto body = boost::json::serialize(notification);
 
         for (const auto &subscription: subscriptions) {
