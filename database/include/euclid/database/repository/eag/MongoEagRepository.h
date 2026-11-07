@@ -12,6 +12,7 @@
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/repository/eag/IEagRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -47,7 +48,7 @@ namespace Euclid::Database {
 
         [[nodiscard]]
         std::vector<Entity::EAG::Route> listRoutes(const std::string &accountId, const std::string &nameSpace,
-                                                   const std::string &prefix) const override;
+                                                   const std::string &prefix, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Every route in the installation - for the gateway and the path-claim check only
@@ -56,7 +57,7 @@ namespace Euclid::Database {
          * @return matching routes
          */
         [[nodiscard]]
-        std::vector<Entity::EAG::Route> listAllRoutes(const std::string &prefix) const override;
+        std::vector<Entity::EAG::Route> listAllRoutes(const std::string &prefix, MatchType matchType = MatchType::Prefix) const override;
 
         [[nodiscard]]
         bool routeExists(const std::string &accountId, const std::string &nameSpace,
@@ -86,7 +87,7 @@ namespace Euclid::Database {
          * @param scope extra equality fields to filter on, empty for the whole installation.
          */
         [[nodiscard]]
-        static std::vector<Entity::EAG::Route> findRoutes(const std::string &prefix, const bsoncxx::document::view &scope);
+        static std::vector<Entity::EAG::Route> findRoutes(const std::string &prefix, MatchType matchType, const bsoncxx::document::view &scope);
 
         /**
          * @brief Collection name

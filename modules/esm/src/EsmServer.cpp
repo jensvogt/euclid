@@ -1440,6 +1440,11 @@ namespace Euclid::ESM {
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ESM::ListBucketsRequest>(jv);
+
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return ErrorResponse(req, status::bad_request, *error);
+        }
         const auto ns = std::string(req["x-euclid-namespace"]);
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
@@ -1451,12 +1456,12 @@ namespace Euclid::ESM {
         // request is otherwise perfectly valid and the buckets they asked about are none of theirs.
         const auto includeInternal = request.includeInternal && Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId);
 
-        const std::vector<Database::Entity::ESM::Bucket> buckets = repo->listBuckets(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, includeInternal);
+        const std::vector<Database::Entity::ESM::Bucket> buckets = repo->listBuckets(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, includeInternal, matchType);
         log_info << "ESM bucket list, count: " << buckets.size();
 
         Dto::ESM::ListBucketsResponse response;
         response.buckets = Dto::ESM::EsmMapper::toDto(buckets);
-        response.total = repo->countBuckets(auth.user->accountId, ns, request.prefix, includeInternal);
+        response.total = repo->countBuckets(auth.user->accountId, ns, request.prefix, includeInternal, matchType);
 
         return JsonResponse(req, status::ok, response.toJson());
     }
@@ -3596,6 +3601,11 @@ namespace Euclid::ESM {
         if (const auto err = ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ESM::ListObjectsRequest>(jv);
+
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return ErrorResponse(req, status::bad_request, *error);
+        }
         log_info << "ESM ListObjects, bucket: " << request.bucketErn << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
@@ -3627,6 +3637,11 @@ namespace Euclid::ESM {
             if (!request.prefix.empty() && !request.prefix.ends_with('/')) {
                 return ErrorResponse(req, status::bad_request, "prefix must end in \"/\" when a delimiter is given: it names a level, not a partial key");
             }
+            // A level is a path, so there is nothing to search: refused rather than ignored, so a
+            // caller asking for "contains" does not get a level back and take it for the answer.
+            if (matchType != Database::MatchType::Prefix) {
+                return ErrorResponse(req, status::bad_request, "matchType must be prefix when a delimiter is given");
+            }
 
             const auto level = repo->listLevel(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortDirection, request.includeDirectories);
             response.objects = Dto::ESM::EsmMapper::toDto(level);
@@ -3638,11 +3653,11 @@ namespace Euclid::ESM {
             return JsonResponse(req, status::ok, response.toJson());
         }
 
-        const std::vector<Database::Entity::ESM::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, request.includeDirectories);
+        const std::vector<Database::Entity::ESM::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, request.includeDirectories, matchType);
         log_info << "ESM got object list, bucket: " << request.bucketErn << ", count: " << objects.size();
 
         response.objects = Dto::ESM::EsmMapper::toDto(objects);
-        response.total = repo->countObjects(request.bucketErn, request.prefix, request.includeDirectories);
+        response.total = repo->countObjects(request.bucketErn, request.prefix, request.includeDirectories, matchType);
 
         return JsonResponse(req, status::ok, response.toJson());
     }

@@ -410,6 +410,11 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::ListQueueRequest>(jv);
+
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EqsServer::ErrorResponse(req, status::bad_request, *error);
+        }
         log_info << "EQS ListQueues" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         const auto ns = std::string(req["x-euclid-namespace"]);
@@ -423,12 +428,12 @@ namespace Euclid::EQS {
         const auto includeInternal = request.includeInternal
                                      && Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId);
 
-        const std::vector<Database::Entity::EQS::Queue> queues = repo->listQueues(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, includeInternal);
+        const std::vector<Database::Entity::EQS::Queue> queues = repo->listQueues(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, includeInternal, matchType);
         log_info << "Got queue list, count: " << queues.size();
 
         Dto::EQS::ListQueueResponse response;
         response.queues = Dto::EQS::EqsMapper::toDto(queues);
-        response.total = repo->countQueues(auth.user->accountId, ns, request.prefix, includeInternal);
+        response.total = repo->countQueues(auth.user->accountId, ns, request.prefix, includeInternal, matchType);
 
         applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());

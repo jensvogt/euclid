@@ -14,6 +14,7 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/database/MatchType.h>
 #include <euclid/database/entity/ekv/Item.h>
 #include <euclid/database/entity/ekv/ScanFilter.h>
 #include <euclid/database/entity/ekv/SortCondition.h>
@@ -68,18 +69,20 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page, applied when pageSize is set.
          * @param sortColumn field to sort by; empty sorts by name.
          * @param sortDirection "asc" or "desc".
+         * @param matchType how prefix is matched against the name; see MatchType.
          */
         [[nodiscard]]
         virtual std::vector<Entity::EKV::Table> listTables(const std::string &accountId, const std::string &nameSpace,
                                                            const std::string &prefix, long pageSize,
                                                            long pageIndex, const std::string &sortColumn,
-                                                           const std::string &sortDirection = "asc") const = 0;
+                                                           const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
-         * @brief How many tables an account has in one namespace.
+         * @brief How many tables an account has in one namespace, optionally only those whose name
+         * matches prefix the way matchType says - the count that goes with listTables().
          */
         [[nodiscard]]
-        virtual long countTables(const std::string &accountId, const std::string &nameSpace) const = 0;
+        virtual long countTables(const std::string &accountId, const std::string &nameSpace, const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Deletes a table and everything in it.

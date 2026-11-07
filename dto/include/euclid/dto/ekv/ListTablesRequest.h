@@ -32,6 +32,12 @@ namespace Euclid::Dto::EKV {
         std::string prefix;
 
         /**
+         * @brief How prefix is matched: "prefix", "endsWith", "contains" or "regex"; empty means
+         * "prefix". Every type but "regex" takes prefix literally.
+         */
+        std::string matchType{};
+
+        /**
          * @brief Most to return; 0 means no limit.
          */
         long pageSize{0};
@@ -64,6 +70,7 @@ namespace Euclid::Dto::EKV {
             ListTablesRequest r;
             static_cast<BaseDto &>(r) = GetMetadata(v);
             r.prefix = Core::GetStringValue(v, "prefix");
+            r.matchType = Core::GetStringValue(v, "matchType");
             r.pageSize = Core::GetLongValue(v, "pageSize");
             r.pageIndex = Core::GetLongValue(v, "pageIndex");
             r.sortColumn = Core::GetStringValue(v, "sortColumn");
@@ -75,6 +82,7 @@ namespace Euclid::Dto::EKV {
             jv = {
                     {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"prefix", obj.prefix},
+                    {"matchType", obj.matchType},
                     {"pageSize", obj.pageSize},
                     {"pageIndex", obj.pageIndex},
                     {"sortColumn", obj.sortColumn},

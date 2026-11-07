@@ -23,6 +23,7 @@
 #include <euclid/database/entity/eam/User.h>
 #include <euclid/database/entity/eam/UserGroup.h>
 #include <euclid/database/repository/eam/IEamRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -130,7 +131,7 @@ namespace Euclid::Database {
          * @return number of existing users.
          */
         [[nodiscard]]
-        long countUsers() const override;
+        long countUsers(const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Returns a user group by name.
@@ -162,7 +163,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of users
          */
         [[nodiscard]]
-        std::vector<Entity::EAM::User> listUsers(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
+        std::vector<Entity::EAM::User> listUsers(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Deletes a user by user ID.
@@ -203,7 +204,7 @@ namespace Euclid::Database {
          * @return number of existing user groups.
          */
         [[nodiscard]]
-        long countUserGroups() const override;
+        long countUserGroups(const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Retrieves a list of user groups
@@ -217,7 +218,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of users
          */
         [[nodiscard]]
-        std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
+        std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Removes a user group by its name.
@@ -232,12 +233,12 @@ namespace Euclid::Database {
         std::optional<Entity::EAM::Role> findRoleByName(const std::string &accountId, const std::string &name) const override;
 
         [[nodiscard]]
-        long countRoles(const std::string &accountId) const override;
+        long countRoles(const std::string &accountId, const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const override;
 
         [[nodiscard]]
         std::vector<Entity::EAM::Role> listRoles(const std::string &accountId, const std::string &prefix, long pageSize,
                                                  long pageIndex, const std::string &sortColumn,
-                                                 const std::string &sortDirection = "asc") const override;
+                                                 const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const override;
 
         void deleteRole(const std::string &accountId, const std::string &name) const override;
 
@@ -310,7 +311,7 @@ namespace Euclid::Database {
          * @return number of existing accounts.
          */
         [[nodiscard]]
-        long countAccounts() const override;
+        long countAccounts(const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Retrieves a list of accounts.
@@ -322,7 +323,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of accounts
          */
         [[nodiscard]]
-        std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
+        std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Deletes an account by account ID.
@@ -397,7 +398,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of namespaces
          */
         [[nodiscard]]
-        std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
+        std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Removes a namespace by account ID and name.

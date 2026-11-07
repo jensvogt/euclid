@@ -21,6 +21,12 @@ namespace Euclid::Dto::EKM {
         std::string prefix{};
 
         /**
+         * @brief How prefix is matched: "prefix", "endsWith", "contains" or "regex"; empty means
+         * "prefix". Every type but "regex" takes prefix literally.
+         */
+        std::string matchType{};
+
+        /**
          * @brief Page size
          */
         long pageSize = 10;
@@ -52,6 +58,7 @@ namespace Euclid::Dto::EKM {
         friend ListKeysRequest tag_invoke(boost::json::value_to_tag<ListKeysRequest>, boost::json::value const &v) {
             ListKeysRequest r;
             r.prefix = Core::GetStringValue(v, "prefix");
+            r.matchType = Core::GetStringValue(v, "matchType");
             r.pageSize = Core::GetLongValue(v, "pageSize");
             r.pageIndex = Core::GetLongValue(v, "pageIndex");
             r.sortColumn = Core::GetStringValue(v, "sortColumn");
@@ -62,6 +69,7 @@ namespace Euclid::Dto::EKM {
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListKeysRequest const &obj) {
             jv = {
                     {"prefix", obj.prefix},
+                    {"matchType", obj.matchType},
                     {"pageSize", obj.pageSize},
                     {"pageIndex", obj.pageIndex},
                     {"sortColumn", obj.sortColumn},

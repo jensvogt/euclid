@@ -242,16 +242,21 @@ namespace Euclid::ENS {
         if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ENS::ListTopicsRequest>(jv);
+
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EnsServer::ErrorResponse(req, status::bad_request, *error);
+        }
         log_info << "ENS ListTopics" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         const auto ns = std::string(req["x-euclid-namespace"]);
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
-        const std::vector<Database::Entity::ENS::Topic> topics = repo->listTopics(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
+        const std::vector<Database::Entity::ENS::Topic> topics = repo->listTopics(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, matchType);
         log_info << "ENS ListTopics count, count: " << topics.size();
 
         Dto::ENS::ListTopicsResponse response;
         response.topics = Dto::ENS::EnsMapper::toDto(topics);
-        response.total = repo->countTopics(auth.user->accountId, ns, request.prefix);
+        response.total = repo->countTopics(auth.user->accountId, ns, request.prefix, matchType);
 
         return EnsServer::JsonResponse(req, status::ok, response.toJson());
     }

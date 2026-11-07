@@ -14,6 +14,7 @@
 #include <euclid/database/entity/ekm/Certificate.h>
 #include <euclid/database/entity/ekm/Key.h>
 #include <euclid/database/repository/ekm/IEkmRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -81,7 +82,7 @@ namespace Euclid::Database {
          * @return list of all queue entities.
          */
         [[nodiscard]]
-        std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
+        std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Get the total number of keys
@@ -92,7 +93,7 @@ namespace Euclid::Database {
          * @return total number of keys
          */
         [[nodiscard]]
-        long countKeys(const std::string &accountId, const std::string &nameSpace, const std::string &prefix) const override;
+        long countKeys(const std::string &accountId, const std::string &nameSpace, const std::string &prefix, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Permanently deletes every key whose scheduled deletion date has passed
@@ -142,7 +143,7 @@ namespace Euclid::Database {
          * @return list of certificates
          */
         [[nodiscard]]
-        std::vector<Entity::EKM::Certificate> listCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
+        std::vector<Entity::EKM::Certificate> listCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Get the total number of certificates
@@ -153,7 +154,7 @@ namespace Euclid::Database {
          * @return total number of certificates
          */
         [[nodiscard]]
-        long countCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override;
+        long countCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Delete a certificate

@@ -22,30 +22,12 @@
 
 #include <euclid/core/Configuration.h>
 #include <euclid/core/TtlCache.h>
+#include <euclid/database/MatchType.h>
 #include <euclid/database/repository/esm/MongoEsmRepository.h>
 
 #include "euclid/core/monitoring/MonitoringTimer.h"
 
 namespace Euclid::Database {
-
-    namespace {
-
-        // A prefix is a literal, not a pattern. Object keys are full of regex metacharacters -
-        // every file extension contributes a "." - so an unescaped prefix quietly matches more
-        // than was asked for: "jvo/file.xml" would also select "jvo/fileXxml". Harmless in a
-        // listing, not harmless in touch-object or purge-bucket, which act on what it selects.
-        std::string QuotePrefix(const std::string &prefix) {
-            std::string quoted;
-            quoted.reserve(prefix.size());
-            for (const char c: prefix) {
-                if (std::string_view(R"(\^$.|?*+()[]{})").contains(c)) quoted += '\\';
-                quoted += c;
-            }
-            return quoted;
-        }
-
-    }// namespace
-
 
     namespace {
         // Where this repository's time actually goes, one series per operation - the same pair of
@@ -229,7 +211,7 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::ESM::Bucket> MongoEsmRepository::listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeInternal) const {
+    std::vector<Entity::ESM::Bucket> MongoEsmRepository::listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeInternal, const MatchType matchType) const {
 
         try {
 
@@ -239,7 +221,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + QuotePrefix(prefix)))));
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             // euclid's own buckets are not somebody's to look at, unless the caller asked for
@@ -488,7 +470,7 @@ namespace Euclid::Database {
         }
     }
 
-    long MongoEsmRepository::countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const bool includeInternal) const {
+    long MongoEsmRepository::countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const bool includeInternal, const MatchType matchType) const {
 
         try {
 
@@ -498,7 +480,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + QuotePrefix(prefix)))));
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             // euclid's own buckets are not somebody's to look at, unless the caller asked for
@@ -836,13 +818,13 @@ namespace Euclid::Database {
         return -1;
     }
 
-    long MongoEsmRepository::countObjects(const std::string &bucketErn, const std::string &prefix, const bool includeDirectories) const {
+    long MongoEsmRepository::countObjects(const std::string &bucketErn, const std::string &prefix, const bool includeDirectories, const MatchType matchType) const {
 
         try {
             document filter = {};
             filter.append(kvp("bucketErn", bucketErn));
             if (!prefix.empty()) {
-                filter.append(kvp("key", make_document(kvp("$regex", "^" + QuotePrefix(prefix)))));
+                filter.append(kvp("key", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
             if (!includeDirectories) {
                 filter.append(kvp("$nor", make_array(make_document(kvp("key", make_document(kvp("$regex", "/$")))))));
@@ -1066,14 +1048,14 @@ namespace Euclid::Database {
         }
     }
 
-    std::vector<Entity::ESM::Object> MongoEsmRepository::listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeDirectories) const {
+    std::vector<Entity::ESM::Object> MongoEsmRepository::listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeDirectories, const MatchType matchType) const {
 
         try {
 
             document filter = {};
             filter.append(kvp("bucketErn", bucketErn));
             if (!prefix.empty()) {
-                filter.append(kvp("key", make_document(kvp("$regex", "^" + QuotePrefix(prefix)))));
+                filter.append(kvp("key", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
             // $nor rather than a second "key" condition: the prefix filter above already occupies
             // that field name, and a document cannot carry it twice.

@@ -17,6 +17,7 @@
 // Euclid includes
 #include <euclid/database/entity/ekm/Certificate.h>
 #include <euclid/database/entity/ekm/Key.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -81,10 +82,11 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "arn"); empty means unsorted
          * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return A collection containing all entities or objects found.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+        virtual std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Retrieves the total count of keys in the repository.
@@ -92,10 +94,11 @@ namespace Euclid::Database {
          * @param accountId only keys belonging to this account are counted
          * @param namespaceName only keys in this namespace are counted; empty means don't filter by namespace
          * @param prefix only keys whose name starts with this prefix are counted; empty means don't filter by name
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return The total number of keys as a long integer.
          */
         [[nodiscard]]
-        virtual long countKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
+        virtual long countKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Permanently deletes every key whose scheduled deletion date has passed. Called
@@ -148,10 +151,11 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
          * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return the certificates found
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EKM::Certificate> listCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+        virtual std::vector<Entity::EKM::Certificate> listCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Retrieves the total number of certificates.
@@ -159,10 +163,11 @@ namespace Euclid::Database {
          * @param accountId only certificates belonging to this account are counted
          * @param namespaceName only certificates in this namespace are counted; empty means don't filter by namespace
          * @param prefix only certificates whose name starts with this prefix are counted; empty means don't filter by name
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return the number of certificates
          */
         [[nodiscard]]
-        virtual long countCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
+        virtual long countCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Deletes a certificate.

@@ -8,6 +8,7 @@
 
 #include <bsoncxx/builder/basic/array.hpp>
 #include <euclid/database/repository/eap/MongoEapRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -152,13 +153,13 @@ namespace Euclid::Database {
     }
 
     std::vector<Entity::EAP::Application> MongoEapRepository::listApplications(const std::string &accountId, const std::string &nameSpace,
-                                                                               const std::string &prefix) const {
+                                                                               const std::string &prefix, const MatchType matchType) const {
 
         try {
             document filter{};
             filter.append(kvp("accountId", accountId), kvp("namespace", nameSpace));
             if (!prefix.empty()) {
-                filter.append(kvp("applicationId", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("applicationId", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             mongocxx::options::find opts;
@@ -178,12 +179,12 @@ namespace Euclid::Database {
         }
     }
 
-    std::vector<Entity::EAP::Application> MongoEapRepository::listAllApplications(const std::string &prefix) const {
+    std::vector<Entity::EAP::Application> MongoEapRepository::listAllApplications(const std::string &prefix, const MatchType matchType) const {
 
         try {
             document filter{};
             if (!prefix.empty()) {
-                filter.append(kvp("applicationId", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("applicationId", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             mongocxx::options::find opts;

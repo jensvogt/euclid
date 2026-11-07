@@ -16,6 +16,7 @@
 // Euclid includes
 #include <euclid/database/entity/eap/Application.h>
 #include <euclid/database/entity/eap/Node.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -105,11 +106,12 @@ namespace Euclid::Database {
          * @param accountId account whose applications to list.
          * @param nameSpace namespace within accountId whose applications to list.
          * @param prefix only applications whose ID starts with this are returned; empty matches all.
+         * @param matchType how prefix is matched against the ID; see MatchType
          * @return matching applications, sorted by ID.
          */
         [[nodiscard]]
         virtual std::vector<Entity::EAP::Application> listApplications(const std::string &accountId, const std::string &nameSpace,
-                                                                       const std::string &prefix) const = 0;
+                                                                       const std::string &prefix, MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Every application in the installation, whatever account or namespace it belongs to.
@@ -121,10 +123,11 @@ namespace Euclid::Database {
          * this - a caller sees their own namespace, through listApplications() above.
          *
          * @param prefix only applications whose ID starts with this are returned; empty matches all.
+         * @param matchType how prefix is matched against the ID; see MatchType
          * @return matching applications, sorted by ID.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAP::Application> listAllApplications(const std::string &prefix) const = 0;
+        virtual std::vector<Entity::EAP::Application> listAllApplications(const std::string &prefix, MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Number of applications in one namespace of an account.

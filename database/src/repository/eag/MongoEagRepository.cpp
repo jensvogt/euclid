@@ -125,33 +125,27 @@ namespace Euclid::Database {
     }
 
     std::vector<Entity::EAG::Route> MongoEagRepository::listRoutes(const std::string &accountId, const std::string &nameSpace,
-                                                                   const std::string &prefix) const {
-        return findRoutes(prefix, make_document(kvp("accountId", accountId), kvp("namespace", nameSpace)).view());
+                                                                   const std::string &prefix, const MatchType matchType) const {
+        return findRoutes(prefix, matchType, make_document(kvp("accountId", accountId), kvp("namespace", nameSpace)).view());
     }
 
-    std::vector<Entity::EAG::Route> MongoEagRepository::listAllRoutes(const std::string &prefix) const {
-        return findRoutes(prefix, {});
+    std::vector<Entity::EAG::Route> MongoEagRepository::listAllRoutes(const std::string &prefix, const MatchType matchType) const {
+        return findRoutes(prefix, matchType, {});
     }
 
-    std::vector<Entity::EAG::Route> MongoEagRepository::findRoutes(const std::string &prefix,
+    std::vector<Entity::EAG::Route> MongoEagRepository::findRoutes(const std::string &prefix, const MatchType matchType,
                                                                    const bsoncxx::document::view &scope) {
 
         std::vector<Entity::EAG::Route> routes;
         try {
             auto collection = Database::instance().collection(COLLECTION);
 
-            // Escaped, because a path is not a pattern: "/api/v1.0" would otherwise match
-            // "/api/v1X0" as well, and a caller has no reason to expect their path to be read as
-            // a regular expression.
-            std::string quoted;
-            for (const char c: prefix) {
-                if (std::string_view(R"(\^$.|?*+()[]{})").contains(c)) quoted += '\\';
-                quoted += c;
-            }
-
+            // Quoted unless the caller asked for a regex, because a path is not a pattern:
+            // "/api/v1.0" would otherwise match "/api/v1X0" as well, and a caller has no reason to
+            // expect their path to be read as a regular expression.
             bsoncxx::builder::basic::document filter;
             filter.append(bsoncxx::builder::concatenate(scope));
-            if (!prefix.empty()) filter.append(kvp("path", make_document(kvp("$regex", "^" + quoted))));
+            if (!prefix.empty()) filter.append(kvp("path", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
 
             for (auto cursor = collection.find(filter.view()); auto doc: cursor) {
                 routes.push_back(Entity::EAG::Route::fromDocument(doc));

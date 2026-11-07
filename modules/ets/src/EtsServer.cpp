@@ -331,14 +331,21 @@ namespace Euclid::ETS {
         boost::json::value jv;
         if (const auto err = EtsServer::ParseJsonBody(req, jv)) return *err;
 
-        std::string prefix;
-        if (jv.is_object()) prefix = stringField(jv.as_object(), "prefix");
+        std::string prefix, matchTypeName;
+        if (jv.is_object()) {
+            prefix = stringField(jv.as_object(), "prefix");
+            matchTypeName = stringField(jv.as_object(), "matchType");
+        }
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(prefix, matchTypeName, matchType)) {
+            return EtsServer::ErrorResponse(req, status::bad_request, *error);
+        }
 
         boost::json::array servers;
         // The caller's own namespace, not the installation: every other action here resolves a
         // serverId in the namespace the request was made in.
         for (const auto &server: Database::RepositoryFactory::instance().etsRepository()->listServers(
-                     auth.user->accountId, std::string(req["x-euclid-namespace"]), prefix)) {
+                     auth.user->accountId, std::string(req["x-euclid-namespace"]), prefix, matchType)) {
             servers.push_back(toJson(server));
         }
 
