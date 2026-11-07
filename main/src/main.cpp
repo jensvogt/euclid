@@ -33,7 +33,9 @@
 #include <euclid/core/CertificateUtils.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/Configuration.h>
+#include <euclid/core/Scheduler.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
+#include <euclid/core/monitoring/ProcessUsage.h>
 #include <euclid/core/monitoring/MonitoringCollector.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/EventBus.h>
@@ -849,6 +851,22 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     // bus nothing is listening on, and "gateway-service-time"/"gateway-service-count" would never
     // reach the emo module.
     Euclid::Core::Monitoring::MonitoringCollector::instance().Start();
+
+    // And what the manager process itself costs, which nothing recorded until now for the same
+    // reason: HttpActionServer samples it for every module, and the manager is not one. Under the
+    // "gateway" label its MetricsPusher already uses, so the figures sit beside the service time and
+    // count that process records - what it was asked to do, and what doing it cost.
+    //
+    // Scheduled here rather than in the collector because it is a process's own reading, not the
+    // bus's: the collector listens for whatever is recorded, and this is what does the recording.
+    const auto managerUsagePeriod = std::chrono::seconds(
+            cfg.getOr<long>("euclid.monitoring.cpu-usage-period",
+                            Euclid::Core::Monitoring::kProcessUsagePeriod.count()));
+    Euclid::Core::Scheduler::instance().Start();
+    std::ignore = Euclid::Core::Scheduler::instance().SchedulePeriodic(
+            "resource-usage-gateway",
+            [] { Euclid::Core::Monitoring::RecordProcessUsage("gateway"); },
+            std::chrono::duration_cast<std::chrono::milliseconds>(managerUsagePeriod));
 
     log_info << "Euclid starting, config: " << opts.configFile;
     log_info << "Gateway port: " << cfg.getOr<int>("euclid.gateway.http.port", DEFAULT_HTTP_PORT);

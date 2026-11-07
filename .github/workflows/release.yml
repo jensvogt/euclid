@@ -70,18 +70,36 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Checked out here rather than next to the frontend build below, so that a token which
-      # cannot read euclid-web fails this job in seconds instead of after the backend build - the
-      # same reasoning, and the same placement, as the macOS and Linux jobs. euclid-web is a
-      # private repository, so the default GITHUB_TOKEN cannot read it and a plain "git clone"
-      # dies with "could not read Username for 'https://github.com'".
-      - name: Checkout frontend (euclid-web)
-        uses: actions/checkout@v4.2.2
-        with:
-          repository: jensvogt/euclid-web
-          token: ${{ secrets.GH_AUTH_TOKEN }}
-          path: frontend/euclid-web
-          persist-credentials: false
+      # The frontend is downloaded rather than built here. It is static files - the same bytes on
+      # every platform - so building it once in euclid-web and unpacking the result is one Angular
+      # build per release instead of one in each of these four jobs, on runners that are here to
+      # compile C++. See euclid-web's own workflow, which publishes the archive this takes.
+      #
+      # Fetched before the backend build for the reason the checkout it replaces was: a token that
+      # cannot read euclid-web fails this job in seconds rather than after the long build. euclid-web
+      # is a private repository, so the default GITHUB_TOKEN cannot read its releases either.
+      #
+      # The archive holds the bundle's files at its root, so this says where they go. "frontend-latest"
+      # is the newest build of euclid-web's master; pin "frontend-v<version>" to tie a euclid release
+      # to one frontend.
+      - name: Fetch frontend (euclid-web)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_AUTH_TOKEN }}
+        run: |
+          # Relative paths, deliberately: a step's working directory is the workspace on every
+          # runner, where ${{ github.workspace }} is a backslash path on Windows that this same
+          # bash step would have to quote its way around.
+          mkdir -p frontend frontend-archive
+          gh release download frontend-latest \
+            --repo jensvogt/euclid-web \
+            --pattern 'euclid-web-*.tar.gz' \
+            --dir frontend-archive
+          tar -xzf frontend-archive/euclid-web-*.tar.gz -C frontend
+          # An archive that unpacked to nothing, or to a directory around the bundle, would ship a
+          # gateway answering 404 for every page - only discovered on an installed system.
+          test -f frontend/index.html \
+            || { echo "::error::the euclid-web bundle has no index.html at its root"; exit 1; }
 
       - name: Setup MSVC environment
         uses: step-security/msvc-dev-cmd@v1
@@ -136,32 +154,6 @@ jobs:
           cmake -B "${{ env.BUILD_DIR }}" -S . -DCMAKE_BUILD_TYPE=Release -DVCPKG_ROOT=${{ env.VCPKG_ROOT}} -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} -DVCPKG_DISABLE_AUTO_PACKAGE_REGISTRATION=ON
           cmake --build "${{ env.BUILD_DIR }}" --config Release --parallel 2
 
-      # euclid-web's package.json requires node >=24 and npm >=11, which is newer than what the
-      # runner image happens to ship - pinned rather than inherited so the frontend builds on the
-      # same toolchain regardless of when the image is updated.
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Build (Frontend)
-        shell: pwsh
-        run: |
-          # Only what the build emits gets packaged. Angular's "application" builder writes to
-          # <outputPath>/browser, and euclid-web's angular.json sets outputPath to
-          # "dist/euclid-web" - so dist/euclid-web/browser is the bundle, and that directory alone
-          # becomes the installer's frontend directory: not the checkout around it, not
-          # node_modules, not the sources. euclid.wxs harvests exactly this path.
-          cd ${{ github.workspace }}/frontend/euclid-web
-          npm ci
-          npm run build
-          # A build that quietly emitted nothing, or emitted elsewhere because outputPath changed,
-          # would produce an installer whose gateway answers 404 for every page - which is only
-          # discovered on an installed system, so check it here.
-          if (-not (Test-Path dist/euclid-web/browser/index.html)) {
-            Write-Output "::error::euclid-web build produced no dist/euclid-web/browser/index.html"
-            exit 1
-          }
 
       # Pinned to 5, deliberately: WiX 6 and 7 require accepting the Open Source Maintenance Fee
       # EULA, which is a commercial arrangement rather than a build dependency. 5 is the last
@@ -204,7 +196,7 @@ jobs:
             -d Version=${{ env.SEMVER }} `
             -d BuildDir="${{ env.BUILD_DIR }}" `
             -d SrcDir="${{ github.workspace }}" `
-            -d FrontendDir="${{ github.workspace }}\frontend\euclid-web\dist\euclid-web\browser" `
+            -d FrontendDir="${{ github.workspace }}\frontend" `
             -o "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.msi"
 
       # The consistency checks Windows Installer ships for its own format. A package that fails
@@ -307,18 +299,36 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Checked out here rather than next to the frontend build below, so that a token which
-      # cannot read euclid-web fails this job in seconds instead of after the hour-long backend
-      # build. euclid-web is a private repository, so the default GITHUB_TOKEN - scoped to this
-      # repository alone - cannot read it, and an unauthenticated clone dies with "could not read
-      # Username for 'https://github.com'". GH_AUTH_TOKEN is the PAT release-please already uses.
-      - name: Checkout frontend (euclid-web)
-        uses: actions/checkout@v4.2.2
-        with:
-          repository: jensvogt/euclid-web
-          token: ${{ secrets.GH_AUTH_TOKEN }}
-          path: frontend/euclid-web
-          persist-credentials: false
+      # The frontend is downloaded rather than built here. It is static files - the same bytes on
+      # every platform - so building it once in euclid-web and unpacking the result is one Angular
+      # build per release instead of one in each of these four jobs, on runners that are here to
+      # compile C++. See euclid-web's own workflow, which publishes the archive this takes.
+      #
+      # Fetched before the backend build for the reason the checkout it replaces was: a token that
+      # cannot read euclid-web fails this job in seconds rather than after the long build. euclid-web
+      # is a private repository, so the default GITHUB_TOKEN cannot read its releases either.
+      #
+      # The archive holds the bundle's files at its root, so this says where they go. "frontend-latest"
+      # is the newest build of euclid-web's master; pin "frontend-v<version>" to tie a euclid release
+      # to one frontend.
+      - name: Fetch frontend (euclid-web)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_AUTH_TOKEN }}
+        run: |
+          # Relative paths, deliberately: a step's working directory is the workspace on every
+          # runner, where ${{ github.workspace }} is a backslash path on Windows that this same
+          # bash step would have to quote its way around.
+          mkdir -p frontend frontend-archive
+          gh release download frontend-latest \
+            --repo jensvogt/euclid-web \
+            --pattern 'euclid-web-*.tar.gz' \
+            --dir frontend-archive
+          tar -xzf frontend-archive/euclid-web-*.tar.gz -C frontend
+          # An archive that unpacked to nothing, or to a directory around the bundle, would ship a
+          # gateway answering 404 for every page - only discovered on an installed system.
+          test -f frontend/index.html \
+            || { echo "::error::the euclid-web bundle has no index.html at its root"; exit 1; }
 
       - name: Install system dependencies
         shell: bash
@@ -372,30 +382,6 @@ jobs:
             echo
           done
 
-      # euclid-web's package.json requires node >=24 and npm >=11, which is newer than what the
-      # runner image happens to ship - pinned rather than inherited so the frontend builds on the
-      # same toolchain regardless of when the image is updated.
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Build (Frontend)
-        shell: bash
-        run: |
-          # Only what the build emits gets packaged. Angular's "application" builder writes to
-          # <outputPath>/browser, and euclid-web's angular.json sets outputPath to
-          # "dist/euclid-web" - so dist/euclid-web/browser is the bundle, and that directory alone
-          # becomes /usr/local/euclid/frontend: not the checkout around it, not node_modules, not
-          # the sources.
-          cd ${{ github.workspace }}/frontend/euclid-web
-          npm ci
-          npm run build
-          # A build that quietly emitted nothing, or emitted elsewhere because outputPath changed,
-          # would ship a package whose gateway answers 404 for every page - which is only
-          # discovered on an installed system, so check it here.
-          test -f dist/euclid-web/browser/index.html \
-            || { echo "::error::euclid-web build produced no dist/euclid-web/browser/index.html"; exit 1; }
 
       - name: Prepare package structure
         run: |
@@ -456,7 +442,7 @@ jobs:
           # The contents of the bundle directory, not the directory itself, so index.html lands at
           # the root of the frontend directory where the gateway looks for it. Not "|| true": the
           # build step above already verified the bundle exists, so a failure here is real.
-          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/euclid-web/browser/. ${{ env.PACKAGE_DIR }}/euclid/frontend/
+          cp -R ${{ github.workspace }}/frontend/. ${{ env.PACKAGE_DIR }}/euclid/frontend/
 
       - name: Verify macOS package contents
         run: |
@@ -687,15 +673,36 @@ jobs:
         with:
           fetch-depth: 0
 
-      # See the macOS job: private repository, so the default GITHUB_TOKEN cannot read it, and
-      # checked out up front so a token problem fails before the backend build rather than after.
-      - name: Checkout frontend (euclid-web)
-        uses: actions/checkout@v4.2.2
-        with:
-          repository: jensvogt/euclid-web
-          token: ${{ secrets.GH_AUTH_TOKEN }}
-          path: frontend/euclid-web
-          persist-credentials: false
+      # The frontend is downloaded rather than built here. It is static files - the same bytes on
+      # every platform - so building it once in euclid-web and unpacking the result is one Angular
+      # build per release instead of one in each of these four jobs, on runners that are here to
+      # compile C++. See euclid-web's own workflow, which publishes the archive this takes.
+      #
+      # Fetched before the backend build for the reason the checkout it replaces was: a token that
+      # cannot read euclid-web fails this job in seconds rather than after the long build. euclid-web
+      # is a private repository, so the default GITHUB_TOKEN cannot read its releases either.
+      #
+      # The archive holds the bundle's files at its root, so this says where they go. "frontend-latest"
+      # is the newest build of euclid-web's master; pin "frontend-v<version>" to tie a euclid release
+      # to one frontend.
+      - name: Fetch frontend (euclid-web)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_AUTH_TOKEN }}
+        run: |
+          # Relative paths, deliberately: a step's working directory is the workspace on every
+          # runner, where ${{ github.workspace }} is a backslash path on Windows that this same
+          # bash step would have to quote its way around.
+          mkdir -p frontend frontend-archive
+          gh release download frontend-latest \
+            --repo jensvogt/euclid-web \
+            --pattern 'euclid-web-*.tar.gz' \
+            --dir frontend-archive
+          tar -xzf frontend-archive/euclid-web-*.tar.gz -C frontend
+          # An archive that unpacked to nothing, or to a directory around the bundle, would ship a
+          # gateway answering 404 for every page - only discovered on an installed system.
+          test -f frontend/index.html \
+            || { echo "::error::the euclid-web bundle has no index.html at its root"; exit 1; }
 
       - name: Install system dependencies
         run: |
@@ -756,28 +763,6 @@ jobs:
           cmake -B ${{ env.BUILD_DIR }} -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
           cmake --build ${{ env.BUILD_DIR }} --config Release --parallel 2
 
-      # euclid-web's package.json requires node >=24 and npm >=11 - see the macOS job.
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Build (Frontend)
-        shell: bash
-        run: |
-          # Only what the build emits gets packaged. Angular's "application" builder writes to
-          # <outputPath>/browser, and euclid-web's angular.json sets outputPath to
-          # "dist/euclid-web" - so dist/euclid-web/browser is the bundle, and that directory alone
-          # becomes /usr/local/euclid/frontend: not the checkout around it, not node_modules, not
-          # the sources.
-          cd ${{ github.workspace }}/frontend/euclid-web
-          npm ci
-          npm run build
-          # A build that quietly emitted nothing, or emitted elsewhere because outputPath changed,
-          # would ship a package whose gateway answers 404 for every page - which is only
-          # discovered on an installed system, so check it here.
-          test -f dist/euclid-web/browser/index.html \
-            || { echo "::error::euclid-web build produced no dist/euclid-web/browser/index.html"; exit 1; }
 
       # ── DEB ────────────────────────────────────────────────────────────────
 
@@ -871,7 +856,7 @@ jobs:
           # The contents of the bundle directory, not the directory itself, so index.html lands at
           # the root of /usr/local/euclid/frontend where the gateway looks for it. Not "|| true":
           # the build step above already verified the bundle exists, so a failure here is real.
-          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/euclid-web/browser/. ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/
+          cp -R ${{ github.workspace }}/frontend/. ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_DEB - that whole tree gets mapped
           # verbatim onto the target filesystem root by fpm's "-s dir ... PACKAGE_DIR/=/"
@@ -1104,7 +1089,7 @@ jobs:
             ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8/*.8
           gzip -9n ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8/*.8
           # See the DEB step above: the contents of the bundle directory only, and no "|| true".
-          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/euclid-web/browser/. ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/
+          cp -R ${{ github.workspace }}/frontend/. ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_RPM - see the matching comment in the
           # DEB step above for why (this whole tree is mapped verbatim onto the target

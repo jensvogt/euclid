@@ -27,6 +27,7 @@
 #include <euclid/core/UuidUtils.h>
 #include <euclid/core/monitoring/MetricEventBus.h>
 #include <euclid/core/monitoring/MonitoringCollector.h>
+#include <euclid/core/monitoring/ProcessUsage.h>
 
 // Boost includes
 #include <boost/json.hpp>
@@ -119,69 +120,6 @@ namespace Euclid::Core {
             return lookup;
         }
 
-        constexpr auto kCpuUsagePeriod = std::chrono::seconds(60);
-
-        // The previous reading of this process's CPU time and the machine's, taken together, so
-        // recordCpuUsage() can compute a delta-based percentage rather than a since-boot average.
-        // There's only ever one HttpActionServer-derived instance per process, so file-local state
-        // is simplest - same reasoning as EmoServer's own accumulators.
-        struct CpuReading {
-            unsigned long long processTime = 0;
-            SystemUtils::CpuTimes systemTimes;
-        };
-
-        std::mutex &cpuTimesMutex() {
-            static std::mutex mutex;
-            return mutex;
-        }
-
-        std::optional<CpuReading> &previousCpuReading() {
-            static std::optional<CpuReading> previous;
-            return previous;
-        }
-
-        // Records this process's own share of the machine's CPU since the previous call as a
-        // "euclid-cpu-usage" gauge, labelled with this module's serviceName - picked up by
-        // MonitoringCollector and pushed to the monitoring module by MetricsPusher, same as any
-        // other MetricEventBus metric. The first call after process start only primes the
-        // previous-reading state, since a delta needs two samples.
-        //
-        // The process's share, not the host's. This used to report the machine's whole CPU usage
-        // under every module's label, so every module drew the same line and none of them said
-        // what the module itself cost - the host's figure is "system-cpu-usage", recorded by EMO.
-        // On the same scale as that one: 100 is the whole machine, not one core.
-        void recordCpuUsage(const std::string &serviceName) {
-
-            const auto processTime = SystemUtils::ReadProcessCpuTime();
-            const auto systemTimes = SystemUtils::ReadCpuTimes();
-            if (!processTime.has_value() || !systemTimes.has_value()) return;
-
-            std::lock_guard lock(cpuTimesMutex());
-            const auto previous = previousCpuReading();
-            previousCpuReading() = CpuReading{.processTime = *processTime, .systemTimes = *systemTimes};
-            if (!previous.has_value()) return;
-
-            if (const auto percent = SystemUtils::ProcessCpuUsagePercent(previous->processTime, *processTime,
-                                                                         previous->systemTimes, *systemTimes);
-                percent.has_value()) {
-                Monitoring::MetricEventBus::instance().sigMetricGauge("euclid-cpu-usage", "module", serviceName, *percent);
-            }
-        }
-
-        // Records this process's current memory usage as three gauges, all labelled with this
-        // module's serviceName - real/virtual memory in MB, plus real memory as a percentage of
-        // the system's total RAM. Unlike recordCpuUsage(), this is a direct point-in-time
-        // reading, so there's no state to prime on the first call.
-        void recordMemoryUsage(const std::string &serviceName) {
-
-            const auto usage = SystemUtils::ReadMemoryUsage();
-            if (!usage.has_value()) return;
-
-            auto &bus = Monitoring::MetricEventBus::instance();
-            bus.sigMetricGauge("euclid-memory-usage-real-mb", "module", serviceName, usage->realMb);
-            bus.sigMetricGauge("euclid-memory-usage-virtual-mb", "module", serviceName, usage->virtualMb);
-            bus.sigMetricGauge("euclid-memory-usage-percent", "module", serviceName, usage->percentOfTotal);
-        }
     }// namespace
 
     int HttpActionServer::ConfiguredWorkerThreads(const std::string &module, const int fallback) {
@@ -430,10 +368,11 @@ namespace Euclid::Core {
 #ifdef __linux__
         auto &scheduler = Scheduler::instance();
         scheduler.Start();
-        const auto resourceUsagePeriod = std::chrono::seconds(Configuration::instance().getOr<long>("euclid.monitoring.cpu-usage-period", kCpuUsagePeriod.count()));
+        const auto resourceUsagePeriod = std::chrono::seconds(
+                Configuration::instance().getOr<long>("euclid.monitoring.cpu-usage-period",
+                                                      Monitoring::kProcessUsagePeriod.count()));
         _resourceUsageTaskId = scheduler.SchedulePeriodic("resource-usage-" + serviceName, [serviceName] {
-            recordCpuUsage(serviceName);
-            recordMemoryUsage(serviceName);
+            Monitoring::RecordProcessUsage(serviceName);
         }, std::chrono::duration_cast<milliseconds>(resourceUsagePeriod));
 #endif
     }
