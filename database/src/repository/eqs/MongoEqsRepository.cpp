@@ -28,6 +28,7 @@
 #include <bsoncxx/builder/concatenate.hpp>
 
 #include <euclid/database/repository/eqs/MongoEqsRepository.h>
+#include <euclid/database/MatchType.h>
 
 #include <boost/chrono/system_clocks.hpp>
 
@@ -517,7 +518,7 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::EQS::Queue> MongoEqsRepository::listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeInternal) const {
+    std::vector<Entity::EQS::Queue> MongoEqsRepository::listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeInternal, const MatchType matchType) const {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "listQueues");
 
         try {
@@ -528,7 +529,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
             // euclid's own plumbing is not somebody's queue to look at, unless the caller has
             // asked for it and is entitled to (the module decides that, not this layer). "$ne:
@@ -605,7 +606,7 @@ namespace Euclid::Database {
         }
     }
 
-    long MongoEqsRepository::countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const bool includeInternal) const {
+    long MongoEqsRepository::countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const bool includeInternal, const MatchType matchType) const {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "countQueues");
 
         try {
@@ -616,7 +617,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
             // euclid's own plumbing is not somebody's queue to look at, unless the caller has
             // asked for it and is entitled to (the module decides that, not this layer). "$ne:

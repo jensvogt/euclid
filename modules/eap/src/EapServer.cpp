@@ -2560,15 +2560,22 @@ namespace Euclid::EAP {
         boost::json::value jv;
         if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
 
-        std::string prefix;
-        if (jv.is_object()) prefix = stringField(jv.as_object(), "prefix");
+        std::string prefix, matchTypeName;
+        if (jv.is_object()) {
+            prefix = stringField(jv.as_object(), "prefix");
+            matchTypeName = stringField(jv.as_object(), "matchType");
+        }
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(prefix, matchTypeName, matchType)) {
+            return EapServer::ErrorResponse(req, status::bad_request, *error);
+        }
 
         // The caller's own namespace, not the installation: every other action here resolves an
         // applicationId in the namespace the request was made in, so a listing that crossed
         // namespaces would show applications the caller cannot then address.
         const auto ns = std::string(req["x-euclid-namespace"]);
         boost::json::array applications;
-        for (const auto &application: Database::RepositoryFactory::instance().eapRepository()->listApplications(auth.user->accountId, ns, prefix)) {
+        for (const auto &application: Database::RepositoryFactory::instance().eapRepository()->listApplications(auth.user->accountId, ns, prefix, matchType)) {
             applications.push_back(toJson(application));
         }
 

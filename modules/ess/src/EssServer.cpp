@@ -314,11 +314,16 @@ namespace Euclid::ESS {
         if (const auto err = EssServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ESS::ListSecretsRequest>(jv);
+
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EssServer::ErrorResponse(req, status::bad_request, *error);
+        }
         const auto ns = std::string(req["x-euclid-namespace"]);
 
         const auto repository = Database::RepositoryFactory::instance().essRepository();
         auto secrets = repository->listSecrets(auth.user->accountId, ns, request.prefix, request.pageSize,
-                                               request.pageIndex, request.sortColumn, request.sortDirection);
+                                               request.pageIndex, request.sortColumn, request.sortDirection, matchType);
 
         // A principal restricted to particular secrets sees those and no others. Filtered rather
         // than refused, so an application listing what it may read gets an answer instead of a 403.
@@ -328,7 +333,7 @@ namespace Euclid::ESS {
 
         Dto::ESS::ListSecretsResponse response;
         response.secrets = Dto::ESS::EssMapper::toDto(secrets);
-        response.total = repository->countSecrets(auth.user->accountId, ns, request.prefix);
+        response.total = repository->countSecrets(auth.user->accountId, ns, request.prefix, matchType);
 
         return EssServer::JsonResponse(req, status::ok, response.toJson());
     }

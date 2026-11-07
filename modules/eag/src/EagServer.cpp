@@ -549,14 +549,21 @@ namespace Euclid::EAG {
         boost::json::value jv;
         if (const auto err = EagServer::ParseJsonBody(req, jv)) return *err;
 
-        std::string prefix;
-        if (jv.is_object()) prefix = stringField(jv.as_object(), "prefix");
+        std::string prefix, matchTypeName;
+        if (jv.is_object()) {
+            prefix = stringField(jv.as_object(), "prefix");
+            matchTypeName = stringField(jv.as_object(), "matchType");
+        }
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(prefix, matchTypeName, matchType)) {
+            return EagServer::ErrorResponse(req, status::bad_request, *error);
+        }
 
         // The caller's own namespace, not the installation: every other action here resolves a
         // routeId in the namespace the request was made in.
         boost::json::array routes;
         for (const auto &route: Database::RepositoryFactory::instance().eagRepository()->listRoutes(
-                     auth.user->accountId, std::string(req["x-euclid-namespace"]), prefix)) {
+                     auth.user->accountId, std::string(req["x-euclid-namespace"]), prefix, matchType)) {
             routes.push_back(toJson(route));
         }
 

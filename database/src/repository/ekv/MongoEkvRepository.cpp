@@ -10,6 +10,7 @@
 #include <chrono>
 
 // Euclid includes
+#include <euclid/database/MatchType.h>
 #include <euclid/database/repository/ekv/MongoEkvRepository.h>
 
 namespace Euclid::Database {
@@ -76,6 +77,21 @@ namespace Euclid::Database {
 
         long timestampMillis(const std::chrono::system_clock::time_point &when) {
             return std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch()).count();
+        }
+
+        // A prefix stays a range rather than a "^" regex: the range walks the (accountId, namespace,
+        // name) index from where the prefix starts, and the planner cannot prove that of every regex.
+        // The other match types have no range to walk, so they are a pattern over the namespace.
+        void appendTableNameFilter(bsoncxx::builder::basic::document &filter, const std::string &prefix, const MatchType matchType) {
+            using bsoncxx::builder::basic::kvp;
+            using bsoncxx::builder::basic::make_document;
+
+            if (prefix.empty()) return;
+            if (matchType == MatchType::Prefix) {
+                filter.append(kvp("name", make_document(kvp("$gte", prefix), kvp("$lt", prefix + kAfterEveryString))));
+            } else {
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
+            }
         }
 
     }// namespace
@@ -218,15 +234,13 @@ namespace Euclid::Database {
     std::vector<Entity::EKV::Table> MongoEkvRepository::listTables(const std::string &accountId, const std::string &nameSpace,
                                                                    const std::string &prefix, const long pageSize,
                                                                    const long pageIndex, const std::string &sortColumn,
-                                                                   const std::string &sortDirection) const {
+                                                                   const std::string &sortDirection, const MatchType matchType) const {
 
         std::vector<Entity::EKV::Table> tables;
         try {
             document filter;
             filter.append(kvp("accountId", accountId), kvp("namespace", nameSpace));
-            if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$gte", prefix), kvp("$lt", prefix + kAfterEveryString))));
-            }
+            appendTableNameFilter(filter, prefix, matchType);
 
             mongocxx::options::find opts;
             opts.sort(make_document(kvp(sortColumn.empty() ? "name" : sortColumn, sortDirection == "desc" ? -1 : 1)));
@@ -246,11 +260,15 @@ namespace Euclid::Database {
         return tables;
     }
 
-    long MongoEkvRepository::countTables(const std::string &accountId, const std::string &nameSpace) const {
+    long MongoEkvRepository::countTables(const std::string &accountId, const std::string &nameSpace, const std::string &prefix, const MatchType matchType) const {
 
         try {
+            document filter;
+            filter.append(kvp("accountId", accountId), kvp("namespace", nameSpace));
+            appendTableNameFilter(filter, prefix, matchType);
+
             const auto collection = Database::instance().collection(TABLE_COLLECTION);
-            return static_cast<long>(collection.count_documents(make_document(kvp("accountId", accountId), kvp("namespace", nameSpace))));
+            return static_cast<long>(collection.count_documents(filter.extract().view()));
 
         } catch (const std::exception &e) {
             log_error << "Count tables failed, accountId: " << accountId << ", error: " << e.what();

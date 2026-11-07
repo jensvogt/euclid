@@ -16,6 +16,7 @@
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/repository/ekm/MongoEkmRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -166,7 +167,7 @@ namespace Euclid::Database {
         return std::nullopt;
     }
 
-    std::vector<Entity::EKM::Key> MongoEkmRepository::listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+    std::vector<Entity::EKM::Key> MongoEkmRepository::listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const MatchType matchType) const {
 
         try {
 
@@ -176,7 +177,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             mongocxx::options::find opts;
@@ -326,7 +327,7 @@ namespace Euclid::Database {
         return std::nullopt;
     }
 
-    std::vector<Entity::EKM::Certificate> MongoEkmRepository::listCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+    std::vector<Entity::EKM::Certificate> MongoEkmRepository::listCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const MatchType matchType) const {
 
         try {
 
@@ -336,7 +337,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             mongocxx::options::find opts;
@@ -363,7 +364,7 @@ namespace Euclid::Database {
         }
     }
 
-    long MongoEkmRepository::countCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const {
+    long MongoEkmRepository::countCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const MatchType matchType) const {
 
         try {
 
@@ -373,7 +374,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             auto certificateCollection = Database::instance().collection(CERTIFICATE_COLLECTION);
@@ -404,7 +405,7 @@ namespace Euclid::Database {
         return 0;
     }
 
-    long MongoEkmRepository::countKeys(const std::string &accountId, const std::string &nameSpace, const std::string &prefix) const {
+    long MongoEkmRepository::countKeys(const std::string &accountId, const std::string &nameSpace, const std::string &prefix, const MatchType matchType) const {
 
         try {
 
@@ -414,7 +415,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", nameSpace));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             auto keyCollection = Database::instance().collection(KEY_COLLECTION);

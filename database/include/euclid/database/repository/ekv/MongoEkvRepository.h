@@ -11,6 +11,7 @@
 // Euclid includes
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
+#include <euclid/database/MatchType.h>
 #include <euclid/database/repository/ekv/IEkvRepository.h>
 
 namespace Euclid::Database {
@@ -51,10 +52,10 @@ namespace Euclid::Database {
         std::vector<Entity::EKV::Table> listTables(const std::string &accountId, const std::string &nameSpace,
                                                    const std::string &prefix, long pageSize,
                                                    long pageIndex, const std::string &sortColumn,
-                                                   const std::string &sortDirection) const override;
+                                                   const std::string &sortDirection, MatchType matchType = MatchType::Prefix) const override;
 
         [[nodiscard]]
-        long countTables(const std::string &accountId, const std::string &nameSpace) const override;
+        long countTables(const std::string &accountId, const std::string &nameSpace, const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const override;
 
         long deleteTable(const std::string &accountId, const std::string &nameSpace, const std::string &name) override;
 

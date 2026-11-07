@@ -15,6 +15,7 @@
 
 // Euclid includes
 #include <euclid/database/entity/eag/Route.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -76,11 +77,12 @@ namespace Euclid::Database {
          * path rather than by routeId because a route is identified from the outside by what it
          * publishes - "what is served under /api" is the question somebody has, and it is also
          * what create-route needs in order to refuse a path another route already claims.
+         * @param matchType how prefix is matched against the path; see MatchType
          * @return the routes.
          */
         [[nodiscard]]
         virtual std::vector<Entity::EAG::Route> listRoutes(const std::string &accountId, const std::string &nameSpace,
-                                                           const std::string &prefix) const = 0;
+                                                           const std::string &prefix, MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Every route in the installation, whatever account or namespace it belongs to.
@@ -93,10 +95,11 @@ namespace Euclid::Database {
          * published it. Nothing that answers for one caller should use this.
          *
          * @param prefix only routes whose path starts with this are returned; empty matches all.
+         * @param matchType how prefix is matched against the path; see MatchType
          * @return matching routes.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAG::Route> listAllRoutes(const std::string &prefix) const = 0;
+        virtual std::vector<Entity::EAG::Route> listAllRoutes(const std::string &prefix, MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Whether a route of this name exists.

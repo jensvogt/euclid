@@ -15,6 +15,7 @@
 
 // Euclid includes
 #include <euclid/database/entity/ets/TransferServer.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -89,11 +90,12 @@ namespace Euclid::Database {
          * @brief Lists transfer servers, ordered by server ID.
          *
          * @param prefix filter by server ID prefix; empty matches all.
+         * @param matchType how prefix is matched against the ID; see MatchType
          * @return matching servers.
          */
         [[nodiscard]]
         virtual std::vector<Entity::ETS::TransferServer> listServers(const std::string &accountId, const std::string &nameSpace,
-                                                                     const std::string &prefix) const = 0;
+                                                                     const std::string &prefix, MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Every transfer server in the installation, whatever account or namespace defines it.
@@ -104,10 +106,11 @@ namespace Euclid::Database {
          * serving one caller should use this.
          *
          * @param prefix only servers whose ID starts with this are returned; empty matches all.
+         * @param matchType how prefix is matched against the ID; see MatchType
          * @return matching servers, sorted by ID.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ETS::TransferServer> listAllServers(const std::string &prefix) const = 0;
+        virtual std::vector<Entity::ETS::TransferServer> listAllServers(const std::string &prefix, MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Counts transfer servers.

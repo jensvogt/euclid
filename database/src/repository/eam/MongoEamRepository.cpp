@@ -13,6 +13,7 @@
 
 // Euclid includes
 #include <euclid/core/ErnUtils.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -284,24 +285,24 @@ namespace Euclid::Database {
         return false;
     }
 
-    long MongoEamRepository::countUsers() const {
+    long MongoEamRepository::countUsers(const std::string &prefix, const MatchType matchType) const {
 
         try {
             auto userCollection = Database::instance().collection(USER_COLLECTION);
 
-            return userCollection.count_documents({});
+            return userCollection.count_documents(prefix.empty() ? make_document() : make_document(kvp("userId", make_document(kvp("$regex", MatchPattern(prefix, matchType))))));
         } catch (const std::exception &e) {
             log_error << "Count users failed, error: " << e.what();
         }
         return -1;
     }
 
-    std::vector<Entity::EAM::User> MongoEamRepository::listUsers(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+    std::vector<Entity::EAM::User> MongoEamRepository::listUsers(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const MatchType matchType) const {
 
         std::vector<Entity::EAM::User> users;
         try {
 
-            const auto filter = prefix.empty() ? make_document() : make_document(kvp("userId", make_document(kvp("$regex", "^" + prefix))));
+            const auto filter = prefix.empty() ? make_document() : make_document(kvp("userId", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
@@ -423,24 +424,24 @@ namespace Euclid::Database {
         return {};
     }
 
-    long MongoEamRepository::countUserGroups() const {
+    long MongoEamRepository::countUserGroups(const std::string &prefix, const MatchType matchType) const {
 
         try {
             auto userCollection = Database::instance().collection(USER_GROUP_COLLECTION);
 
-            return static_cast<long>(userCollection.count_documents({}));
+            return static_cast<long>(userCollection.count_documents(prefix.empty() ? make_document() : make_document(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))))));
         } catch (const std::exception &e) {
             log_error << "Count users failed, error: " << e.what();
         }
         return -1;
     }
 
-    std::vector<Entity::EAM::UserGroup> MongoEamRepository::listUserGroups(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+    std::vector<Entity::EAM::UserGroup> MongoEamRepository::listUserGroups(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const MatchType matchType) const {
 
         std::vector<Entity::EAM::UserGroup> userGroups;
         try {
 
-            const auto filter = prefix.empty() ? make_document() : make_document(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+            const auto filter = prefix.empty() ? make_document() : make_document(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
@@ -562,24 +563,24 @@ namespace Euclid::Database {
         return {};
     }
 
-    long MongoEamRepository::countAccounts() const {
+    long MongoEamRepository::countAccounts(const std::string &prefix, const MatchType matchType) const {
 
         try {
             auto accountCollection = Database::instance().collection(ACCOUNT_COLLECTION);
 
-            return static_cast<long>(accountCollection.count_documents({}));
+            return static_cast<long>(accountCollection.count_documents(prefix.empty() ? make_document() : make_document(kvp("accountId", make_document(kvp("$regex", MatchPattern(prefix, matchType)))))));
         } catch (const std::exception &e) {
             log_error << "Count accounts failed, error: " << e.what();
         }
         return -1;
     }
 
-    std::vector<Entity::EAM::Account> MongoEamRepository::listAccounts(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+    std::vector<Entity::EAM::Account> MongoEamRepository::listAccounts(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const MatchType matchType) const {
 
         std::vector<Entity::EAM::Account> accounts;
         try {
 
-            const auto filter = prefix.empty() ? make_document() : make_document(kvp("accountId", make_document(kvp("$regex", "^" + prefix))));
+            const auto filter = prefix.empty() ? make_document() : make_document(kvp("accountId", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
@@ -713,14 +714,14 @@ namespace Euclid::Database {
         return -1;
     }
 
-    std::vector<Entity::EAM::Namespace> MongoEamRepository::listNamespaces(const std::string &accountId, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+    std::vector<Entity::EAM::Namespace> MongoEamRepository::listNamespaces(const std::string &accountId, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const MatchType matchType) const {
 
         std::vector<Entity::EAM::Namespace> namespaces;
         try {
 
             auto filter = prefix.empty()
                     ? make_document(kvp("accountId", accountId))
-                    : make_document(kvp("accountId", accountId), kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                    : make_document(kvp("accountId", accountId), kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
@@ -801,12 +802,15 @@ namespace Euclid::Database {
         return {};
     }
 
-    long MongoEamRepository::countRoles(const std::string &accountId) const {
+    long MongoEamRepository::countRoles(const std::string &accountId, const std::string &prefix, const MatchType matchType) const {
 
         try {
             auto roleCollection = Database::instance().collection(ROLE_COLLECTION);
 
-            return static_cast<long>(roleCollection.count_documents(make_document(kvp("accountId", accountId))));
+            const auto filter = prefix.empty()
+                                        ? make_document(kvp("accountId", accountId))
+                                        : make_document(kvp("accountId", accountId), kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
+            return static_cast<long>(roleCollection.count_documents(filter.view()));
 
         } catch (const std::exception &e) {
             log_error << "Count roles failed, accountId: " << accountId << ", error: " << e.what();
@@ -816,14 +820,14 @@ namespace Euclid::Database {
 
     std::vector<Entity::EAM::Role> MongoEamRepository::listRoles(const std::string &accountId, const std::string &prefix, const long pageSize,
                                                                  const long pageIndex, const std::string &sortColumn,
-                                                                 const std::string &sortDirection) const {
+                                                                 const std::string &sortDirection, const MatchType matchType) const {
 
         std::vector<Entity::EAM::Role> roles;
         try {
 
             const auto filter = prefix.empty()
                                         ? make_document(kvp("accountId", accountId))
-                                        : make_document(kvp("accountId", accountId), kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                                        : make_document(kvp("accountId", accountId), kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {

@@ -8,6 +8,7 @@
 
 #include <bsoncxx/builder/basic/array.hpp>
 #include <euclid/database/repository/ets/MongoEtsRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -152,13 +153,13 @@ namespace Euclid::Database {
     }
 
     std::vector<Entity::ETS::TransferServer> MongoEtsRepository::listServers(const std::string &accountId, const std::string &nameSpace,
-                                                                            const std::string &prefix) const {
+                                                                            const std::string &prefix, const MatchType matchType) const {
 
         try {
             bsoncxx::builder::basic::document filter{};
             filter.append(kvp("accountId", accountId), kvp("namespace", nameSpace));
             if (!prefix.empty()) {
-                filter.append(kvp("serverId", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("serverId", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             mongocxx::options::find opts;
@@ -178,12 +179,12 @@ namespace Euclid::Database {
         }
     }
 
-    std::vector<Entity::ETS::TransferServer> MongoEtsRepository::listAllServers(const std::string &prefix) const {
+    std::vector<Entity::ETS::TransferServer> MongoEtsRepository::listAllServers(const std::string &prefix, const MatchType matchType) const {
 
         try {
             bsoncxx::builder::basic::document filter{};
             if (!prefix.empty()) {
-                filter.append(kvp("serverId", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("serverId", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             mongocxx::options::find opts;

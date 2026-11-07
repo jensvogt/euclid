@@ -28,6 +28,12 @@ namespace Euclid::Dto::EAM {
         std::string prefix{};
 
         /**
+         * @brief How prefix is matched: "prefix", "endsWith", "contains" or "regex"; empty means
+         * "prefix". Every type but "regex" takes prefix literally.
+         */
+        std::string matchType{};
+
+        /**
          * @brief Maximum to return.
          */
         long pageSize = 10;
@@ -71,6 +77,7 @@ namespace Euclid::Dto::EAM {
         friend ListRolesRequest tag_invoke(boost::json::value_to_tag<ListRolesRequest>, boost::json::value const &v) {
             ListRolesRequest r;
             r.prefix = Core::GetStringValue(v, "prefix");
+            r.matchType = Core::GetStringValue(v, "matchType");
             r.pageSize = Core::GetLongValue(v, "pageSize", 10);
             r.pageIndex = Core::GetLongValue(v, "pageIndex", 0);
             r.sortColumn = Core::GetStringValue(v, "sortColumn");
@@ -82,6 +89,7 @@ namespace Euclid::Dto::EAM {
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListRolesRequest const &obj) {
             jv = {
                     {"prefix", obj.prefix},
+                    {"matchType", obj.matchType},
                     {"pageSize", obj.pageSize},
                     {"pageIndex", obj.pageIndex},
                     {"sortColumn", obj.sortColumn},

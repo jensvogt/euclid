@@ -16,6 +16,7 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/database/MatchType.h>
 #include <euclid/database/entity/esm/Bucket.h>
 #include <euclid/database/entity/esm/Object.h>
 #include <euclid/database/entity/esm/PurgeJob.h>
@@ -195,10 +196,11 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
          * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return matching, paged and sorted list of buckets
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", bool includeInternal = false) const = 0;
+        virtual std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", bool includeInternal = false, MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Checks if a bucket with the specified name exists in the given account and
@@ -218,10 +220,11 @@ namespace Euclid::Database {
          * @param accountId only buckets belonging to this account are counted
          * @param namespaceName only buckets in this namespace are counted; empty means don't filter by namespace
          * @param prefix only buckets whose name starts with this prefix are counted; empty means don't filter by name
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return The total number of buckets as a long integer.
          */
         [[nodiscard]]
-        virtual long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "", bool includeInternal = false) const = 0;
+        virtual long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "", bool includeInternal = false, MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Removes all entries from the bucket repository, leaving it in an empty state.
@@ -274,10 +277,11 @@ namespace Euclid::Database {
          * @param prefix object key prefix
          * @param includeDirectories whether directory keys (see Entity::ESM::IsDirectoryKey())
          * are counted; they are left out by default, so a bucket counts the files it holds
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return The total number of messages as a long integer.
          */
         [[nodiscard]]
-        virtual long countObjects(const std::string &bucketErn, const std::string &prefix, bool includeDirectories = false) const = 0;
+        virtual long countObjects(const std::string &bucketErn, const std::string &prefix, bool includeDirectories = false, MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Retrieves the number of objects in a bucket whose bytes are stored encrypted.
@@ -305,10 +309,11 @@ namespace Euclid::Database {
          * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
          * @param includeDirectories whether directory keys (see Entity::ESM::IsDirectoryKey())
          * are returned; they are left out by default, so a listing shows the files a bucket holds
+         * @param matchType how prefix is matched against the key; see MatchType
          * @return matching, paged and sorted list of buckets
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", bool includeDirectories = false) const = 0;
+        virtual std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", bool includeDirectories = false, MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief The objects that sit directly in one level of a bucket, not those beneath it.

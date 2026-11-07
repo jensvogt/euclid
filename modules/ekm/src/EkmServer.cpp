@@ -444,16 +444,21 @@ namespace Euclid::EKM {
         if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EKM::ListKeysRequest>(jv);
+
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EkmServer::ErrorResponse(req, status::bad_request, *error);
+        }
         log_info << "EKM ListKeys" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         const auto nameSpace = std::string(req["x-euclid-namespace"]);
         const auto repo = Database::RepositoryFactory::instance().ekmRepository();
-        const std::vector<Database::Entity::EKM::Key> keys = repo->listKeys(auth.user->accountId, nameSpace, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
+        const std::vector<Database::Entity::EKM::Key> keys = repo->listKeys(auth.user->accountId, nameSpace, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, matchType);
         log_info << "EKM key list, count: " << keys.size();
 
         Dto::EKM::ListKeysResponse response;
         response.keys = Dto::EKM::EkmMapper::toDto(keys);
-        response.total = repo->countKeys(auth.user->accountId, nameSpace, request.prefix);
+        response.total = repo->countKeys(auth.user->accountId, nameSpace, request.prefix, matchType);
 
         applyMetadata(response, *auth.user);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
@@ -629,15 +634,20 @@ namespace Euclid::EKM {
         if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EKM::ListCertificatesRequest>(jv);
+
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EkmServer::ErrorResponse(req, status::bad_request, *error);
+        }
         const auto nameSpace = std::string(req["x-euclid-namespace"]);
 
         const auto repo = Database::RepositoryFactory::instance().ekmRepository();
         const auto certificates = repo->listCertificates(auth.user->accountId, nameSpace, request.prefix, request.pageSize,
-                                                         request.pageIndex, request.sortColumn, request.sortDirection);
+                                                         request.pageIndex, request.sortColumn, request.sortDirection, matchType);
 
         Dto::EKM::ListCertificatesResponse response;
         response.certificates = Dto::EKM::EkmMapper::toDto(certificates);
-        response.total = repo->countCertificates(auth.user->accountId, nameSpace, request.prefix);
+        response.total = repo->countCertificates(auth.user->accountId, nameSpace, request.prefix, matchType);
 
         applyMetadata(response, *auth.user);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());

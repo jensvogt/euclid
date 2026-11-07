@@ -22,6 +22,12 @@ namespace Euclid::Dto::EAM {
         std::string prefix{};
 
         /**
+         * @brief How prefix is matched: "prefix", "endsWith", "contains" or "regex"; empty means
+         * "prefix". Every type but "regex" takes prefix literally.
+         */
+        std::string matchType{};
+
+        /**
          * @brief Page size
          */
         long pageSize = 10;
@@ -54,6 +60,7 @@ namespace Euclid::Dto::EAM {
             ListNamespacesRequest r;
             r.accountId = Core::GetStringValue(v, "accountId");
             r.prefix = Core::GetStringValue(v, "prefix");
+            r.matchType = Core::GetStringValue(v, "matchType");
             r.pageSize = Core::GetLongValue(v, "pageSize");
             r.pageIndex = Core::GetLongValue(v, "pageIndex");
             r.sortColumn = Core::GetStringValue(v, "sortColumn");
@@ -65,6 +72,7 @@ namespace Euclid::Dto::EAM {
             jv = {
                     {"accountId", obj.accountId},
                     {"prefix", obj.prefix},
+                    {"matchType", obj.matchType},
                     {"pageSize", obj.pageSize},
                     {"pageIndex", obj.pageIndex},
                     {"sortColumn", obj.sortColumn},

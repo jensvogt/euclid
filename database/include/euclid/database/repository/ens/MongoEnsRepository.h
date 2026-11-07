@@ -12,6 +12,7 @@
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/repository/ens/IEnsRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -131,7 +132,7 @@ namespace Euclid::Database {
          * @return list of all topic entities.
          */
         [[nodiscard]]
-        std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
+        std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Check the existence of a topic by name, within an account and namespace
@@ -152,7 +153,7 @@ namespace Euclid::Database {
          * @return total number of modules
          */
         [[nodiscard]]
-        long countTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override;
+        long countTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Delete all modules

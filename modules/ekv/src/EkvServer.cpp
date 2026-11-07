@@ -271,6 +271,11 @@ namespace Euclid::EKV {
         if (const auto err = EkvServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EKV::ListTablesRequest>(jv);
+
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EkvServer::ErrorResponse(req, status::bad_request, *error);
+        }
         const auto repository = Database::RepositoryFactory::instance().ekvRepository();
 
         // One namespace's tables, not the account's: a listing that crossed namespaces would show
@@ -278,7 +283,7 @@ namespace Euclid::EKV {
         // in the namespace the request was made in.
         const auto ns = std::string(req["x-euclid-namespace"]);
         const auto tables = repository->listTables(auth.user->accountId, ns, request.prefix, request.pageSize,
-                                                   request.pageIndex, request.sortColumn, request.sortDirection);
+                                                   request.pageIndex, request.sortColumn, request.sortDirection, matchType);
 
         boost::json::array described;
         described.reserve(tables.size());
@@ -289,7 +294,7 @@ namespace Euclid::EKV {
         return EkvServer::JsonResponse(req, status::ok,
                                        boost::json::serialize(boost::json::object{
                                                {"tables", described},
-                                               {"total", repository->countTables(auth.user->accountId, ns)}}));
+                                               {"total", repository->countTables(auth.user->accountId, ns, request.prefix, matchType)}}));
     }
 
     static response<string_body> handleDeleteTable(const request<string_body> &req) {

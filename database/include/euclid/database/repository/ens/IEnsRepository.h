@@ -19,6 +19,7 @@
 #include <euclid/database/entity/ens/Message.h>
 #include <euclid/database/entity/ens/Subscription.h>
 #include <euclid/database/entity/ens/Topic.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -150,10 +151,11 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "arn"); empty means unsorted
          * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return A collection containing all entities or objects found.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+        virtual std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Checks if a topic with the specified name exists in the given account and
@@ -173,10 +175,11 @@ namespace Euclid::Database {
          * @param accountId only topics belonging to this account are counted
          * @param namespaceName only topics in this namespace are counted; empty means don't filter by namespace
          * @param prefix only topics whose name starts with this prefix are counted; empty means don't filter by name
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return The total number of topics as a long integer.
          */
         [[nodiscard]]
-        virtual long countTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
+        virtual long countTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Removes all entries from the queue repository, leaving it in an empty state.

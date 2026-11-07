@@ -11,6 +11,7 @@
 
 // Euclid includes
 #include <euclid/database/repository/ess/MongoEssRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -122,7 +123,7 @@ namespace Euclid::Database {
         return false;
     }
 
-    std::vector<Entity::ESS::Secret> MongoEssRepository::listSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+    std::vector<Entity::ESS::Secret> MongoEssRepository::listSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const MatchType matchType) const {
 
         try {
 
@@ -132,7 +133,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             mongocxx::options::find opts;
@@ -158,7 +159,7 @@ namespace Euclid::Database {
         }
     }
 
-    long MongoEssRepository::countSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const {
+    long MongoEssRepository::countSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const MatchType matchType) const {
 
         try {
 
@@ -168,7 +169,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("name", make_document(kvp("$regex", MatchPattern(prefix, matchType)))));
             }
 
             const auto collection = Database::instance().collection(SECRET_COLLECTION);

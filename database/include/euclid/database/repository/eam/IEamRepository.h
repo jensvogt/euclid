@@ -21,6 +21,7 @@
 #include <euclid/database/entity/eam/Grant.h>
 #include <euclid/database/entity/eam/Role.h>
 #include <euclid/database/entity/eam/UserGroup.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -157,10 +158,12 @@ namespace Euclid::Database {
          * Used to detect an empty user store, e.g. to bootstrap the first
          * administrator account.
          *
+         * @param prefix only users whose ID matches are counted; empty counts every user.
+         * @param matchType how prefix is matched; see MatchType.
          * @return The total number of users.
          */
         [[nodiscard]]
-        virtual long countUsers() const = 0;
+        virtual long countUsers(const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Retrieves a list of users
@@ -171,10 +174,11 @@ namespace Euclid::Database {
          * @param pageSize maximum number of users to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "userId", "email"); empty means unsorted
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return matching, paged and sorted list of users
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAM::User> listUsers(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+        virtual std::vector<Entity::EAM::User> listUsers(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Inserts a new user group or updates an existing one in the repository.
@@ -222,10 +226,12 @@ namespace Euclid::Database {
         /**
          * @brief Retrieves the total count of user groups in the repository.
          *
+         * @param prefix only groups whose name matches are counted; empty counts every group.
+         * @param matchType how prefix is matched; see MatchType.
          * @return The total number of user groups.
          */
         [[nodiscard]]
-        virtual long countUserGroups() const = 0;
+        virtual long countUserGroups(const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Retrieves a list of user groups
@@ -236,10 +242,11 @@ namespace Euclid::Database {
          * @param pageSize maximum number of user groups to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "description"); empty means unsorted
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return matching, paged and sorted list of user groups
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+        virtual std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Removes a user group by its name.
@@ -279,9 +286,11 @@ namespace Euclid::Database {
          * @brief The number of stored roles in one account.
          *
          * @param accountId the owning account.
+         * @param prefix only roles whose name matches are counted; empty counts every role.
+         * @param matchType how prefix is matched; see MatchType.
          */
         [[nodiscard]]
-        virtual long countRoles(const std::string &accountId) const = 0;
+        virtual long countRoles(const std::string &accountId, const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Lists one account's stored roles.
@@ -292,12 +301,13 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page index, applied when pageSize is set.
          * @param sortColumn field to sort by, e.g. "name"; empty means unsorted.
          * @param sortDirection "asc" or "desc".
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return the matching, paged and sorted roles.
          */
         [[nodiscard]]
         virtual std::vector<Entity::EAM::Role> listRoles(const std::string &accountId, const std::string &prefix, long pageSize,
                                                          long pageIndex, const std::string &sortColumn,
-                                                         const std::string &sortDirection = "asc") const = 0;
+                                                         const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Removes a role.
@@ -454,10 +464,12 @@ namespace Euclid::Database {
         /**
          * @brief Retrieves the total count of accounts in the repository.
          *
+         * @param prefix only accounts whose ID matches are counted; empty counts every account.
+         * @param matchType how prefix is matched; see MatchType.
          * @return The total number of accounts.
          */
         [[nodiscard]]
-        virtual long countAccounts() const = 0;
+        virtual long countAccounts(const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Retrieves a list of accounts
@@ -468,10 +480,11 @@ namespace Euclid::Database {
          * @param pageSize maximum number of accounts to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "accountId", "name"); empty means unsorted
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return matching, paged and sorted list of accounts
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+        virtual std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Removes an account by its account ID.
@@ -544,10 +557,11 @@ namespace Euclid::Database {
          * @param pageSize maximum number of namespaces to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name"); empty means unsorted
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return matching, paged and sorted list of namespaces
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+        virtual std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Removes a namespace by its account ID and name.

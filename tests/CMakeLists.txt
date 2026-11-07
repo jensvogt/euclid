@@ -132,6 +132,28 @@ target_link_libraries(${ESM_VERSIONING_BINARY} PRIVATE eucliddto Boost::thread B
 
 add_test(NAME ${ESM_VERSIONING_BINARY} COMMAND ${ESM_VERSIONING_BINARY})
 
+# A list request's matchType: the pattern each type builds, and the quoting that keeps all but
+# "regex" literal.
+set(MATCH_TYPE_BINARY euclid-match-type-tests)
+
+add_executable(${MATCH_TYPE_BINARY} MatchTypeTest.cpp)
+set_target_properties(${MATCH_TYPE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${MATCH_TYPE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${MATCH_TYPE_BINARY} COMMAND ${MATCH_TYPE_BINARY})
+
+# esm list-buckets and list-objects with a matchType: page and total agree, and a bad pattern is a 400.
+set(ESM_LIST_MATCH_BINARY euclid-esm-list-match-tests)
+
+add_executable(${ESM_LIST_MATCH_BINARY} EsmListMatchTest.cpp ${CMAKE_SOURCE_DIR}/modules/esm/src/EsmServer.cpp)
+set_target_properties(${ESM_LIST_MATCH_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ESM_LIST_MATCH_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/esm/include)
+target_link_libraries(${ESM_LIST_MATCH_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${ESM_LIST_MATCH_BINARY} COMMAND ${ESM_LIST_MATCH_BINARY})
+
 # esm create-download checks the bucket grant, a download is served only to whoever started it,
 # and upload and download IDs are refused unless they are IDs ESM could have issued.
 set(ESM_DOWNLOAD_GRANT_BINARY euclid-esm-download-grant-tests)

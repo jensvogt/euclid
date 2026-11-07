@@ -15,6 +15,7 @@
 
 // Euclid includes
 #include <euclid/database/entity/ess/Secret.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -88,10 +89,11 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
          * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return the secrets found
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ESS::Secret> listSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+        virtual std::vector<Entity::ESS::Secret> listSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Retrieves the total number of secrets.
@@ -99,10 +101,11 @@ namespace Euclid::Database {
          * @param accountId only secrets belonging to this account are counted
          * @param namespaceName only secrets in this namespace are counted; empty means don't filter by namespace
          * @param prefix only secrets whose name starts with this prefix are counted
+         * @param matchType how prefix is matched against the name; see MatchType
          * @return the number of secrets
          */
         [[nodiscard]]
-        virtual long countSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
+        virtual long countSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "", MatchType matchType = MatchType::Prefix) const = 0;
 
         /**
          * @brief Deletes a secret.

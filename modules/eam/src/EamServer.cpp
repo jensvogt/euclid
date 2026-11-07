@@ -15,6 +15,7 @@
 #include <euclid/core/Scheduler.h>
 #include <euclid/core/monitoring/MetricEventBus.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
+#include <euclid/database/MatchType.h>
 #include <euclid/dto/eam/ChangeEmailRequest.h>
 #include <euclid/dto/eam/ChangeNamespaceRequest.h>
 #include <euclid/dto/eam/ChangePasswordRequest.h>
@@ -916,12 +917,17 @@ namespace Euclid::EAM {
 
         const auto request = boost::json::value_to<Dto::EAM::ListUserRequest>(jv);
 
-        const std::vector<Database::Entity::EAM::User> users = repo->listUsers(request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EamServer::ErrorResponse(req, status::bad_request, *error);
+        }
+
+        const std::vector<Database::Entity::EAM::User> users = repo->listUsers(request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, matchType);
         log_info << "Access ListUsers" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         Dto::EAM::ListUserResponse response;
         response.users = Dto::EAM::EamMapper::toDto(users);
-        response.total = repo->countUsers();
+        response.total = repo->countUsers(request.prefix, matchType);
         return EamServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::value_from(response)));
     }
 
@@ -1481,12 +1487,17 @@ namespace Euclid::EAM {
 
         const auto request = boost::json::value_to<Dto::EAM::ListUserGroupsRequest>(jv);
 
-        const std::vector<Database::Entity::EAM::UserGroup> userGroups = repo->listUserGroups(request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EamServer::ErrorResponse(req, status::bad_request, *error);
+        }
+
+        const std::vector<Database::Entity::EAM::UserGroup> userGroups = repo->listUserGroups(request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, matchType);
         log_info << "EAM ListUserGroups" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         Dto::EAM::ListUserGroupsResponse response;
         response.userGroups = Dto::EAM::EamMapper::toDto(userGroups);
-        response.total = repo->countUserGroups();
+        response.total = repo->countUserGroups(request.prefix, matchType);
         return EamServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::value_from(response)));
     }
 
@@ -1581,12 +1592,17 @@ namespace Euclid::EAM {
 
         const auto request = boost::json::value_to<Dto::EAM::ListAccountsRequest>(jv);
 
-        const auto accounts = repo->listAccounts(request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EamServer::ErrorResponse(req, status::bad_request, *error);
+        }
+
+        const auto accounts = repo->listAccounts(request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, matchType);
         log_info << "EAM ListAccounts" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         Dto::EAM::ListAccountsResponse response;
         response.accounts = Dto::EAM::EamMapper::toDto(accounts);
-        response.total = repo->countAccounts();
+        response.total = repo->countAccounts(request.prefix, matchType);
         return EamServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::value_from(response)));
     }
 
@@ -1810,12 +1826,17 @@ namespace Euclid::EAM {
             return EamServer::ErrorResponse(req, status::bad_request, "accountId is required");
         }
 
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EamServer::ErrorResponse(req, status::bad_request, *error);
+        }
+
         const auto repo = Database::RepositoryFactory::instance().eamRepository();
 
         // Read whole and paged below, because what the caller may see is decided here rather than
         // by the query: a page taken first and filtered afterwards would be short of its own page
         // size and would say so wrongly in `total`. An account holds a handful of namespaces.
-        const auto all = repo->listNamespaces(request.accountId, request.prefix, 0, 0, request.sortColumn, request.sortDirection);
+        const auto all = repo->listNamespaces(request.accountId, request.prefix, 0, 0, request.sortColumn, request.sortDirection, matchType);
 
         // The namespaces this caller may work in, which is what somebody picking one at sign-in is
         // choosing between. Offering the rest would be offering a choice that is refused the moment
@@ -2191,6 +2212,11 @@ namespace Euclid::EAM {
         if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EAM::ListRolesRequest>(jv);
+
+        Database::MatchType matchType{};
+        if (const auto error = Database::ParseMatch(request.prefix, request.matchType, matchType)) {
+            return EamServer::ErrorResponse(req, status::bad_request, *error);
+        }
         const auto repo = Database::RepositoryFactory::instance().eamRepository();
 
         Dto::EAM::ListRolesResponse response;
@@ -2199,16 +2225,16 @@ namespace Euclid::EAM {
         // put them on, and a caller listing roles almost always wants to see what it can bind.
         if (request.includeBuiltin) {
             for (const auto &name: Core::BuiltinRoles::Names()) {
-                if (!request.prefix.empty() && !name.starts_with(request.prefix)) continue;
+                if (!Database::Matches(name, request.prefix, matchType)) continue;
                 response.roles.push_back(toBuiltinRoleDto(name, auth.user->accountId, auth.user->region));
             }
         }
 
         for (const auto &role: repo->listRoles(auth.user->accountId, request.prefix, request.pageSize, request.pageIndex,
-                                               request.sortColumn, request.sortDirection)) {
+                                               request.sortColumn, request.sortDirection, matchType)) {
             response.roles.push_back(toRoleDto(role));
         }
-        response.total = repo->countRoles(auth.user->accountId);
+        response.total = repo->countRoles(auth.user->accountId, request.prefix, matchType);
 
         return EamServer::JsonResponse(req, status::ok, response.toJson());
     }

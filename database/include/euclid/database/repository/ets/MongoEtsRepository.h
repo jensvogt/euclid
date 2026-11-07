@@ -12,6 +12,7 @@
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/repository/ets/IEtsRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -93,7 +94,7 @@ namespace Euclid::Database {
          */
         [[nodiscard]]
         std::vector<Entity::ETS::TransferServer> listServers(const std::string &accountId, const std::string &nameSpace,
-                                                             const std::string &prefix) const override;
+                                                             const std::string &prefix, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Every transfer server in the installation - for the manager and host-wide checks
@@ -102,7 +103,7 @@ namespace Euclid::Database {
          * @return matching servers
          */
         [[nodiscard]]
-        std::vector<Entity::ETS::TransferServer> listAllServers(const std::string &prefix) const override;
+        std::vector<Entity::ETS::TransferServer> listAllServers(const std::string &prefix, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Count transfer servers

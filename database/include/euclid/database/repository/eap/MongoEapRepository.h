@@ -12,6 +12,7 @@
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/repository/eap/IEapRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -99,7 +100,7 @@ namespace Euclid::Database {
          */
         [[nodiscard]]
         std::vector<Entity::EAP::Application> listApplications(const std::string &accountId, const std::string &nameSpace,
-                                                               const std::string &prefix) const override;
+                                                               const std::string &prefix, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Every application in the installation - for the manager only
@@ -108,7 +109,7 @@ namespace Euclid::Database {
          * @return matching applications
          */
         [[nodiscard]]
-        std::vector<Entity::EAP::Application> listAllApplications(const std::string &prefix) const override;
+        std::vector<Entity::EAP::Application> listAllApplications(const std::string &prefix, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Count one namespace's applications

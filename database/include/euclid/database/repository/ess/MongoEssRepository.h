@@ -13,6 +13,7 @@
 #include <euclid/database/Database.h>
 #include <euclid/database/entity/ess/Secret.h>
 #include <euclid/database/repository/ess/IEssRepository.h>
+#include <euclid/database/MatchType.h>
 
 namespace Euclid::Database {
 
@@ -92,7 +93,7 @@ namespace Euclid::Database {
          * @return list of secrets
          */
         [[nodiscard]]
-        std::vector<Entity::ESS::Secret> listSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
+        std::vector<Entity::ESS::Secret> listSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Get the total number of secrets
@@ -103,7 +104,7 @@ namespace Euclid::Database {
          * @return total number of secrets
          */
         [[nodiscard]]
-        long countSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override;
+        long countSecrets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, MatchType matchType = MatchType::Prefix) const override;
 
         /**
          * @brief Delete a secret
