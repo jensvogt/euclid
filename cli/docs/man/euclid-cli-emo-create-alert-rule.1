@@ -145,6 +145,11 @@ euclid-cli emo create-alert-rule --rule-id pi-load --metric system-load-per-core
 # Less than 50 GB left on the data volume
 euclid-cli emo create-alert-rule --rule-id data-disk --metric disk-available \\
     --comparison below --statistic min --warning 100e9 --critical 50e9
+
+# Any watched volume over 85% full, whatever its size - used counts the
+# space reserved for root, so 100% is where writes start to fail
+euclid-cli emo create-alert-rule --rule-id disk-full --metric disk-used-percent \\
+    --statistic max --warning 85 --critical 95
 .fi
 .RE
 .SH SEE ALSO
