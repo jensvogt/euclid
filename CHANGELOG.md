@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.31](https://github.com/jensvogt/euclid/compare/2.1.30...v2.1.31) (2026-11-07)
+
+
+### Bug Fixes
+
+* add web interface as bundle ([5bd5dcf](https://github.com/jensvogt/euclid/commit/5bd5dcf0c6a5bb90edc4d6f874b8b9a9b728a895))
+
 ## [2.1.30](https://github.com/jensvogt/euclid/compare/2.1.29...v2.1.30) (2026-11-07)
 
 
