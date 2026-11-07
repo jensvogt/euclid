@@ -1608,6 +1608,11 @@ namespace Euclid::Monitoring {
             recordSample("disk-capacity", "path", root, static_cast<double>(space.capacity), MetricType::GAUGE);
             recordSample("disk-free", "path", root, static_cast<double>(space.free), MetricType::GAUGE);
             recordSample("disk-available", "path", root, static_cast<double>(space.available), MetricType::GAUGE);
+            // The same volume as a share of its size, so one alert rule fits volumes of any size -
+            // a byte threshold that suits a 4 TB data disk is meaningless on a 64 GB SD card.
+            if (const auto percent = DiskUsedPercent(space.capacity, space.available)) {
+                recordSample("disk-used-percent", "path", root, *percent, MetricType::GAUGE);
+            }
         }
     }
 

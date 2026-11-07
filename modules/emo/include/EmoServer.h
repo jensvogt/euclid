@@ -18,6 +18,7 @@
 #include <euclid/core/Scheduler.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/emo/MonitoringData.h>
+#include <DiskSpace.h>
 
 namespace Euclid::Monitoring {
 
@@ -222,8 +223,9 @@ namespace Euclid::Monitoring {
         static void collectDiskUsage();
 
         /**
-         * @brief Records the volume the data directory is on: disk-capacity, disk-free and
-         * disk-available, labelled by that directory. One statvfs, so as often as the database size.
+         * @brief Records the volume the data directory is on, and each ESM storage directory's:
+         * disk-capacity, disk-free, disk-available and disk-used-percent, labelled by the directory.
+         * One statvfs each, so as often as the database size.
          */
         static void collectDiskSpace();
 

@@ -860,6 +860,17 @@ target_link_libraries(${ALERT_EVALUATOR_BINARY} PRIVATE eucliddb Boost::unit_tes
 
 add_test(NAME ${ALERT_EVALUATOR_BINARY} COMMAND ${ALERT_EVALUATOR_BINARY})
 
+# disk-used-percent: a filesystem's fullness as a share of its size, the root reserve counted used.
+set(EMO_DISK_SPACE_BINARY euclid-emo-disk-space-tests)
+
+add_executable(${EMO_DISK_SPACE_BINARY} EmoDiskSpaceTest.cpp)
+set_target_properties(${EMO_DISK_SPACE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EMO_DISK_SPACE_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/emo/include)
+target_link_libraries(${EMO_DISK_SPACE_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${EMO_DISK_SPACE_BINARY} COMMAND ${EMO_DISK_SPACE_BINARY})
+
 set(TTL_CACHE_BINARY euclid-ttl-cache-tests)
 
 add_executable(${TTL_CACHE_BINARY} TtlCacheTest.cpp)
