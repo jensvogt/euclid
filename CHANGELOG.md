@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.29](https://github.com/jensvogt/euclid/compare/2.1.28...v2.1.29) (2026-11-07)
+
+
+### Bug Fixes
+
+* add EMO disk usage percentage ([5ac689d](https://github.com/jensvogt/euclid/commit/5ac689d420d9e14eea11c20060dbd26990658246))
+
 ## [2.1.28](https://github.com/jensvogt/euclid/compare/2.1.27...v2.1.28) (2026-11-06)
 
 
