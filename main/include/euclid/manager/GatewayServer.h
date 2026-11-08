@@ -73,7 +73,7 @@ namespace Euclid::main {
      */
     void forwardToServiceAsync(boost::asio::io_context &ioc,
                                const boost::beast::http::request<boost::beast::http::string_body> &req,
-                               const std::string &socketPath, RouteCompletion done);
+                               const std::string &socketPath, const RouteCompletion &done);
 
     /**
      * @brief Represents a server that manages gateway connections.
