@@ -31,7 +31,7 @@ namespace Euclid::main {
     namespace asio = boost::asio;
     using tcp = asio::ip::tcp;
 
-    // Whether the gateway accepts websocket upgrades at all - lets ops disable the transport
+    // Whether the gateway accepts WebSocket upgrades at all - lets ops disable the transport
     // without a rebuild. Checked per-upgrade-attempt rather than cached, same cost as any other
     // Configuration::getOr() call elsewhere in this file.
     static bool WebSocketEnabled() {
@@ -44,7 +44,7 @@ namespace Euclid::main {
     // client as a bare "connection reset". euclid.gateway.http.max-body already exists in the
     // shipped configs for this; it just wasn't wired to anything, so this is what makes it real.
     static std::uint64_t MaxBodySize() {
-        // long long, not long: a byte limit is 64 bits, and on Windows a long is not - so a
+        // Type: long long, not long: a byte limit is 64 bits, and on Windows a long is not - so a
         // configured limit above 2GB came back as its low 32 bits, which is a smaller limit than
         // the default and rejects what it was raised to allow.
         constexpr long long kDefaultMaxBodySize = 512LL * 1024 * 1024;
@@ -245,7 +245,7 @@ namespace Euclid::main {
     // Proxies req over a Unix-domain socket at socketPath and hands the backend's response to
     // done, without occupying the calling worker thread while the backend thinks about it.
     // Declared in GatewayServer.h so GatewayWsSession.cpp can reuse it too.
-    void forwardToServiceAsync(asio::io_context &ioc, const http::request<http::string_body> &req, const std::string &socketPath, RouteCompletion done) {
+    void forwardToServiceAsync(asio::io_context &ioc, const http::request<http::string_body> &req, const std::string &socketPath, const RouteCompletion &done) {
         namespace local = asio::local;
         const auto version = req.version();
         const auto keepAlive = req.keep_alive();
@@ -355,7 +355,7 @@ namespace Euclid::main {
     // on the underlying stream type.
 
     static void routeAsync(const http::request<http::string_body> &req, ServiceController &ctrl,
-                           asio::io_context &ioc, RouteCompletion done) {
+                           asio::io_context &ioc, const RouteCompletion &done) {
 
         // Labelled by HTTP method rather than per-action (unlike each module's own
         // "<module>-service-time"/"-service-count", recorded per action inside that module) -
@@ -422,7 +422,7 @@ namespace Euclid::main {
                 auto guard = std::make_shared<ReleaseGuard>(ctrl, "eam", handle->pid);
 
                 forwardToServiceAsync(ioc, *forwarded, handle->socketPath,
-                                      [done, guard, forwarded](http::response<http::string_body> res) mutable {
+                                      [done](http::response<http::string_body> res) mutable {
                                           done(std::move(res));
                                       });
                 return;
@@ -432,8 +432,7 @@ namespace Euclid::main {
             if (const auto service = detectEuclidService(req, ctrl); !service.empty()) {
                 const auto action = std::string(req["x-euclid-action"]);
                 if (!isPublicAction(service, action)) {
-                    const auto auth = Core::HttpActionServer::Authenticate(req);
-                    if (!auth.subject.has_value()) {
+                    if (const auto auth = Core::HttpActionServer::Authenticate(req); !auth.subject.has_value()) {
                         done(Core::HttpActionServer::Unauthorized(req, auth));
                         return;
                     }
@@ -494,7 +493,7 @@ namespace Euclid::main {
                 auto guard = std::make_shared<ReleaseGuard>(ctrl, service, handle->pid, countsAsLoad);
 
                 forwardToServiceAsync(ioc, req, handle->socketPath,
-                                      [done, guard](http::response<http::string_body> res) mutable {
+                                      [done](http::response<http::string_body> res) mutable {
                                           done(std::move(res));
                                       });
                 return;
@@ -525,219 +524,220 @@ namespace Euclid::main {
     // Handles one plaintext TCP connection: reads requests in a loop (keep-alive
     // aware), dispatches to the router, and writes responses.
 
-    class GatewaySession : public std::enable_shared_from_this<GatewaySession> {
-    public:
+    namespace {
+        class GatewaySession : public std::enable_shared_from_this<GatewaySession> {
+        public:
 
-        GatewaySession(tcp::socket socket, asio::io_context &ioc, ServiceController &ctrl) : _stream(std::move(socket)), _ioc(ioc), _ctrl(ctrl) {}
+            GatewaySession(tcp::socket socket, asio::io_context &ioc, ServiceController &ctrl) : _stream(std::move(socket)), _ioc(ioc), _ctrl(ctrl) {}
 
-        void run() { doRead(); }
+            void run() { doRead(); }
 
-    private:
+        private:
 
-        void doRead() {
-            _parser.emplace();
-            _parser->body_limit(MaxBodySize());
-            _stream.expires_after(KeepAliveTimeout());
-            http::async_read(
-                    _stream, _buf, *_parser,
-                    [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
-                        if (!ec) self->handleRequest();
-                        // on error (EOF, timeout, body_limit exceeded, etc.) the session destructs naturally
-                    });
-        }
-
-        void handleRequest() {
-            auto &req = _parser->get();
-
-            // Hands the connection off to a GatewayWsSession permanently - this object's
-            // shared_ptr chain ends once handleUpgrade() returns, since nothing keeps posting
-            // further work to it. See GatewayWsSession.h's class doc comment for the protocol
-            // and the auth-once-at-handshake tradeoff this makes.
-            if (WebSocketEnabled() && websocket::is_upgrade(req)) {
-                handleUpgrade();
-                return;
+            void doRead() {
+                _parser.emplace();
+                _parser->body_limit(MaxBodySize());
+                _stream.expires_after(KeepAliveTimeout());
+                http::async_read(
+                        _stream, _buf, *_parser,
+                        [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
+                            if (!ec) self->handleRequest();
+                            // on error (EOF, timeout, body_limit exceeded, etc.) the session destructs naturally
+                        });
             }
 
-            // The deadline armed in doRead() was there to bound the wait for a request, but it
-            // keeps running once one arrives, so until here it also had to cover the module
-            // producing the answer. A long poll - receive-messages and receive-events deliberately
-            // wait up to twenty seconds - could spend what was left of it and have this connection
-            // closed under it while the module was still working, which the client sees as an EOF
-            // while it waits for response headers rather than as any kind of answer. Re-armed here
-            // so waiting for a request and doing the work behind it are budgeted separately, and
-            // deliberately more generous than BackendTimeout(): that timer is the one meant to end
-            // a slow exchange, and it can only do so if this one has not already killed the
-            // connection its answer would travel back over.
-            _stream.expires_after(BackendTimeout() + std::chrono::seconds(5));
+            void handleRequest() {
+                auto &req = _parser->get();
 
-            // The response arrives through the completion rather than being returned: while the
-            // module is being waited on, this worker thread is free for other connections. self
-            // is what keeps the parser - and so req, which the forward is still reading from -
-            // alive until the answer comes back.
-            routeAsync(req, _ctrl, _ioc, [self = shared_from_this()](http::response<http::string_body> res) {
-                self->writeResponse(std::move(res));
-            });
-        }
+                // Hands the connection off to a GatewayWsSession permanently - this object's
+                // shared_ptr chain ends once handleUpgrade() returns, since nothing keeps posting
+                // further work to it. See GatewayWsSession.h's class doc comment for the protocol
+                // and the auth-once-at-handshake tradeoff this makes.
+                if (WebSocketEnabled() && websocket::is_upgrade(req)) {
+                    handleUpgrade();
+                    return;
+                }
 
-        void writeResponse(http::response<http::string_body> res) {
-            auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
-            const bool keepAlive = sp->keep_alive();
-            http::async_write(
-                    _stream, *sp,
-                    [self = shared_from_this(), sp, keepAlive](const beast::error_code &ec, std::size_t) {
-                        if (!ec && keepAlive) self->doRead();
-                        else {
-                            beast::error_code ignored;
-                            std::ignore = self->_stream.socket().shutdown(tcp::socket::shutdown_send, ignored);
-                        }
-                    });
-        }
+                // The deadline armed in doRead() was there to bound the wait for a request, but it
+                // keeps running once one arrives, so until here it also had to cover the module
+                // producing the answer. A long poll - receive-messages and receive-events deliberately
+                // wait up to twenty seconds - could spend what was left of it and have this connection
+                // closed under it while the module was still working, which the client sees as an EOF
+                // while it waits for response headers rather than as any kind of answer. Re-armed here
+                // so waiting for a request and doing the work behind it are budgeted separately, and
+                // deliberately more generous than BackendTimeout(): that timer is the one meant to end
+                // a slow exchange, and it can only do so if this one has not already killed the
+                // connection its answer would travel back over.
+                _stream.expires_after(BackendTimeout() + std::chrono::seconds(5));
 
-        void handleUpgrade() {
-            auto &req = _parser->get();
-
-            // Authenticated exactly once, here, at handshake time - reuses the same SigV4/Bearer
-            // verification the HTTP path runs per-request. On failure the connection is closed
-            // without ever completing the websocket handshake.
-            const auto auth = Core::HttpActionServer::Authenticate(req);
-            if (!auth.subject.has_value()) {
-                auto res = Core::HttpActionServer::Unauthorized(req, auth);
-                auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
-                http::async_write(_stream, *sp, [self = shared_from_this(), sp](const beast::error_code &, std::size_t) {
-                    beast::error_code ignored;
-                    std::ignore = self->_stream.socket().shutdown(tcp::socket::shutdown_send, ignored);
+                // The response arrives through the completion rather than being returned: while the
+                // module is being waited on, this worker thread is free for other connections. self
+                // is what keeps the parser - and so req, which the forward is still reading from -
+                // alive until the answer comes back.
+                routeAsync(req, _ctrl, _ioc, [self = shared_from_this()](http::response<http::string_body> res) {
+                    self->writeResponse(std::move(res));
                 });
-                return;
             }
 
-            const auto authorization = std::string(req[http::field::authorization]);
-            const auto accountId = std::string(req["x-euclid-account-id"]);
-            const auto region = std::string(req["x-euclid-region"]);
-            const auto ns = std::string(req["x-euclid-namespace"]);
-            auto session = std::make_shared<GatewayWsSession>(std::move(_stream), _ioc, _ctrl, authorization, accountId, region, ns);
-            session->run(std::move(req));
-        }
-
-        beast::tcp_stream _stream;
-        beast::flat_buffer _buf;
-        std::optional<http::request_parser<http::string_body> > _parser;
-        asio::io_context &_ioc;
-        ServiceController &_ctrl;
-    };
-
-    // ── GatewayTlsSession ────────────────────────────────────────────────────
-    // Same request loop as GatewaySession, but the connection is terminated with
-    // TLS: a handshake runs before the first read, and the stream is an SSL layer
-    // wrapped around the TCP stream.
-
-    class GatewayTlsSession : public std::enable_shared_from_this<GatewayTlsSession> {
-    public:
-
-        GatewayTlsSession(tcp::socket socket, asio::ssl::context &sslCtx, asio::io_context &ioc, ServiceController &ctrl)
-            : _stream(std::move(socket), sslCtx), _ioc(ioc), _ctrl(ctrl) {}
-
-        void run() {
-            beast::get_lowest_layer(_stream).expires_after(std::chrono::seconds(30));
-            _stream.async_handshake(
-                    asio::ssl::stream_base::server,
-                    [self = shared_from_this()](const beast::error_code &ec) {
-                        if (!ec) self->doRead();
-                        // handshake failure: session destructs naturally
-                    });
-        }
-
-    private:
-
-        void doRead() {
-            _parser.emplace();
-            _parser->body_limit(MaxBodySize());
-            beast::get_lowest_layer(_stream).expires_after(KeepAliveTimeout());
-            http::async_read(
-                    _stream, _buf, *_parser,
-                    [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
-                        if (!ec) self->handleRequest();
-                        // on error (EOF, timeout, body_limit exceeded, etc.) the session destructs naturally
-                    });
-        }
-
-        void handleRequest() {
-            auto &req = _parser->get();
-
-            if (WebSocketEnabled() && websocket::is_upgrade(req)) {
-                handleUpgrade();
-                return;
-            }
-
-            // The deadline armed in doRead() was there to bound the wait for a request, but it
-            // keeps running once one arrives, so until here it also had to cover the module
-            // producing the answer. A long poll - receive-messages and receive-events deliberately
-            // wait up to twenty seconds - could spend what was left of it and have this connection
-            // closed under it while the module was still working, which the client sees as an EOF
-            // while it waits for response headers rather than as any kind of answer. Re-armed here
-            // so waiting for a request and doing the work behind it are budgeted separately, and
-            // deliberately more generous than BackendTimeout(): that timer is the one meant to end
-            // a slow exchange, and it can only do so if this one has not already killed the
-            // connection its answer would travel back over.
-            beast::get_lowest_layer(_stream).expires_after(BackendTimeout() + std::chrono::seconds(5));
-
-            // See the plain session: the answer comes back through the completion so this worker
-            // is not held while the module produces it.
-            routeAsync(req, _ctrl, _ioc, [self = shared_from_this()](http::response<http::string_body> res) {
-                self->writeResponse(std::move(res));
-            });
-        }
-
-        void writeResponse(http::response<http::string_body> res) {
-            auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
-            const bool keepAlive = sp->keep_alive();
-            http::async_write(
-                    _stream, *sp,
-                    [self = shared_from_this(), sp, keepAlive](const beast::error_code &ec, std::size_t) {
-                        if (!ec && keepAlive) self->doRead();
-                        else {
-                            // Deliberately closes the raw socket rather than calling the
-                            // stream's shutdown() (SSL "close_notify" handshake): that overload
-                            // is *synchronous* and, unlike every other operation here, isn't
-                            // covered by expires_after() - it blocks waiting for the peer to
-                            // send its own close_notify back, and a client that's already done
-                            // with the connection (e.g. one that never reuses connections, like
-                            // euclid-cli) has no reason to send one. Since this runs on a
-                            // gateway worker thread shared by every other in-flight connection
-                            // (see BackendTimeout()'s doc comment on the same hazard for
-                            // forwardToService()), a single hung shutdown() here would stall the
-                            // whole gateway, not just this session.
-                            beast::get_lowest_layer(self->_stream).close();
-                        }
-                    });
-        }
-
-        void handleUpgrade() {
-            auto &req = _parser->get();
-
-            const auto auth = Core::HttpActionServer::Authenticate(req);
-            if (!auth.subject.has_value()) {
-                auto res = Core::HttpActionServer::Unauthorized(req, auth);
+            void writeResponse(http::response<http::string_body> res) {
                 auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
-                http::async_write(_stream, *sp, [self = shared_from_this(), sp](const beast::error_code &, std::size_t) {
-                    beast::get_lowest_layer(self->_stream).close();
-                });
-                return;
+                const bool keepAlive = sp->keep_alive();
+                http::async_write(
+                        _stream, *sp,
+                        [self = shared_from_this(), keepAlive](const beast::error_code &ec, std::size_t) {
+                            if (!ec && keepAlive) self->doRead();
+                            else {
+                                beast::error_code ignored;
+                                std::ignore = self->_stream.socket().shutdown(tcp::socket::shutdown_send, ignored);
+                            }
+                        });
             }
 
-            const auto authorization = std::string(req[http::field::authorization]);
-            const auto accountId = std::string(req["x-euclid-account-id"]);
-            const auto region = std::string(req["x-euclid-region"]);
-            const auto ns = std::string(req["x-euclid-namespace"]);
-            auto session = std::make_shared<GatewayWsTlsSession>(std::move(_stream), _ioc, _ctrl, authorization, accountId, region, ns);
-            session->run(std::move(req));
-        }
+            void handleUpgrade() {
+                auto &req = _parser->get();
 
-        beast::ssl_stream<beast::tcp_stream> _stream;
-        beast::flat_buffer _buf;
-        std::optional<http::request_parser<http::string_body> > _parser;
-        asio::io_context &_ioc;
-        ServiceController &_ctrl;
-    };
+                // Authenticated exactly once, here, at handshake time - reuses the same SigV4/Bearer
+                // verification the HTTP path runs per-request. On failure the connection is closed
+                // without ever completing the WebSocket handshake.
+                if (const auto auth = Core::HttpActionServer::Authenticate(req); !auth.subject.has_value()) {
+                    auto res = Core::HttpActionServer::Unauthorized(req, auth);
+                    const auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
+                    http::async_write(_stream, *sp, [self = shared_from_this()](const beast::error_code &, std::size_t) {
+                        beast::error_code ignored;
+                        std::ignore = self->_stream.socket().shutdown(tcp::socket::shutdown_send, ignored);
+                    });
+                    return;
+                }
+
+                const auto authorization = std::string(req[http::field::authorization]);
+                const auto accountId = std::string(req["x-euclid-account-id"]);
+                const auto region = std::string(req["x-euclid-region"]);
+                const auto ns = std::string(req["x-euclid-namespace"]);
+                const auto session = std::make_shared<GatewayWsSession>(std::move(_stream), _ioc, _ctrl, authorization, accountId, region, ns);
+                session->run(std::move(req));
+            }
+
+            beast::tcp_stream _stream;
+            beast::flat_buffer _buf;
+            std::optional<http::request_parser<http::string_body> > _parser;
+            asio::io_context &_ioc;
+            ServiceController &_ctrl;
+        };
+
+        // ── GatewayTlsSession ────────────────────────────────────────────────────
+        // Same request loop as GatewaySession, but the connection is terminated with
+        // TLS: a handshake runs before the first read, and the stream is an SSL layer
+        // wrapped around the TCP stream.
+
+        class GatewayTlsSession : public std::enable_shared_from_this<GatewayTlsSession> {
+        public:
+
+            GatewayTlsSession(tcp::socket socket, asio::ssl::context &sslCtx, asio::io_context &ioc, ServiceController &ctrl)
+                : _stream(std::move(socket), sslCtx), _ioc(ioc), _ctrl(ctrl) {}
+
+            void run() {
+                beast::get_lowest_layer(_stream).expires_after(std::chrono::seconds(30));
+                _stream.async_handshake(
+                        asio::ssl::stream_base::server,
+                        [self = shared_from_this()](const beast::error_code &ec) {
+                            if (!ec) self->doRead();
+                            // handshake failure: session destructs naturally
+                        });
+            }
+
+        private:
+
+            void doRead() {
+                _parser.emplace();
+                _parser->body_limit(MaxBodySize());
+                beast::get_lowest_layer(_stream).expires_after(KeepAliveTimeout());
+                http::async_read(
+                        _stream, _buf, *_parser,
+                        [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
+                            if (!ec) self->handleRequest();
+                            // on error (EOF, timeout, body_limit exceeded, etc.) the session destructs naturally
+                        });
+            }
+
+            void handleRequest() {
+                auto &req = _parser->get();
+
+                if (WebSocketEnabled() && websocket::is_upgrade(req)) {
+                    handleUpgrade();
+                    return;
+                }
+
+                // The deadline armed in doRead() was there to bound the wait for a request, but it
+                // keeps running once one arrives, so until here it also had to cover the module
+                // producing the answer. A long poll - receive-messages and receive-events deliberately
+                // wait up to twenty seconds - could spend what was left of it and have this connection
+                // closed under it while the module was still working, which the client sees as an EOF
+                // while it waits for response headers rather than as any kind of answer. Re-armed here
+                // so waiting for a request and doing the work behind it are budgeted separately, and
+                // deliberately more generous than BackendTimeout(): that timer is the one meant to end
+                // a slow exchange, and it can only do so if this one has not already killed the
+                // connection its answer would travel back over.
+                beast::get_lowest_layer(_stream).expires_after(BackendTimeout() + std::chrono::seconds(5));
+
+                // See the plain session: the answer comes back through the completion so this worker
+                // is not held while the module produces it.
+                routeAsync(req, _ctrl, _ioc, [self = shared_from_this()](http::response<http::string_body> res) {
+                    self->writeResponse(std::move(res));
+                });
+            }
+
+            void writeResponse(http::response<http::string_body> res) {
+                auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
+                const bool keepAlive = sp->keep_alive();
+                http::async_write(
+                        _stream, *sp,
+                        [self = shared_from_this(), keepAlive](const beast::error_code &ec, std::size_t) {
+                            if (!ec && keepAlive) self->doRead();
+                            else {
+                                // Deliberately closes the raw socket rather than calling the
+                                // stream's shutdown() (SSL "close_notify" handshake): that overload
+                                // is *synchronous* and, unlike every other operation here, isn't
+                                // covered by expires_after() - it blocks waiting for the peer to
+                                // send its own close_notify back, and a client that's already done
+                                // with the connection (e.g. one that never reuses connections, like
+                                // euclid-cli) has no reason to send one. Since this runs on a
+                                // gateway worker thread shared by every other in-flight connection
+                                // (see BackendTimeout()'s doc comment on the same hazard for
+                                // forwardToService()), a single hung shutdown() here would stall the
+                                // whole gateway, not just this session.
+                                beast::get_lowest_layer(self->_stream).close();
+                            }
+                        });
+            }
+
+            void handleUpgrade() {
+                auto &req = _parser->get();
+
+                const auto auth = Core::HttpActionServer::Authenticate(req);
+                if (!auth.subject.has_value()) {
+                    auto res = Core::HttpActionServer::Unauthorized(req, auth);
+                    auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
+                    http::async_write(_stream, *sp, [self = shared_from_this()](const beast::error_code &, std::size_t) {
+                        beast::get_lowest_layer(self->_stream).close();
+                    });
+                    return;
+                }
+
+                const auto authorization = std::string(req[http::field::authorization]);
+                const auto accountId = std::string(req["x-euclid-account-id"]);
+                const auto region = std::string(req["x-euclid-region"]);
+                const auto ns = std::string(req["x-euclid-namespace"]);
+                const auto session = std::make_shared<GatewayWsTlsSession>(std::move(_stream), _ioc, _ctrl, authorization, accountId, region, ns);
+                session->run(std::move(req));
+            }
+
+            beast::ssl_stream<beast::tcp_stream> _stream;
+            beast::flat_buffer _buf;
+            std::optional<http::request_parser<http::string_body> > _parser;
+            asio::io_context &_ioc;
+            ServiceController &_ctrl;
+        };
+    }
 
     // ── GatewayServer ────────────────────────────────────────────────────────
 

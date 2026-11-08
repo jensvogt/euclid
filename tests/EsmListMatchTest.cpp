@@ -7,6 +7,7 @@
 
 // C++ includes
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <random>
@@ -126,7 +127,7 @@ namespace {
     };
 
     // The names on the page, and the total that came with it.
-    std::pair<std::set<std::string>, long> listBuckets(const boost::json::object &body) {
+    std::pair<std::set<std::string>, std::int64_t> listBuckets(const boost::json::object &body) {
         const auto answer = ask("list-buckets", body);
         BOOST_REQUIRE(answer.status == 200);
         const auto json = answer.json();
@@ -135,7 +136,7 @@ namespace {
         return {names, json.at("total").as_int64()};
     }
 
-    std::pair<std::set<std::string>, long> listObjects(const std::string &prefix, const std::string &matchType) {
+    std::pair<std::set<std::string>, std::int64_t> listObjects(const std::string &prefix, const std::string &matchType) {
         const auto answer = ask("list-objects", {{"bucketErn", bucketErn("orders-in")}, {"prefix", prefix}, {"matchType", matchType}, {"pageSize", 10}});
         BOOST_REQUIRE(answer.status == 200);
         const auto json = answer.json();
