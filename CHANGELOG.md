@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.31](https://github.com/jensvogt/euclid/compare/2.1.30...v2.1.31) (2026-11-07)
+
+
+### Bug Fixes
+
+* add web interface as bundle ([5bd5dcf](https://github.com/jensvogt/euclid/commit/5bd5dcf0c6a5bb90edc4d6f874b8b9a9b728a895))
+
+## [2.1.30](https://github.com/jensvogt/euclid/compare/2.1.29...v2.1.30) (2026-11-07)
+
+
+### Bug Fixes
+
+* general more options for filtering objects, added 'Starts With', 'Ends With', 'Contains', "Regex" ([749ef75](https://github.com/jensvogt/euclid/commit/749ef75297cb357a04423fbe09ccadc9fb91b781))
+* general more options for filtering objects, added 'Starts With', 'Ends With', 'Contains', "Regex" ([92b3372](https://github.com/jensvogt/euclid/commit/92b33722519c9cd1dab9e84142ca2a47b9086f97))
+
 ## [2.1.29](https://github.com/jensvogt/euclid/compare/2.1.28...v2.1.29) (2026-11-07)
 
 
