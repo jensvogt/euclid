@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.33](https://github.com/jensvogt/euclid/compare/2.1.32...v2.1.33) (2026-11-10)
+
+
+### Bug Fixes
+
+* performance fixes ([bac3798](https://github.com/jensvogt/euclid/commit/bac3798fdb22607e0899f92d2e90eb9a4fd87804))
+
 ## [2.1.32](https://github.com/jensvogt/euclid/compare/2.1.31...v2.1.32) (2026-11-08)
 
 
