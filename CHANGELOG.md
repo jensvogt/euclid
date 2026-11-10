@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.32](https://github.com/jensvogt/euclid/compare/2.1.31...v2.1.32) (2026-11-08)
+
+
+### Bug Fixes
+
+* add match test ([4e127fe](https://github.com/jensvogt/euclid/commit/4e127fe7ed01b8ce82e6a2fdcc71710b85a2e7a7))
+* add match test ([f9658d2](https://github.com/jensvogt/euclid/commit/f9658d2fcc736f0ec9ec1f06f2a1ee33b502f9cb))
+
 ## [2.1.31](https://github.com/jensvogt/euclid/compare/2.1.30...v2.1.31) (2026-11-07)
 
 
