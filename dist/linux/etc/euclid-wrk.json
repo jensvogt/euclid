@@ -26,6 +26,7 @@
       "file-active": true,
       "file-size-mb": 50,
       "file-count": 10,
+      "application-files": false,
       "dir": "/var/lib/euclid-wrk/log",
       "prefix": "euclid-wrk"
     }

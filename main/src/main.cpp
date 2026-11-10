@@ -792,6 +792,13 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
         Euclid::Core::LogStream::AddFile(cfg.getOr<std::string>("euclid.logging.dir", "/var/log/euclid"), cfg.getOr<std::string>("euclid.logging.prefix", "euclid"),
                                          Euclid::Core::LogStream::FileSizeFromConfiguration(), Euclid::Core::LogStream::FileCountFromConfiguration());
     }
+    // A file per application, for the instances this process runs itself; the ones on worker
+    // nodes - the local node included - are written by the worker that runs them.
+    if (cfg.getOr<bool>("euclid.logging.application-files", false)) {
+        Euclid::Core::LogStream::EnableApplicationFiles(cfg.getOr<std::string>("euclid.logging.dir", "/var/log/euclid"),
+                                                        Euclid::Core::LogStream::FileSizeFromConfiguration(),
+                                                        Euclid::Core::LogStream::FileCountFromConfiguration());
+    }
 
     // ── Initialize Database ─────────────────────────────
     if (const int error = initializeDatabase(cfg); error != 0) return error;

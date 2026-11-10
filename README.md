@@ -855,6 +855,33 @@ and one written to standard error as an error - so they turn things *down* compl
 as far as what the process already emits. Making a module say more is `euclid.logging.level` in its
 own process, which is what `SIGUSR1` re-reads.
 
+### A log file per application
+
+An application's output is written by the process that runs it, usually a worker node, into that
+process's own log, mixed with everything else it logs. To read one application on its own, give
+each application a file:
+
+```json
+"logging": {
+  "application-files": true
+}
+```
+
+Every application then also writes to `<euclid.logging.dir>/<applicationId>.log`. On the local
+node that is `/var/lib/euclid-wrk/log/transformation.log`, for example, since the local node
+inherits the setting from the manager's `euclid.json`. The application's lines still go to the
+process's own log, the console and the journal as before.
+
+Each file rotates at `file-size-mb` and keeps `file-count` rotated files, in a directory named
+after the application (`/var/lib/euclid-wrk/log/transformation/transformation_1.log`, ...). They
+have a directory of their own because rotated files in the same directory would share one limit
+with the process's own log, and a busy application would push the worker's history out. The files
+use `file-format` and `file-level` like the process's own file, and a channel level such as
+`"app.parser": "off"` or `eap set-log-level` applies to the application's file as well.
+
+A file is opened the first time its application writes a line, and is written on the host that
+runs the application: an application on another worker node has its file on that node.
+
 ---
 
 ## Related projects

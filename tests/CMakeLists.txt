@@ -827,6 +827,16 @@ target_link_libraries(${LOG_CHANNEL_BINARY} PRIVATE euclidcore Boost::unit_test_
 
 add_test(NAME ${LOG_CHANNEL_BINARY} COMMAND ${LOG_CHANNEL_BINARY})
 
+# euclid.logging.application-files: a log file per application, rotated in its own directory.
+set(APPLICATION_LOG_FILE_BINARY euclid-application-log-file-tests)
+
+add_executable(${APPLICATION_LOG_FILE_BINARY} ApplicationLogFileTest.cpp)
+set_target_properties(${APPLICATION_LOG_FILE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${APPLICATION_LOG_FILE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${APPLICATION_LOG_FILE_BINARY} COMMAND ${APPLICATION_LOG_FILE_BINARY})
+
 set(MODULE_LOG_LEVEL_BINARY euclid-module-log-level-tests)
 
 add_executable(${MODULE_LOG_LEVEL_BINARY} ModuleLogLevelTest.cpp)

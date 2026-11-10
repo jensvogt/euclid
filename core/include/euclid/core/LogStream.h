@@ -296,6 +296,49 @@ namespace Euclid::Core {
         static int FileCountFromConfiguration();
 
         /**
+         * @brief Gives every application a log file of its own, from now on:
+         * euclid.logging.application-files.
+         *
+         * @par
+         * An application's records - channel "app.<applicationId>" - go to
+         * <dir>/<applicationId>.log as well as wherever they went before, so the process's own file,
+         * the console and the journal are unchanged. Each file rotates at @p size and keeps @p count
+         * rotated files, in <dir>/<applicationId>/, with its own limit: kept in the same directory
+         * they would share one with the process's own file, whose rotations a busy application
+         * would then delete. Same format and file-level as the process's file.
+         *
+         * @par
+         * The files are opened as applications are first heard from - see EnsureApplicationFile().
+         *
+         * @param dir directory the live files are written to
+         * @param size bytes a file grows to before it is rotated
+         * @param count rotated files each application keeps
+         */
+        static void EnableApplicationFiles(const std::string &dir, long size = DEFAULT_LOG_SIZE, int count = DEFAULT_LOG_COUNT);
+
+        /**
+         * @brief Opens the application file for @p channel if application files are enabled and it
+         * is not open yet. A channel that is not an application's ("app.<id>") is ignored.
+         *
+         * @par
+         * Called by Launch::EmitOutput() for every line an application writes, so the common case -
+         * the file already open - is a shared lock and a lookup.
+         */
+        static void EnsureApplicationFile(const std::string &channel);
+
+        /**
+         * @brief The file name an application's log is written to: its ID, with anything that is not
+         * a letter, a digit, '.', '-' or '_' replaced by '_', so an ID can never name a path. Empty
+         * for a channel that is not an application's.
+         */
+        static std::string ApplicationFileName(const std::string &channel);
+
+        /**
+         * @brief Closes every application file and stops opening new ones.
+         */
+        static void DisableApplicationFiles();
+
+        /**
          * @brief Adds a web socket sink
          *
          * @param ws websocket
@@ -422,6 +465,27 @@ namespace Euclid::Core {
          * Web socket
          */
         static boost::shared_ptr<boost::beast::websocket::stream<boost::beast::tcp_stream> > _ws;
+
+        /**
+         * @brief Where application files go, and their limits; an empty directory means they are off.
+         */
+        struct ApplicationFiles {
+            std::string dir;
+            long size = DEFAULT_LOG_SIZE;
+            int count = DEFAULT_LOG_COUNT;
+            std::map<std::string, boost::shared_ptr<boost::log::sinks::synchronous_sink<boost::log::sinks::text_file_backend> > > sinks;
+        };
+
+        /**
+         * @brief Application file settings and the sinks opened so far, by channel.
+         */
+        static ApplicationFiles _applicationFiles;
+
+        /**
+         * @brief Guards @ref _applicationFiles: shared for the lookup every application line makes,
+         * exclusive to open a file or change the settings.
+         */
+        static std::shared_mutex _applicationFilesMutex;
 
         /**
          * Web socket backend

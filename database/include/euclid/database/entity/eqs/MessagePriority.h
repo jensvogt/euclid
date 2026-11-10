@@ -14,6 +14,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace Euclid::Database::Entity::EQS {
 
@@ -81,14 +82,19 @@ namespace Euclid::Database::Entity::EQS {
      */
     [[maybe_unused]]
     inline std::optional<MessagePriority> TryMessagePriorityFromString(const std::string &priority) {
-        auto upper = priority;
-        std::ranges::transform(upper, upper.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        // Compared in place rather than against an upper-cased copy: there is nothing to keep the
+        // copy for, and GCC 15 at -O2 reads the copy's inlined destructor as freeing a pointer into
+        // the middle of an allocation (-Wfree-nonheap-object) - a false positive, repeated
+        // wherever this header is inlined.
+        const auto matches = [&priority](const std::string_view name) {
+            return std::ranges::equal(priority, name, [](const unsigned char a, const unsigned char b) { return std::toupper(a) == std::toupper(b); });
+        };
 
         // Before the table, so the old name resolves to the tier it always meant rather than
         // falling through to "no such priority" - see kLegacyMediumName.
-        if (upper == kLegacyMediumName) return MessagePriority::MEDIUM;
+        if (matches(kLegacyMediumName)) return MessagePriority::MEDIUM;
 
-        const auto it = std::ranges::find_if(MessagePriorityNames, [&upper](const auto &pair) { return pair.second == upper; });
+        const auto it = std::ranges::find_if(MessagePriorityNames, [&matches](const auto &pair) { return matches(pair.second); });
         if (it == MessagePriorityNames.end()) return std::nullopt;
         return it->first;
     }
