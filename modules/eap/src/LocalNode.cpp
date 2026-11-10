@@ -230,6 +230,9 @@ namespace Euclid::EAP::LocalNode {
                 // node that writes one too, and one that logs only to the journal has a node that
                 // does the same.
                 {"file-active", configuration.getOr<bool>("euclid.logging.file-active", false)},
+                // Inherited the same way: the applications the local node runs are the ones a
+                // manager's euclid.logging.application-files is about.
+                {"application-files", configuration.getOr<bool>("euclid.logging.application-files", false)},
                 {"dir", configuration.getOr<std::string>("euclid.modules.eap.local-node.log-dir", "/var/lib/euclid-wrk/log")},
                 {"prefix", "euclid-wrk"}};
 

@@ -34,6 +34,8 @@ namespace Euclid::Core {
     std::string LogStream::_processChannel{LogStream::kDefaultChannel};
     boost::shared_ptr<boost::log::sinks::synchronous_sink<boost::log::sinks::text_ostream_backend> > LogStream::_consoleSink;
     boost::shared_ptr<boost::log::sinks::synchronous_sink<boost::log::sinks::text_file_backend> > LogStream::_fileSink;
+    LogStream::ApplicationFiles LogStream::_applicationFiles;
+    std::shared_mutex LogStream::_applicationFilesMutex;
     // boost::shared_ptr<websocket::stream<beast::tcp_stream> > LogStream::_ws;
     // boost::shared_ptr<LogWebsocketSink> LogStream::webSocketBackend(new LogWebsocketSink(_ws));
     // boost::shared_ptr<webSocketSink_t> LogStream::webSocketSink(new webSocketSink_t(webSocketBackend));
@@ -596,6 +598,97 @@ namespace Euclid::Core {
     //     const boost::shared_ptr<boost::log::core> core = boost::log::core::get();
     //     core->remove_sink(webSocketSink);
     // }
+
+    std::string LogStream::ApplicationFileName(const std::string &channel) {
+        constexpr std::string_view kPrefix = "app.";
+        if (!channel.starts_with(kPrefix) || channel.size() == kPrefix.size()) return {};
+        auto name = channel.substr(kPrefix.size());
+        for (auto &c: name) {
+            const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';
+            if (!allowed) c = '_';
+        }
+        // "." and ".." are made of allowed characters and are still not file names.
+        if (name.find_first_not_of('.') == std::string::npos) return {};
+        return name;
+    }
+
+    void LogStream::EnableApplicationFiles(const std::string &dir, const long size, const int count) {
+        {
+            std::unique_lock lock(_applicationFilesMutex);
+            _applicationFiles.dir = dir;
+            _applicationFiles.size = size;
+            _applicationFiles.count = count;
+        }
+        log_info << "Application log files enabled, dir: " << dir << ", size: " << size << ", count: " << count;
+    }
+
+    void LogStream::DisableApplicationFiles() {
+        std::unique_lock lock(_applicationFilesMutex);
+        for (auto &[channel, sink]: _applicationFiles.sinks) {
+            if (!sink) continue;// one that could not be opened
+            sink->flush();
+            boost::log::core::get()->remove_sink(sink);
+        }
+        _applicationFiles.sinks.clear();
+        _applicationFiles.dir.clear();
+    }
+
+    void LogStream::EnsureApplicationFile(const std::string &channel) {
+        {
+            std::shared_lock lock(_applicationFilesMutex);
+            if (_applicationFiles.dir.empty() || _applicationFiles.sinks.contains(channel)) return;
+        }
+        const auto name = ApplicationFileName(channel);
+        if (name.empty()) return;
+
+        std::unique_lock lock(_applicationFilesMutex);
+        // Asked again under the exclusive lock: two of an application's instances can write their
+        // first line at the same moment, and only one of them may open the file.
+        if (_applicationFiles.dir.empty() || _applicationFiles.sinks.contains(channel)) return;
+
+        const auto dir = std::filesystem::path(_applicationFiles.dir);
+        const auto rotated = dir / name;
+        const auto file = dir / (name + ".log");
+        std::error_code ec;
+        std::filesystem::create_directories(rotated, ec);
+        if (ec || !std::ofstream(file, std::ios::app)) {
+            // Remembered as tried, with no sink, so a directory that cannot be written is said once
+            // rather than on every line the application writes. Its records still reach the
+            // process's own outputs.
+            _applicationFiles.sinks[channel] = nullptr;
+            lock.unlock();
+            log_warning << "Cannot write the application log file, file: " << file.string()
+                        << (ec ? ", error: " + ec.message() : std::string());
+            return;
+        }
+
+        auto sink = add_file_log(
+                boost::log::keywords::file_name = file.string(),
+                boost::log::keywords::rotation_size = _applicationFiles.size,
+                boost::log::keywords::target_file_name = (rotated / (name + "_%N.log")).string(),
+                boost::log::keywords::format = FormatterFor("euclid.logging.file-format"));
+        sink->locked_backend()->auto_flush(true);
+        sink->locked_backend()->set_file_collector(boost::log::sinks::file::make_collector(
+                boost::log::keywords::target = rotated.string(),
+                boost::log::keywords::max_files = _applicationFiles.count));
+        sink->locked_backend()->scan_for_files();
+
+        // This application's records only, and no more of them than the process's own file
+        // takes: euclid.logging.file-level applies here as it does there. The channel's own level
+        // has already been applied by the core's filter.
+        const auto level = ParseLevel(Configuration::instance().getOr<std::string>("euclid.logging.file-level", ""));
+        if (level.has_value() && !level->has_value()) {
+            sink->set_filter([](const boost::log::attribute_value_set &) { return false; });
+        } else if (level.has_value()) {
+            sink->set_filter(Log::channel == channel && boost::log::trivial::severity >= **level);
+        } else {
+            sink->set_filter(Log::channel == channel);
+        }
+
+        _applicationFiles.sinks[channel] = sink;
+        lock.unlock();
+        log_info << "Application log file opened, channel: " << channel << ", file: " << file.string();
+    }
 
     void LogStream::RemoveFile() {
         if (!_fileSink) return;

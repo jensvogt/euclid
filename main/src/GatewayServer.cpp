@@ -584,7 +584,7 @@ namespace Euclid::main {
                 const bool keepAlive = sp->keep_alive();
                 http::async_write(
                         _stream, *sp,
-                        [self = shared_from_this(), keepAlive](const beast::error_code &ec, std::size_t) {
+                        [self = shared_from_this(), sp, keepAlive](const beast::error_code &ec, std::size_t) {
                             if (!ec && keepAlive) self->doRead();
                             else {
                                 beast::error_code ignored;
@@ -602,7 +602,7 @@ namespace Euclid::main {
                 if (const auto auth = Core::HttpActionServer::Authenticate(req); !auth.subject.has_value()) {
                     auto res = Core::HttpActionServer::Unauthorized(req, auth);
                     const auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
-                    http::async_write(_stream, *sp, [self = shared_from_this()](const beast::error_code &, std::size_t) {
+                    http::async_write(_stream, *sp, [self = shared_from_this(), sp](const beast::error_code &, std::size_t) {
                         beast::error_code ignored;
                         std::ignore = self->_stream.socket().shutdown(tcp::socket::shutdown_send, ignored);
                     });
@@ -691,7 +691,7 @@ namespace Euclid::main {
                 const bool keepAlive = sp->keep_alive();
                 http::async_write(
                         _stream, *sp,
-                        [self = shared_from_this(), keepAlive](const beast::error_code &ec, std::size_t) {
+                        [self = shared_from_this(), sp, keepAlive](const beast::error_code &ec, std::size_t) {
                             if (!ec && keepAlive) self->doRead();
                             else {
                                 // Deliberately closes the raw socket rather than calling the
@@ -717,7 +717,7 @@ namespace Euclid::main {
                 if (!auth.subject.has_value()) {
                     auto res = Core::HttpActionServer::Unauthorized(req, auth);
                     auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
-                    http::async_write(_stream, *sp, [self = shared_from_this()](const beast::error_code &, std::size_t) {
+                    http::async_write(_stream, *sp, [self = shared_from_this(), sp](const beast::error_code &, std::size_t) {
                         beast::get_lowest_layer(self->_stream).close();
                     });
                     return;

@@ -369,6 +369,7 @@
       "prefix": "euclid",
       "file-size-mb": 50,
       "file-count": 10,
+      "application-files": false,
       "channels": {
         "app": "info",
         "module": "info"

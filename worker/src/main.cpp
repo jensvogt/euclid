@@ -297,6 +297,16 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
                                          Euclid::Core::LogStream::FileSizeFromConfiguration(), Euclid::Core::LogStream::FileCountFromConfiguration());
     }
 
+    // And a file per application this node runs, <dir>/<applicationId>.log, when asked for: the
+    // worker's own file carries every instance's output interleaved with its own, and rotates on
+    // their combined volume - so a quiet application's lines were gone within hours.
+    if (const auto &configuration = Euclid::Core::Configuration::instance();
+        configuration.getOr<bool>("euclid.logging.application-files", false)) {
+        Euclid::Core::LogStream::EnableApplicationFiles(configuration.getOr<std::string>("euclid.logging.dir", std::string(defaultDataDir()) + "/log"),
+                                                        Euclid::Core::LogStream::FileSizeFromConfiguration(),
+                                                        Euclid::Core::LogStream::FileCountFromConfiguration());
+    }
+
     // The first line the log gets, as the manager's is: which build this is. Here, as soon as there
     // is a log to write it to, rather than with the "running" line below - a worker that cannot
     // reach its master retries registering for as long as it takes, and the version is what one

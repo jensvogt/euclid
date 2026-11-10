@@ -543,6 +543,10 @@ namespace Euclid::Core::Launch {
     void EmitOutput(const std::string &channel, const std::string &line, const bool fromStderr, const std::string &fields,
                     std::optional<boost::log::trivial::severity_level> &previous) {
 
+        // The application's own file, opened the first time it is heard from when
+        // euclid.logging.application-files asks for one. Before the record, so it lands there too.
+        LogStream::EnsureApplicationFile(channel);
+
         // Sanitised first, and everything after read from what the program actually wrote.
         const auto sanitized = SanitizeOutput(line);
 
