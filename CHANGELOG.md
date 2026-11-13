@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.34](https://github.com/jensvogt/euclid/compare/2.1.33...v2.1.34) (2026-11-13)
+
+
+### Bug Fixes
+
+* new vcpkg baseline ([63c09fe](https://github.com/jensvogt/euclid/commit/63c09fef32fc4a867873c1177c29fb48cf9e015e))
+
 ## [2.1.33](https://github.com/jensvogt/euclid/compare/2.1.32...v2.1.33) (2026-11-10)
 
 
