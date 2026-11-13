@@ -210,7 +210,9 @@ if (WIN32)
     # back to a Windows 7 baseline that lacks these APIs.
     # NOMINMAX keeps Windows.h from defining max/min macros, which otherwise
     # break calls like std::numeric_limits<T>::max() (e.g. in bsoncxx headers).
-    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00 NOMINMAX WIN32_LEAN_AND_MEAN)
+    # _CRT_SECURE_NO_WARNINGS silences the MSVC CRT deprecation of portable standard
+    # functions like std::getenv in favour of non-portable _s variants (_dupenv_s).
+    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00 NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
 endif ()
 
 # -------------------------------------------------------------------------

@@ -759,13 +759,21 @@ namespace Euclid::Core {
 
     std::string SystemUtils::GetEnvironmentVariableValue(const std::string &name) {
 #ifdef _WIN32
-        auto pValue = static_cast<LPTSTR>(malloc(BUFSIZE * sizeof(TCHAR)));
-        memset(pValue, 0, BUFSIZE);
-        if (const DWORD result = GetEnvironmentVariable(name.c_str(), pValue, BUFSIZE); !result) {
-            log_trace << "Environment variable not found, name: " << name << ", error: " << result;
-            return {};
+        // A first call with no buffer returns the size needed, including the terminating null.
+        // The value can change between the two calls, so retry while it keeps growing.
+        DWORD size = GetEnvironmentVariableA(name.c_str(), nullptr, 0);
+        while (size > 0) {
+            std::string value(size, '\0');
+            const DWORD written = GetEnvironmentVariableA(name.c_str(), value.data(), size);
+            if (written == 0) break;
+            if (written < size) {
+                value.resize(written);
+                return value;
+            }
+            size = written;
         }
-        return {pValue};
+        log_trace << "Environment variable not found, name: " << name << ", error: " << GetLastError();
+        return {};
 #else
         if (getenv(name.c_str()) == nullptr) {
             log_debug << "Environment variable not found, name: " << name;
