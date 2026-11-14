@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.37](https://github.com/jensvogt/euclid/compare/2.1.36...v2.1.37) (2026-11-14)
+
+
+### Bug Fixes
+
+* docker compose setup ([e4bf8b5](https://github.com/jensvogt/euclid/commit/e4bf8b53e67edd84ee6f6eb06395fb76ce79e861))
+* docker compose setup ([5cccbaf](https://github.com/jensvogt/euclid/commit/5cccbaf25a22e27008cc3d210780e352709e66de))
+
 ## [2.1.36](https://github.com/jensvogt/euclid/compare/2.1.35...v2.1.36) (2026-11-14)
 
 
