@@ -150,7 +150,12 @@ if (NOT MSVC)
     # Only in an optimized build. _FORTIFY_SOURCE rewrites calls whose sizes the
     # optimizer can see, so at -O0 it does nothing except warn that it is doing
     # nothing.
-    add_compile_options($<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=3>)
+    #
+    # Undefined first: Alpine's and Ubuntu's GCC predefine it (=2) as a built-in,
+    # and a second -D then warns "'_FORTIFY_SOURCE' redefined" on every single
+    # translation unit. -U drops the compiler's value so this one is the only one.
+    add_compile_options($<$<NOT:$<CONFIG:Debug>>:-U_FORTIFY_SOURCE>
+                        $<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=3>)
 
     # The GOT and the relocation tables are made read-only once the loader has
     # finished with them, rather than staying writable for the life of the

@@ -87,6 +87,63 @@ ec ess get-secret --name db-password --raw
 
 That is the whole of it. `docker rm -f euclid` and nothing remains.
 
+### With workers, in docker-compose
+
+The manager image runs no applications itself: every application runs on a worker. Workers have an
+image of their own, `jensvogt/euclid-wrk`, from the same release, with Java 21, Python and Node.js
+for the applications it runs:
+
+```yaml
+services:
+  euclid:
+    image: jensvogt/euclid:latest
+    hostname: euclid            # the generated gateway certificate is issued to the host name
+    ports: ["5566:5566", "2121:2121", "8080:8080"]
+
+  wrk-1:
+    image: jensvogt/euclid-wrk:latest
+    depends_on: [euclid]
+    restart: unless-stopped
+    environment:
+      EUCLID_ENDPOINT: https://euclid:5566
+      EUCLID_NODE: wrk-1
+      EUCLID_LABELS: zone=a      # comma separated, optional
+      EUCLID_CA_CERT: /certs/euclid_cert.crt
+      # This node's principal's access key - see below. Or leave these out and log in from inside the
+      # container instead: docker compose exec wrk-1 euclid-cli ... eam login ...
+      EUCLID_ACCESS_KEY_ID: ${WRK1_ACCESS_KEY_ID}
+      EUCLID_SECRET_ACCESS_KEY: ${WRK1_SECRET_ACCESS_KEY}
+      EUCLID_USER_ID: wrk-1
+      EUCLID_ACCOUNT_ID: "<account>"
+    volumes:
+      - ./certs:/certs:ro
+```
+
+Once the manager is up, take its certificate for the workers to trust, and make each worker a
+principal holding the built-in `node` role (see [the worker on its own](#the-worker-on-its-own)):
+
+```bash
+mkdir -p certs && docker compose cp euclid:/usr/local/euclid/etc/euclid_cert.crt certs/
+
+alias ec='docker compose exec -T euclid euclid-cli --ca-cert /usr/local/euclid/etc/euclid_cert.crt'
+ec eam login --user admin --password admin
+ec eam register --user wrk-1 --email wrk-1@example.invalid --password <secret> \
+    --region eu-central-1 --account-id <account>
+ec eam grant-role --role node --principal ern:eam:eu-central-1:<account>:user:wrk-1
+
+# Its access key: logging in as wrk-1 creates one and writes it to the credentials file.
+docker compose exec -T wrk-1 euclid-cli --endpoint https://euclid:5566 \
+    --ca-cert /certs/euclid_cert.crt eam login --user wrk-1 --password <secret>
+docker compose exec -T wrk-1 cat /usr/local/euclid-wrk/.euclid/credentials
+```
+
+A worker without credentials waits for them rather than failing, so the login above is enough to
+start it - but credentials written inside the container go with the container, so put the key into
+the environment (or a mounted file at `/usr/local/euclid-wrk/.euclid/credentials`) to keep it across
+`docker compose up`. The applications' ports need no publishing: the gateway reaches them over the
+compose network. Set an option either through the environment or as the container's `command:`,
+not both - an option given twice is refused.
+
 To keep what you store, point the same image at MongoDB: mount a configuration with
 `euclid.database.backend` set to `mongodb` and fill in the `euclid.mongodb` block - see
 [Configuration](#configuration) and [Running without a database](#running-without-a-database) for what

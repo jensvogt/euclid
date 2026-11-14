@@ -1,0 +1,4 @@
+# Run inside a Linux container, so LF whatever the checkout's platform: with CRLF the shebang names
+# "/bin/sh\r" and the container exits with "no such file or directory" before running a line.
+docker/wrk/entrypoint.sh text eol=lf
+examples/docker/*.sh text eol=lf

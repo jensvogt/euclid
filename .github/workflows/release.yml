@@ -1846,10 +1846,16 @@ jobs:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push Docker
+      # Two images from one Dockerfile: the manager (target "manager") and the worker (target
+      # "worker"), so a docker-compose file can run workers beside a manager. Both stages copy from
+      # the same build stage, so the second build reuses the first one's compile from this builder's
+      # cache rather than building euclid again. Each keeps its own GitHub Actions cache scope:
+      # mode=max writes every layer, and two builds writing one scope would each replace the other's.
+      - name: Build and push Docker (manager)
         uses: docker/build-push-action@v6
         with:
           context: docker
+          target: manager
           push: true
           tags: |
             ${{ secrets.DOCKER_USER }}/euclid:${{ env.SEMVER }}
@@ -1857,8 +1863,27 @@ jobs:
           build-args: |
             GH_TOKEN=${{ env.GH_TOKEN }}
             BUILD_VERSION=${{ env.SEMVER }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=euclid
+          cache-to: type=gha,mode=max,scope=euclid
+        env:
+          DOCKER_BUILD_SUMMARY: false
+
+      - name: Build and push Docker (worker)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          target: worker
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USER }}/${{ env.WORKER_NAME }}:${{ env.SEMVER }}
+            ${{ secrets.DOCKER_USER }}/${{ env.WORKER_NAME }}:latest
+          build-args: |
+            GH_TOKEN=${{ env.GH_TOKEN }}
+            BUILD_VERSION=${{ env.SEMVER }}
+          cache-from: |
+            type=gha,scope=euclid
+            type=gha,scope=euclid-wrk
+          cache-to: type=gha,mode=max,scope=euclid-wrk
         env:
           DOCKER_BUILD_SUMMARY: false
 

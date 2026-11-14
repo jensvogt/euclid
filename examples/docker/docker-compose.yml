@@ -1,0 +1,107 @@
+# A euclid installation in docker compose: MongoDB, a manager and two workers.
+#
+#   docker compose up -d
+#   ./setup-workers.sh            # once: make the workers principals and log them in
+#
+# See README.md in this directory for what each step does. Example passwords throughout - change
+# them, and the jwt-secret in euclid.json, before this holds anything worth keeping.
+#
+# EUCLID_VERSION picks the release, e.g. EUCLID_VERSION=2.1.34 docker compose up -d. The manager and
+# the workers should always be the same one.
+
+name: euclid
+
+services:
+
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      # Must match euclid.mongodb.user and .password in euclid.json.
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: euclid-example-password
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  euclid:
+    image: jensvogt/euclid:${EUCLID_VERSION:-latest}
+    # The gateway certificate the manager generates on its first start names this host name, and
+    # euclid.gateway.tls.alt-names in euclid.json names it too: it is the name the workers use.
+    hostname: euclid
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "5566:5566"   # gateway, API and web UI
+      - "2121:2121"   # FTP
+      - "8080:8080"   # API gateway (EAG), development
+      - "8081:8081"   # API gateway (EAG), integration
+      - "8082:8082"   # API gateway (EAG), production
+    volumes:
+      # The image's configuration replaced by this directory's: MongoDB rather than the in-memory
+      # store, and the gateway certificate in a directory of its own.
+      - ./euclid.json:/usr/local/euclid/etc/euclid.json:ro
+      # The gateway certificate, on a volume of its own so the workers can mount it to trust the
+      # gateway - and its key on another, which no worker mounts. Neither in etc/, which holds
+      # euclid.json and with it the signing secret no worker may ever see (docs/worker-nodes.md
+      # §3.2), and whose other files belong to the image and must change with it on an upgrade.
+      # Both kept across restarts, so the certificate the workers trust stays the gateway's.
+      - gateway-certificate:/usr/local/euclid/certs
+      - gateway-key:/usr/local/euclid/keys
+      # ESM's objects, backups, and the rest of the manager's data.
+      - manager-data:/usr/local/euclid/data
+    healthcheck:
+      # Any HTTP answer from the gateway: it is up, and the certificate the workers need exists.
+      test: ["CMD", "curl", "-sk", "-o", "/dev/null", "https://localhost:5566/"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+
+  wrk-1: &worker
+    image: jensvogt/euclid-wrk:${EUCLID_VERSION:-latest}
+    hostname: wrk-1
+    restart: unless-stopped
+    depends_on:
+      euclid:
+        condition: service_healthy
+    environment:
+      EUCLID_ENDPOINT: https://euclid:5566
+      EUCLID_NODE: wrk-1
+      EUCLID_LABELS: zone=a
+      EUCLID_CA_CERT: /certs/euclid_cert.crt
+    volumes:
+      - gateway-certificate:/certs:ro
+      # The node's credentials, written by setup-workers.sh's login and kept across restarts. Until
+      # they exist the worker waits for them rather than failing.
+      - wrk-1-credentials:/usr/local/euclid-wrk/.euclid
+      - wrk-1-data:/usr/local/euclid-wrk/data
+
+  wrk-2:
+    <<: *worker
+    hostname: wrk-2
+    environment:
+      EUCLID_ENDPOINT: https://euclid:5566
+      EUCLID_NODE: wrk-2
+      EUCLID_LABELS: zone=b
+      EUCLID_CA_CERT: /certs/euclid_cert.crt
+    volumes:
+      - gateway-certificate:/certs:ro
+      - wrk-2-credentials:/usr/local/euclid-wrk/.euclid
+      - wrk-2-data:/usr/local/euclid-wrk/data
+
+volumes:
+  mongodb-data:
+  gateway-certificate:
+  gateway-key:
+  manager-data:
+  wrk-1-credentials:
+  wrk-1-data:
+  wrk-2-credentials:
+  wrk-2-data:

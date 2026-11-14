@@ -1,0 +1,32 @@
+{
+  "euclid": {
+    "worker": {
+      "stop-grace-seconds": 20,
+      "endpoint": "https://euclid:5566",
+      "ca-cert": "",
+      "address": "",
+      "monitoring-active": true,
+      "application-monitoring-active": true,
+      "http-port-min": 9000,
+      "http-port-max": 9999,
+      "cgroups-active": false,
+      "runtimes": {
+        "java": "java",
+        "java21": "/usr/lib/jvm/java-21-openjdk/bin/java",
+        "python": "python3",
+        "nodejs": "node"
+      },
+      "data-dir": "/usr/local/euclid-wrk/data",
+      "credentials": "/usr/local/euclid-wrk/.euclid/credentials"
+    },
+    "logging": {
+      "level": "info",
+      "console-active": true,
+      "file-active": false,
+      "dir": "/usr/local/euclid-wrk/logs",
+      "prefix": "euclid-wrk",
+      "file-size-mb": 50,
+      "file-count": 10
+    }
+  }
+}

@@ -1,0 +1,396 @@
+{
+  "euclid": {
+    "region": "eu-central-1",
+    "account-ids": [
+      "000000000000"
+    ],
+    "namespaces": [
+      "development",
+      "integration",
+      "production"
+    ],
+    "data-dir": "/usr/local/euclid/data",
+    "temp-dir": "/usr/local/euclid/data/tmp",
+    "magic-file": "/usr/local/euclid/etc/magic.mgc",
+    "database": {
+      "backend": "mongodb"
+    },
+    "authorization": {
+      "mode": "enforce"
+    },
+    "gateway": {
+      "http": {
+        "host": "localhost",
+        "port": 5566,
+        "max-thread": 64,
+        "max-body": 536870912,
+        "backend-timeout-seconds": 60
+      },
+      "tls": {
+        "enabled": true,
+        "cert-file": "/usr/local/euclid/certs/euclid_cert.crt",
+        "key-file": "/usr/local/euclid/keys/euclid_cert.key",
+        "alt-names": [
+          "euclid",
+          "localhost"
+        ]
+      },
+      "websocket": {
+        "enabled": true,
+        "max-message-size": 1048576,
+        "idle-timeout-seconds": 300,
+        "max-outbox-frames": 256,
+        "max-outbox-bytes": 8388608
+      },
+      "frontend": {
+        "enabled": true,
+        "directory": "/usr/local/euclid/frontend",
+        "cache-seconds": 3600
+      },
+      "event-socket-path": "/var/run/euclid/euclid-gateway-events.sock"
+    },
+    "modules": {
+      "emd": {
+        "active": false,
+        "name": "emd",
+        "socketPath": "/var/run/euclid/euclid-emd.sock",
+        "executable": "/usr/local/euclid/bin/euclid-emd",
+        "readiness": "liveness",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 8
+      },
+      "eam": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "eam",
+        "socketPath": "/var/run/euclid/euclid-eam.sock",
+        "executable": "/usr/local/euclid/bin/euclid-eam",
+        "minInstances": 1,
+        "maxInstances": 2,
+        "threads": 8,
+        "jwt-secret": "changeme-set-a-real-secret-in-production",
+        "oidc": {
+          "enabled": false,
+          "issuer": "https://<your-subdomain>.onelogin.com/oidc/2",
+          "client-id": "",
+          "client-secret": "",
+          "redirect-uri": "https://localhost:5566/eam/oidc/callback",
+          "scopes": "openid profile email",
+          "username-claim": "preferred_username",
+          "email-claim": "email",
+          "jit-provisioning": true,
+          "link-existing-users": false
+        },
+        "saml": {
+          "enabled": false,
+          "entity-id": "https://localhost:5566/eam/saml/metadata",
+          "acs-url": "https://localhost:5566/eam/saml/acs",
+          "idp-entity-id": "",
+          "idp-sso-url": "",
+          "idp-certificate-file": "/usr/local/euclid/etc/saml-idp.crt",
+          "username-attribute": "",
+          "email-attribute": "email",
+          "jit-provisioning": true,
+          "link-existing-users": false,
+          "allow-idp-initiated": false
+        }
+      },
+      "esm": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "esm",
+        "socketPath": "/var/run/euclid/euclid-esm.sock",
+        "executable": "/usr/local/euclid/bin/euclid-esm",
+        "data-dir": "/usr/local/euclid/data/esm",
+        "last-access-granularity": 3600,
+        "archive-dir": "/usr/local/euclid/data/esm-archive",
+        "storage-dirs": [],
+        "storage-min-free-mb": 1024,
+        "restore-days": 7,
+        "lifecycle-sweep-period": 3600,
+        "lifecycle-sweep-budget": 240,
+        "lifecycle-page-size": 1000,
+        "purge-page-size": 1000,
+        "purge-sweep-period": 30,
+        "purge-claim-stale-seconds": 60,
+        "minInstances": 1,
+        "maxInstances": 10,
+        "threads": 64
+      },
+      "eqs": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "eqs",
+        "socketPath": "/var/run/euclid/euclid-eqs.sock",
+        "executable": "/usr/local/euclid/bin/euclid-eqs",
+        "priority-weights": {
+          "high": 4,
+          "medium": 2,
+          "low": 1
+        },
+        "minInstances": 1,
+        "maxInstances": 4,
+        "threads": 64,
+        "retention-period": 345600,
+        "max-batch-size": 100
+      },
+      "ens": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "ens",
+        "socketPath": "/var/run/euclid/euclid-ens.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ens",
+        "minInstances": 1,
+        "maxInstances": 4,
+        "retention-period": 1209600,
+        "threads": 64
+      },
+      "emo": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "emo",
+        "socketPath": "/var/run/euclid/euclid-emo.sock",
+        "executable": "/usr/local/euclid/bin/euclid-emo",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 8,
+        "average-period": 300,
+        "rollup-hour-period": 600,
+        "rollup-day-period": 3600,
+        "cpu-usage-period": 60,
+        "queue-count-period": 300,
+        "bucket-count-period": 3600,
+        "topic-count-period": 3600,
+        "module-instance-period": 15,
+        "database-size-period": 300,
+        "disk-usage-period": 3600,
+        "retention": {
+          "raw": 7,
+          "hour": 90,
+          "day": 1825
+        },
+        "alert": {
+          "max-series-per-rule": 200,
+          "history-retention": 90
+        }
+      },
+      "ekm": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "ekm",
+        "socketPath": "/var/run/euclid/euclid-ekm.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ekm",
+        "minInstances": 1,
+        "maxInstances": 4,
+        "threads": 8
+      },
+      "ekv": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "ekv",
+        "socketPath": "/var/run/euclid/euclid-ekv.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ekv",
+        "minInstances": 1,
+        "maxInstances": 4,
+        "threads": 8
+      },
+      "ess": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "ess",
+        "socketPath": "/var/run/euclid/euclid-ess.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ess",
+        "minInstances": 1,
+        "maxInstances": 4,
+        "threads": 8
+      },
+      "emm": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "emm",
+        "socketPath": "/var/run/euclid/euclid-emm.sock",
+        "executable": "/usr/local/euclid/bin/euclid-emm",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 8,
+        "backup": {
+          "enabled": true,
+          "full": false,
+          "schedule": "0 1 * * *",
+          "directory": "/usr/local/euclid/data/backup",
+          "keep": 7,
+          "passphrase": "use_your_own_passphrase"
+        }
+      },
+      "ees": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "ees",
+        "socketPath": "/var/run/euclid/euclid-ees.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ees",
+        "minInstances": 1,
+        "maxInstances": 2,
+        "threads": 8
+      },
+      "ead": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "ead",
+        "minInstances": 1,
+        "maxInstances": 2,
+        "threads": 8,
+        "retention": 365,
+        "audit-reads": false,
+        "queue-limit": 10000,
+        "socketPath": "/var/run/euclid/euclid-ead.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ead"
+      },
+      "eap": {
+        "egress": {
+          "default": {
+            "requests-per-second": 2,
+            "burst": 2,
+            "concurrent": 4
+          }
+        },
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "eap",
+        "socketPath": "/var/run/euclid/euclid-eap.sock",
+        "executable": "/usr/local/euclid/bin/euclid-eap",
+        "socket-dir": "/var/run/euclid",
+        "data-dir": "/usr/local/euclid/data/eap",
+        "minInstances": 1,
+        "maxInstances": 32,
+        "threads": 64,
+        "http-port-min": 9000,
+        "http-port-max": 9999,
+        "bucket": "apps",
+        "runtimes": {
+          "java": "java",
+          "java21": "/usr/lib/jvm/java-21-openjdk/bin/java",
+          "java25": "/usr/lib/jvm/java-25-openjdk/bin/java",
+          "python": "python3",
+          "nodejs": "node"
+        },
+        "credentials-ttl-seconds": 3600
+      },
+      "ets": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "ets",
+        "socketPath": "/var/run/euclid/euclid-ets.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ets",
+        "socket-dir": "/var/run/euclid",
+        "data-dir": "/usr/local/euclid/data/ets",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 8,
+        "inline-max": 67108864,
+        "part-size": 8388608,
+        "host-key": "/usr/local/euclid/etc/ssh_host_key",
+        "ftp-executable": "/usr/local/euclid/bin/euclid-ftp",
+        "sftp-executable": "/usr/local/euclid/bin/euclid-sftp"
+      },
+      "eag": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "eag",
+        "socketPath": "/var/run/euclid/euclid-eag.sock",
+        "executable": "/usr/local/euclid/bin/euclid-eag",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 64,
+        "port": 8080,
+        "proxy-threads": 8,
+        "refresh-seconds": 5,
+        "basic-auth-cache-seconds": 60,
+        "protocol": "http",
+        "listeners": {
+          "development": {
+            "port": 8080,
+            "protocol": "http"
+          },
+          "integration": {
+            "port": 8081,
+            "protocol": "http"
+          },
+          "production": {
+            "port": 8082,
+            "protocol": "http"
+          }
+        }
+      }
+    },
+    "scaling": {
+      "scale-down-idle-seconds": 60,
+      "scale-up-saturated-ticks": 3,
+      "load-freshness-seconds": 45
+    },
+    "monitoring": {
+      "cpu-usage-period": 60
+    },
+    "mongodb": {
+      "name": "euclid",
+      "host": "mongodb",
+      "port": 27017,
+      "user": "root",
+      "password": "euclid-example-password",
+      "replica-set": "",
+      "server-selection-timeout-ms": 30000,
+      "pool-size": 256
+    },
+    "logging": {
+      "format": "text",
+      "file-active": false,
+      "file-format": "text",
+      "file-level": "info",
+      "console-active": true,
+      "console-level": "info",
+      "console-format": "text",
+      "level": "warning",
+      "dir": "/usr/local/euclid/log",
+      "prefix": "euclid",
+      "file-size-mb": 50,
+      "file-count": 10,
+      "application-files": false,
+      "channels": {
+        "app": "info",
+        "module": "info"
+      }
+    },
+    "eventbus": {
+      "notify-interval-ms": 100,
+      "subscription-cache-seconds": 5
+    }
+  }
+}

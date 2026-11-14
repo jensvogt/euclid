@@ -52,7 +52,66 @@ RUN --mount=type=cache,target=/vcpkg-cache \
     cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
     -DCMAKE_BUILD_TYPE=Release -Wno-dev && \
     cmake --build build && \
-    rm -f build/bin/*-tests build/bin/euclid-wrk
+    rm -f build/bin/*-tests && \
+    mkdir -p build/wrk && mv build/bin/euclid-wrk build/wrk/
+
+# ── The worker image (target "worker") ────────────────────────────────────────────────────────────
+# Its own image, from the same build as the manager's, so a docker-compose file can run workers
+# beside a manager (or anywhere else) - docs/worker-nodes.md. Built with --target worker; the
+# manager's stage stays last, so a plain "docker build" still builds the manager.
+#
+# The binary was moved out of build/bin above rather than deleted, so the manager's wholesale copy
+# of build/bin does not carry it and this stage can.
+FROM alpine:latest AS worker
+
+# The runtime libraries euclid's binaries are linked against - the manager stage's set, less what
+# only a module uses - and the interpreters the applications this node runs need: java, python and
+# node, what euclid.worker.runtimes names. Overridable, since a JRE is most of the image: build with
+# --build-arg WORKER_PACKAGES="python3 nodejs" for a node that never runs Java.
+ARG WORKER_PACKAGES="python3 nodejs openjdk21-jre-headless"
+RUN apk upgrade --no-cache && \
+    apk add --no-cache libstdc++ libgcc libarchive libmagic unbound-libs ${WORKER_PACKAGES}
+
+# Its own account, as on every other platform: the applications a worker runs are somebody else's
+# code, forked from this process, and inherit what it may do. Its home is its tree, so the
+# credentials land in /usr/local/euclid-wrk/.euclid as they do on Linux and macOS.
+RUN addgroup -S euclid-wrk && \
+    adduser -S -D -H -h /usr/local/euclid-wrk -s /sbin/nologin -G euclid-wrk euclid-wrk
+
+# The same tree the DEB, RPM and macOS tarball install: bin/ and etc/ root's, logs/, data/ and
+# data/tmp (TMPDIR - temporary files and Unix sockets the account can remove itself) and .euclid
+# the worker's own.
+RUN mkdir -p /usr/local/euclid-wrk/bin /usr/local/euclid-wrk/etc /usr/local/euclid-wrk/logs \
+             /usr/local/euclid-wrk/data/tmp /usr/local/euclid-wrk/.euclid && \
+    chown -R euclid-wrk:euclid-wrk /usr/local/euclid-wrk/logs /usr/local/euclid-wrk/data /usr/local/euclid-wrk/.euclid && \
+    chmod 0700 /usr/local/euclid-wrk/.euclid
+
+COPY --from=build /usr/src/euclid/build/wrk/euclid-wrk /usr/local/euclid-wrk/bin/euclid-wrk
+# And the CLI, unlike the worker packages: a container has no separate machine to log in from, so
+# "docker compose exec <worker> euclid-cli eam login ..." is how a node gets its credentials when they
+# are not given through the environment. Run as euclid-wrk, it writes them where the worker reads.
+COPY --from=build /usr/src/euclid/build/bin/euclid-cli /usr/local/euclid-wrk/bin/euclid-cli
+# From the build context (docker/wrk), not the clone: the configuration and the entrypoint belong to
+# the image, not to the source tree being built.
+COPY --chmod=0644 wrk/euclid-wrk.json /usr/local/euclid-wrk/etc/euclid-wrk.json
+COPY --chmod=0755 wrk/entrypoint.sh /usr/local/euclid-wrk/bin/entrypoint.sh
+
+ENV PATH="/usr/local/euclid-wrk/bin:${PATH}" \
+    TMPDIR=/usr/local/euclid-wrk/data/tmp
+
+USER euclid-wrk
+WORKDIR /usr/local/euclid-wrk
+
+# Nothing in data/ is durable - artifacts are re-fetched, instance credentials re-issued - so a
+# volume is a cache, not state. Declared so that a container restart does not fetch everything again.
+VOLUME ["/usr/local/euclid-wrk/data"]
+
+# The applications' ports (euclid.worker.http-port-min..max). Documentation only: the gateway
+# reaches them over the compose network at the address the worker registers, so they need no
+# publishing.
+EXPOSE 9000-9999
+
+ENTRYPOINT ["/usr/local/euclid-wrk/bin/entrypoint.sh"]
 
 # Debian rather than alpine, for a stage that is discarded anyway: this is the libc and the node
 # that the release pipeline builds euclid-web on (actions/setup-node on ubuntu), so a frontend that
@@ -102,8 +161,9 @@ RUN npm ci && npm run build -- --configuration docker
 RUN test -f dist/euclid-web/browser/index.html \
     || (echo "euclid-web produced no dist/euclid-web/browser/index.html" && exit 1)
 
-# Stick to alpine:latest
-FROM alpine:latest
+# ── The manager image (target "manager", and the default) ────────────────────────────────────────
+# Last in the file, so a "docker build" with no --target still builds this one.
+FROM alpine:latest AS manager
 
 RUN apk update && apk upgrade && apk add --no-cache libstdc++ libgcc unzip libarchive libmagic curl unbound
 
@@ -132,9 +192,9 @@ COPY --from=buildfrontend /usr/src/euclid-web/dist/euclid-web/browser/ /usr/loca
 # it, leaving the manager restart-looping for the life of the container on a binary that was never
 # installed. The same drift the macOS package hit, fixed the same way. The test executables land in
 # this directory too and are removed in the build stage above, so they are gone before the layer
-# that would otherwise carry them: deleting them here would leave them in the image. So is
-# euclid-wrk: like the server packages, the image is the manager only, and nothing here starts a
-# worker (docs/worker-nodes.md §13.3).
+# that would otherwise carry them: deleting them here would leave them in the image. euclid-wrk is
+# moved out of the directory there too: like the server packages, this image is the manager only,
+# and the worker has an image of its own - the "worker" stage above.
 #
 # Includes euclid-mgr and euclid-cli, the document store euclid-emd - the image runs on it rather
 # than on MongoDB, see euclid.database.backend in the bundled configuration, so nothing else here
