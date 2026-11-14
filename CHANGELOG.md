@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.35](https://github.com/jensvogt/euclid/compare/2.1.34...v2.1.35) (2026-11-14)
+
+
+### Bug Fixes
+
+* rearrange the worker ([2db7afc](https://github.com/jensvogt/euclid/commit/2db7afcf64d973ec929dc6d10cc40ef85d4ec8ce))
+
 ## [2.1.34](https://github.com/jensvogt/euclid/compare/2.1.33...v2.1.34) (2026-11-13)
 
 
