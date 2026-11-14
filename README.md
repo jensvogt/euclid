@@ -187,13 +187,19 @@ filled in. The ports are the gateway (5566), the UI (4567) and the API gateway (
 ### Debian / Ubuntu
 
 ```bash
-wget https://jensvogt.github.io/euclid/euclid-<version>-amd64.deb \
-     https://jensvogt.github.io/euclid/euclid-wrk-<version>-amd64.deb
-sudo apt install ./euclid-<version>-amd64.deb ./euclid-wrk-<version>-amd64.deb
+wget https://jensvogt.github.io/euclid/euclid-<version>-amd64.deb
+sudo apt install ./euclid-<version>-amd64.deb
 ```
 
-The server package depends on the worker package of the same version: the manager's own host runs a
-worker too — the **local node**, which the manager configures and provisions itself, so there is
+The server package installs the manager only. Every application is run by a worker, so for the
+manager's own host to run applications too, install the worker package of the same version on top:
+
+```bash
+wget https://jensvogt.github.io/euclid/euclid-wrk-<version>-amd64.deb
+sudo apt install ./euclid-wrk-<version>-amd64.deb
+```
+
+It then becomes the **local node**, which the manager configures and provisions itself, so there is
 nothing to set up. See [the local node](#the-local-node) below.
 
 Or add the signed APT repository once, then install/upgrade via `apt`:
@@ -203,6 +209,7 @@ curl -fsSL https://jensvogt.github.io/euclid/apt/euclid-archive-keyring.asc | su
 echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/euclid-archive-keyring.gpg] https://jensvogt.github.io/euclid/apt stable main" | sudo tee /etc/apt/sources.list.d/euclid.list
 sudo apt update
 sudo apt install euclid
+sudo apt install euclid-wrk      # only if this host should run applications too (the local node)
 ```
 
 `arch=amd64,arm64` names what the repository actually publishes. Without it, `apt` asks this
@@ -227,9 +234,12 @@ install the 64-bit Raspberry Pi OS and use `arm64`.
 ### RPM (RHEL / Fedora)
 
 ```bash
-wget https://jensvogt.github.io/euclid/euclid-<version>-1.x86_64.rpm \
-     https://jensvogt.github.io/euclid/euclid-wrk-<version>-1.x86_64.rpm
-sudo rpm -i euclid-<version>-1.x86_64.rpm euclid-wrk-<version>-1.x86_64.rpm   # the local node needs both
+wget https://jensvogt.github.io/euclid/euclid-<version>-1.x86_64.rpm
+sudo rpm -i euclid-<version>-1.x86_64.rpm
+
+# only if this host should run applications too (the local node)
+wget https://jensvogt.github.io/euclid/euclid-wrk-<version>-1.x86_64.rpm
+sudo rpm -i euclid-wrk-<version>-1.x86_64.rpm
 ```
 
 ### macOS
@@ -341,7 +351,7 @@ Then on the worker host, finish the configuration, log in as that principal, and
 ```bash
 sudo apt install euclid-cli                           # the login below needs it; the worker
                                                       # package does not carry it
-sudoedit /usr/local/euclid/etc/euclid-wrk.json        # euclid.worker.endpoint
+sudoedit /usr/local/euclid-wrk/etc/euclid-wrk.json    # euclid.worker.endpoint
 
 # -H so the credentials land in euclid-wrk's own home, which is where the service looks for them.
 sudo -H -u euclid-wrk euclid-cli --endpoint https://euclid.example.com \
@@ -355,7 +365,8 @@ worker identity mechanism, which is what keeps its role, its grants and its audi
 How the credentials then work:
 
 - **The worker's own.** The login writes a session token *and* a long-lived access key (EAM creates
-  one on login if the user has none) to `~euclid-wrk/.euclid/credentials`. The worker signs every
+  one on login if the user has none) to `~euclid-wrk/.euclid/credentials` - on Linux
+  `/usr/local/euclid-wrk/.euclid/credentials`, the account's home being the worker's own tree. The worker signs every
   request with the key, so the session expiring does not stop it, and the login is needed once.
 - **Registration is not a separate step.** It is the worker's first signed request. The node name
   is bound to the principal that registers it first: another principal is refused that name until
@@ -370,15 +381,18 @@ How the credentials then work:
 
 ### The local node
 
-On Linux the manager's own host runs a worker too, installed with the server package and
-provisioned by the manager — there is nothing to log in or configure. When EAP starts it makes sure
+On Linux the manager's own host can run a worker too: install `euclid-wrk` on top of the server
+package, and the manager provisions it — there is nothing to log in or configure. Installing the
+worker adds the manager's account to the worker's group and restarts the manager once, and from then
+on, whenever EAP starts it makes sure
 a `local-node` principal exists (no login, one access key, the `node` role), and writes the
 worker's credentials and its whole configuration to `/usr/local/euclid/data/local-node/`,
 generated from the manager's own: the gateway's port and certificate, this host's runtimes, a port
 range of its own. Both files are readable by the worker's group only, and nothing else from
 `euclid.json` reaches them. A systemd drop-in that comes with the server package points
 `euclid-wrk.service` at that configuration, and the worker waits for the files rather than failing
-without them.
+without them. Without the worker package there is no local node: EAP sees that the `euclid-wrk`
+group does not exist and provisions nothing, and the drop-in names a unit that is not installed.
 
 The node registers as `local`, labelled `local=true`. Until every application runs on a worker
 (see [worker nodes](docs/worker-nodes.md) §13.4), an application is placed on it by asking for that
@@ -393,8 +407,8 @@ It is configured in `euclid.json` under `euclid.modules.eap.local-node` — `ena
 port range — and turned off by setting `enabled` to `false`. macOS, Windows and the Docker image do
 not set it up yet.
 
-macOS — unpacks under `/usr/local`, putting the binary on the same path the Linux packages use. A
-tarball cannot create an account or load a daemon, so those two steps are yours:
+macOS — unpacks into `/usr/local/euclid-wrk`, the same tree the Linux packages use. A tarball
+cannot create an account or load a daemon, so those two steps are yours:
 
 ```bash
 wget https://jensvogt.github.io/euclid/euclid-wrk-<version>-macos.tgz
@@ -411,20 +425,26 @@ sudo dscl . -create /Groups/_euclid-wrk PrimaryGroupID 399
 sudo dscl . -create /Users/_euclid-wrk UserShell /usr/bin/false
 sudo dscl . -create /Users/_euclid-wrk UniqueID 399
 sudo dscl . -create /Users/_euclid-wrk PrimaryGroupID 399
-sudo dscl . -create /Users/_euclid-wrk NFSHomeDirectory /usr/local/var/euclid-wrk
+sudo dscl . -create /Users/_euclid-wrk NFSHomeDirectory /usr/local/euclid-wrk
 sudo dscl . -create /Users/_euclid-wrk RealName "Euclid Worker Node"
 
-# Everything a worker writes: fetched artifacts, each instance's credentials, the applications'
-# own output. Nothing here is durable, so it can be thrown away without losing anything.
-sudo mkdir -p /usr/local/var/euclid-wrk/log
-sudo chown -R _euclid-wrk:_euclid-wrk /usr/local/var/euclid-wrk
-sudo chmod 0750 /usr/local/var/euclid-wrk
+# Everything a worker writes, and nothing else: logs/ its log files; data/ fetched artifacts and
+# each instance's credentials, nothing durable, so it can be thrown away without losing anything;
+# data/tmp the job's TMPDIR, temporary files and Unix sockets the account can clean up itself; and
+# .euclid its own login. bin/ and etc/ stay root's.
+sudo mkdir -p /usr/local/euclid-wrk/logs /usr/local/euclid-wrk/data/tmp /usr/local/euclid-wrk/.euclid
+sudo chown -R _euclid-wrk:_euclid-wrk /usr/local/euclid-wrk/logs /usr/local/euclid-wrk/data \
+    /usr/local/euclid-wrk/.euclid
+sudo chmod 0750 /usr/local/euclid-wrk/logs /usr/local/euclid-wrk/data /usr/local/euclid-wrk/data/tmp
+sudo chmod 0700 /usr/local/euclid-wrk/.euclid
+sudo chown root:_euclid-wrk /usr/local/euclid-wrk/etc/euclid-wrk.json
+sudo chmod 0640 /usr/local/euclid-wrk/etc/euclid-wrk.json
 
-sudo vi /usr/local/euclid/etc/euclid-wrk.json          # euclid.worker.endpoint
+sudo vi /usr/local/euclid-wrk/etc/euclid-wrk.json      # euclid.worker.endpoint
 
 # The login needs euclid-cli, which this package does not carry - unpack the CLI tarball above if
-# it is not already here. -H puts the credentials in _euclid-wrk's own home, which is the state
-# directory created above and exactly the path euclid.worker.credentials names: the configuration
+# it is not already here. -H puts the credentials in _euclid-wrk's own home, /usr/local/euclid-wrk,
+# which is exactly the path euclid.worker.credentials names: the configuration
 # spells it out rather than relying on HOME, because launchd does not promise a daemon the one its
 # user record gives.
 sudo -H -u _euclid-wrk euclid-cli --endpoint https://euclid.example.com \
@@ -433,8 +453,28 @@ sudo -H -u _euclid-wrk euclid-cli --endpoint https://euclid.example.com \
 # /Library/LaunchDaemons is the only directory launchd reads system daemons from, and it will reject
 # a job file that is not root-owned 0644.
 sudo install -o root -g wheel -m 0644 \
-    /usr/local/euclid/etc/de.jensvogt.euclid-wrk.plist /Library/LaunchDaemons/
+    /usr/local/euclid-wrk/etc/de.jensvogt.euclid-wrk.plist /Library/LaunchDaemons/
 sudo launchctl bootstrap system /Library/LaunchDaemons/de.jensvogt.euclid-wrk.plist
+```
+
+Upgrading a macOS worker installed before the move to `/usr/local/euclid-wrk` (binary and
+configuration under `/usr/local/euclid`, state under `/usr/local/var/euclid-wrk`): unpack the new
+tarball and run the account-independent steps above, then carry over the configuration and the
+login, point the account's home at the new tree and reload the job:
+
+```bash
+sudo launchctl bootout system /Library/LaunchDaemons/de.jensvogt.euclid-wrk.plist
+sudo sed -e 's#/usr/local/var/euclid-wrk/log#/usr/local/euclid-wrk/logs#g' \
+         -e 's#/usr/local/var/euclid-wrk/.euclid#/usr/local/euclid-wrk/.euclid#g' \
+         -e 's#/usr/local/var/euclid-wrk#/usr/local/euclid-wrk/data#g' \
+         /usr/local/euclid/etc/euclid-wrk.json | sudo tee /usr/local/euclid-wrk/etc/euclid-wrk.json >/dev/null
+sudo cp -Rp /usr/local/var/euclid-wrk/.euclid/. /usr/local/euclid-wrk/.euclid/
+sudo dscl . -create /Users/_euclid-wrk NFSHomeDirectory /usr/local/euclid-wrk
+sudo install -o root -g wheel -m 0644 \
+    /usr/local/euclid-wrk/etc/de.jensvogt.euclid-wrk.plist /Library/LaunchDaemons/
+sudo launchctl bootstrap system /Library/LaunchDaemons/de.jensvogt.euclid-wrk.plist
+# then, once it runs: /usr/local/euclid/bin/euclid-wrk, /usr/local/euclid/etc/euclid-wrk.json,
+# the old plist copy beside it and /usr/local/var/euclid-wrk can be removed
 ```
 
 Windows — download and run `euclid-wrk-<version>-amd64.msi`, which installs the binary and registers
@@ -868,12 +908,12 @@ each application a file:
 ```
 
 Every application then also writes to `<euclid.logging.dir>/<applicationId>.log`. On the local
-node that is `/var/lib/euclid-wrk/log/transformation.log`, for example, since the local node
+node that is `/usr/local/euclid-wrk/logs/transformation.log`, for example, since the local node
 inherits the setting from the manager's `euclid.json`. The application's lines still go to the
 process's own log, the console and the journal as before.
 
 Each file rotates at `file-size-mb` and keeps `file-count` rotated files, in a directory named
-after the application (`/var/lib/euclid-wrk/log/transformation/transformation_1.log`, ...). They
+after the application (`/usr/local/euclid-wrk/logs/transformation/transformation_1.log`, ...). They
 have a directory of their own because rotated files in the same directory would share one limit
 with the process's own log, and a busy application would push the worker's history out. The files
 use `file-format` and `file-level` like the process's own file, and a channel level such as

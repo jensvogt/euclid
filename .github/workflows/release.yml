@@ -12,8 +12,9 @@ env:
   CLI_NAME: "euclid-cli"
   # The worker ships *only* under this name, unlike the CLI. A worker host is deliberately not a
   # euclid host - it runs no modules, holds no database credentials and has nothing listening - and
-  # a manager host has no use for the binary, since the manager already runs applications itself.
-  # So it is excluded from APP_NAME's payload rather than shipped twice. See docs/worker-nodes.md.
+  # a manager host is not necessarily a worker host. APP_NAME neither carries nor depends on it: a
+  # manager host that should run applications too installs this package on top of APP_NAME, which
+  # makes it the local node (docs/worker-nodes.md §13.3).
   WORKER_NAME: "euclid-wrk"
   INSTALLER_ID: "de.jensvogt.euclid"
   VCPKG_BUILD_TYPE: release
@@ -531,17 +532,19 @@ jobs:
       # no database credentials and has nothing listening, so the server tarball excludes this
       # binary (see the loop in "Prepare package structure") and this is where it ships instead.
       #
-      # Unpacks under /usr/local like the server tarball, so the binary lands on the same path the
-      # DEB and RPM put it on and the launchd job can name one path on every platform that has one.
+      # Unpacks under /usr/local like the server tarball, into /usr/local/euclid-wrk - the same tree
+      # the DEB and RPM install - so the launchd job names the paths the unit file does. logs/ and
+      # data/ (with data/tmp, the job's TMPDIR) are made by the install steps in README.md, since a
+      # tarball cannot create the account they belong to.
       - name: Prepare macOS worker package
         run: |
-          mkdir -p ${{ env.PACKAGE_DIR_WRK }}/euclid/bin
-          mkdir -p ${{ env.PACKAGE_DIR_WRK }}/euclid/etc
+          mkdir -p ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/bin
+          mkdir -p ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/etc
           # Tarball root, as in the server tarball: unpacked at /usr/local this is
           # /usr/local/share/man/man8, which macOS's man already searches.
           mkdir -p ${{ env.PACKAGE_DIR_WRK }}/share/man/man8
 
-          cp ${{ env.BUILD_DIR }}/bin/${{ env.WORKER_NAME }} ${{ env.PACKAGE_DIR_WRK }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/${{ env.WORKER_NAME }} ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/bin/
 
           # From worker/docs/man, not cli/docs/man, so the server tarball - which takes every
           # cli/docs/man/*.8 - does not carry it too. Same stamping as the server tarball, with BSD
@@ -561,21 +564,21 @@ jobs:
           # From dist/macos/wrk/ rather than dist/macos/etc/, which the server package copies
           # wholesale: a worker config under that directory would be installed on every manager host
           # as well, which is the one machine that must never be pointed at it.
-          cp dist/macos/wrk/euclid-wrk.json ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/
+          cp dist/macos/wrk/euclid-wrk.json ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/etc/
 
           # Shipped where it can be read, not where launchd reads it. /Library/LaunchDaemons is
           # outside this tarball's prefix and the file has to be root-owned 0644 there or launchd
           # refuses the job, so copying it is one of the install steps rather than something
           # unpacking does invisibly.
-          cp dist/macos/wrk/de.jensvogt.euclid-wrk.plist ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/
+          cp dist/macos/wrk/de.jensvogt.euclid-wrk.plist ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/etc/
 
       - name: Verify macOS worker package contents
         run: |
-          test -x ${{ env.PACKAGE_DIR_WRK }}/euclid/bin/${{ env.WORKER_NAME }} \
+          test -x ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/bin/${{ env.WORKER_NAME }} \
             || { echo "::error::${{ env.WORKER_NAME }} is missing or not executable in the macOS worker package"; exit 1; }
-          test -s ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/euclid-wrk.json \
+          test -s ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/etc/euclid-wrk.json \
             || { echo "::error::euclid-wrk.json is missing from the macOS worker package"; exit 1; }
-          test -s ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/de.jensvogt.euclid-wrk.plist \
+          test -s ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/etc/de.jensvogt.euclid-wrk.plist \
             || { echo "::error::de.jensvogt.euclid-wrk.plist is missing from the macOS worker package"; exit 1; }
           test -s ${{ env.PACKAGE_DIR_WRK }}/share/man/man8/euclid-wrk.8.gz \
             || { echo "::error::the euclid-wrk(8) man page is missing from the macOS worker package"; exit 1; }
@@ -584,7 +587,7 @@ jobs:
           # start if its configuration names the signing secret, so shipping a file that does would
           # make every installed worker fail to start - and the fix would look like a euclid bug
           # rather than a packaging one.
-          if grep -q "jwt-secret" ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/euclid-wrk.json; then
+          if grep -q "jwt-secret" ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/etc/euclid-wrk.json; then
             echo "::error::the shipped euclid-wrk.json names jwt-secret; a worker refuses to start with it (see docs/worker-nodes.md §3.2)"
             exit 1
           fi
@@ -592,15 +595,25 @@ jobs:
           # The plist is the only thing here that decides what the node runs as, and the applications
           # a worker starts inherit it. There is no ProtectSystem=strict on macOS to limit the damage
           # if this regressed to root, and a plist with no UserName runs as root silently.
-          if ! grep -q "_euclid-wrk" ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/de.jensvogt.euclid-wrk.plist; then
+          if ! grep -q "_euclid-wrk" ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/etc/de.jensvogt.euclid-wrk.plist; then
             echo "::error::the worker plist does not name the _euclid-wrk account; the job would run as root"
             exit 1
           fi
 
           # plutil is in the base system, so the plist is checked for being loadable rather than
           # merely non-empty - launchd rejects a malformed job with nothing but a syslog line.
-          plutil -lint ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/de.jensvogt.euclid-wrk.plist \
+          plutil -lint ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/etc/de.jensvogt.euclid-wrk.plist \
             || { echo "::error::de.jensvogt.euclid-wrk.plist is not a valid property list"; exit 1; }
+
+          # Every path the job and the configuration name is in the worker's own tree - the check
+          # the Linux worker package makes on its unit and configuration.
+          for file in ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/etc/euclid-wrk.json \
+                      ${{ env.PACKAGE_DIR_WRK }}/euclid-wrk/etc/de.jensvogt.euclid-wrk.plist; do
+            if grep -nE '/usr/local/var/euclid-wrk|/usr/local/euclid/(bin|etc)/euclid-wrk' "$file"; then
+              echo "::error::$file still names the worker's old location"
+              exit 1
+            fi
+          done
 
           # Two packages owning one path is a conflict somebody finds on their own machine. On Linux
           # dpkg reports it; here nothing would, so the tarballs are checked against each other.
@@ -787,10 +800,9 @@ jobs:
           # to be missing from the DEB package while euclid.json still pointed at them, leaving
           # the manager restart-looping on binaries that were not installed. The test executables
           # are built into the same directory and are skipped, as is euclid-wrk - which ships in
-          # a package of its own. A worker host runs no modules and holds no database credentials,
-          # and a manager host has no use for the binary because the manager already runs
-          # applications itself; shipping it here would put it on every machine that needs it least
-          # and make two packages own one path. Excluding by name rather than listing what to
+          # a package of its own. A manager host is a worker only if somebody installs euclid-wrk
+          # on top of this package; shipping it here would put a worker on every manager host and
+          # make two packages own one path. Excluding by name rather than listing what to
           # include, so a module added tomorrow is still picked up.
           for binary in ${{ env.BUILD_DIR }}/bin/euclid-*; do
             case "$(basename "$binary")" in
@@ -810,9 +822,9 @@ jobs:
           # Everything in etc/ except the worker's own configuration, which belongs to the
           # euclid-wrk package. Both packages owning /usr/local/euclid/etc/euclid-wrk.json is a
           # dpkg "trying to overwrite '/usr/local/euclid/etc/euclid-wrk.json', which is also in
-          # package euclid" the moment the dependency is unpacked - which is to say on every
-          # install of the server, because euclid-wrk is one. The binary loop above already
-          # excludes euclid-wrk for the same reason; this file was swept in by the wildcard.
+          # package euclid" the moment the worker is installed on a manager host. The binary loop
+          # above already excludes euclid-wrk for the same reason; this file was swept in by the
+          # wildcard.
           #
           # Excluded by name rather than listing what to include, so a configuration file added
           # tomorrow is still picked up.
@@ -832,9 +844,11 @@ jobs:
           # path "magic-file" in euclid.json points to.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/${{ matrix.vcpkg_triplet }}/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system/
-          # The local node (docs/worker-nodes.md §13.3): a drop-in that points the euclid-wrk this
-          # package depends on at the configuration the manager generates for it. Shipped here, not
-          # in the worker package, so a worker host without a manager never has it.
+          # The local node (docs/worker-nodes.md §13.3): a drop-in that points euclid-wrk, if it is
+          # installed on top of this package, at the configuration the manager generates for it.
+          # Shipped here, not in the worker package, so a worker host without a manager never has
+          # it; without the worker it is a drop-in for a unit that does not exist, which systemd
+          # ignores.
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system/euclid-wrk.service.d
           cp dist/linux/systemd/system/euclid-wrk.service.d/local-node.conf ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system/euclid-wrk.service.d/
           # /usr/local/share/man is a mandatory manpath entry on Debian and Ubuntu, so the pages
@@ -896,15 +910,17 @@ jobs:
           # The manager's configuration holds the signing secret and the database password, and the
           # gateway's key is a private key: none of them is anybody's but the manager's account.
           # Shipped as 0644 like every other file in the package, which on a host that also runs a
-          # worker - and the local node means every manager host does - would have it readable by
+          # worker - the local node, once euclid-wrk is installed here - would have it readable by
           # the one account that must never hold the secret.
           chmod 0640 /usr/local/euclid/etc/euclid.json
           chmod 0640 /usr/local/euclid/etc/euclid_cert.key 2>/dev/null || true
 
-          # The local node: the manager hands it its credentials and configuration through files
-          # owned by the worker's group, so the manager's account has to be in it. euclid-wrk is a
-          # dependency, so the group exists by now. Before the restart below, which is what makes
-          # the manager pick the membership up.
+          # The local node, if euclid-wrk is installed on this host too. The manager hands it its
+          # credentials and configuration through files owned by the worker's group, so the
+          # manager's account has to be in it. Before the restart below, which is what makes the
+          # manager pick the membership up. Without the worker there is no group, and EAP does not
+          # provision a local node. The worker package does the same from its side, so either
+          # order of installing the two ends in the same place.
           if getent group euclid-wrk >/dev/null; then
             usermod -a -G euclid-wrk euclid
           fi
@@ -914,9 +930,12 @@ jobs:
           systemctl restart euclid.service || true
 
           # After the manager, which writes what the worker waits for. Restarted rather than only
-          # started, so an upgrade picks up a changed drop-in or binary.
-          systemctl enable euclid-wrk.service || true
-          systemctl restart euclid-wrk.service || true
+          # started, so an upgrade picks up a changed drop-in or binary. Only where the worker is
+          # installed: this package does not bring it.
+          if [ -f /etc/systemd/system/euclid-wrk.service ]; then
+            systemctl enable euclid-wrk.service || true
+            systemctl restart euclid-wrk.service || true
+          fi
           EOF
 
           cat << EOF > ${{ github.workspace }}/deb-scripts/postremove.sh
@@ -935,9 +954,10 @@ jobs:
             rm -f /etc/systemd/system/euclid.service
             rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-mgr
 
-            # The local node goes with the manager it was the node of. Stopped and disabled rather
-            # than left: without the drop-in it is an unconfigured standalone worker, which would
-            # only restart-loop. The worker package stays installed for whoever wants one.
+            # The local node, if there was one, goes with the manager it was the node of. Stopped
+            # and disabled rather than left: without the drop-in it is an unconfigured standalone
+            # worker, which would only restart-loop. The worker package stays installed for
+            # whoever wants one. Harmless where euclid-wrk was never installed.
             systemctl stop euclid-wrk.service || true
             systemctl disable euclid-wrk.service || true
             rm -f /etc/systemd/system/euclid-wrk.service.d/local-node.conf
@@ -997,7 +1017,6 @@ jobs:
           --depends "libgoogle-perftools4 | libgoogle-perftools4t64" \
           --depends libunwind8 \
           --depends liblzma5 \
-          --depends "${{ env.WORKER_NAME }} (= ${{ env.SEMVER }})" \
           --config-files /usr/local/euclid/etc/euclid.json \
           --after-install ${{ github.workspace }}/deb-scripts/postinstall.sh \
           --after-remove ${{ github.workspace }}/deb-scripts/postremove.sh \
@@ -1037,11 +1056,8 @@ jobs:
           # to be missing from the RPM package while euclid.json still pointed at them, leaving
           # the manager restart-looping on binaries that were not installed. The test executables
           # are built into the same directory and are skipped, as is euclid-wrk - which ships in
-          # a package of its own. A worker host runs no modules and holds no database credentials,
-          # and a manager host has no use for the binary because the manager already runs
-          # applications itself; shipping it here would put it on every machine that needs it least
-          # and make two packages own one path. Excluding by name rather than listing what to
-          # include, so a module added tomorrow is still picked up.
+          # a package of its own, installed on top of this one where the manager host should run
+          # applications too. See the DEB step above.
           for binary in ${{ env.BUILD_DIR }}/bin/euclid-*; do
             case "$(basename "$binary")" in
               *-tests) continue ;;
@@ -1136,8 +1152,11 @@ jobs:
           systemctl enable euclid.service
           systemctl restart euclid.service || true
 
-          systemctl enable euclid-wrk.service || true
-          systemctl restart euclid-wrk.service || true
+          # Only where euclid-wrk is installed on top - see the DEB postinstall above.
+          if [ -f /etc/systemd/system/euclid-wrk.service ]; then
+            systemctl enable euclid-wrk.service || true
+            systemctl restart euclid-wrk.service || true
+          fi
           EOF
 
           cat << EOF > ${{ github.workspace }}/rpm-scripts/postremove.sh
@@ -1215,7 +1234,6 @@ jobs:
           --depends gperftools-libs \
           --depends libunwind \
           --depends xz-libs \
-          --depends "${{ env.WORKER_NAME }} = ${SEMVER}" \
           --prefix / \
           --after-install ${{ github.workspace }}/rpm-scripts/postinstall.sh \
           --after-remove ${{ github.workspace }}/rpm-scripts/postremove.sh \
@@ -1395,9 +1413,10 @@ jobs:
       # credentials, nothing listening. See docs/worker-nodes.md §2.
       #
       # Unlike the CLI, this ships only here - it is excluded from the server package's payload
-      # above. A manager host has no use for the binary, because the manager already runs
-      # applications itself, and two packages owning /usr/local/euclid/bin/euclid-wrk would be
-      # a file conflict for no gain.
+      # above, and the server package does not depend on it. A manager host that should run
+      # applications too installs this on top of the server package, and becomes the local node
+      # (docs/worker-nodes.md §13.3): the server package carries the drop-in, and the postinstall
+      # below wires the two together.
       #
       # Built from the same binary as everything else in this job, so a worker is byte for byte
       # the build the release was cut from.
@@ -1406,14 +1425,20 @@ jobs:
         run: |
           # One tree for both the DEB and the RPM. The unit file is the only thing here a
           # distribution might have an opinion about, and both of these take it at the same path.
-          mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin
-          mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc
+          #
+          # The worker's own tree, /usr/local/euclid-wrk, beside the manager's /usr/local/euclid
+          # rather than inside it: bin/ and etc/ ship here, logs/ and data/ (with data/tmp, the
+          # unit's TMPDIR) are made by the postinstall and belong to the euclid-wrk account. Inside
+          # the manager's tree, the server package's postinstall - which hands everything under
+          # /usr/local/euclid to the euclid account - took the worker's configuration with it.
+          mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid-wrk/bin
+          mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid-wrk/etc
           mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/usr/local/share/man/man8
           mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/etc/systemd/system
 
-          cp ${{ env.BUILD_DIR }}/bin/euclid-wrk ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-wrk ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid-wrk/bin/
           # See the server package above: the symbol table is dead weight in a shipped binary.
-          strip --strip-unneeded ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin/euclid-wrk
+          strip --strip-unneeded ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid-wrk/bin/euclid-wrk
 
           # Section 8, like the other daemons' pages, and from worker/docs/man rather than
           # cli/docs/man: the server packages copy every cli/docs/man/*.8, so a page kept there
@@ -1430,7 +1455,7 @@ jobs:
           # finds that key - anything holding it can mint a token for any principal in the
           # installation, including admin, offline and unaudited. Shipping a separate file is what
           # stops somebody pointing the unit at the one next to it.
-          cp dist/linux/etc/euclid-wrk.json ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc/
+          cp dist/linux/etc/euclid-wrk.json ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid-wrk/etc/
           cp dist/linux/systemd/system/euclid-wrk.service ${{ env.PACKAGE_DIR_WORKER }}/etc/systemd/system/
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_WORKER - see the matching comment in the
@@ -1439,32 +1464,102 @@ jobs:
           cat << EOF > ${{ github.workspace }}/worker-scripts/postinstall.sh
           #!/bin/bash
           set -e
-          ln -sf /usr/local/euclid/bin/euclid-wrk /usr/local/bin/euclid-wrk
+          ln -sf /usr/local/euclid-wrk/bin/euclid-wrk /usr/local/bin/euclid-wrk
 
           # Its own account, not euclid's. A worker host is deliberately not a euclid host, and if
           # somebody later installs the server package here the two should not be able to read each
-          # other's files - least of all this one reading the manager's configuration.
+          # other's files - least of all this one reading the manager's configuration. Its home is
+          # its own tree, so the credentials "euclid-cli eam login" writes land in
+          # /usr/local/euclid-wrk/.euclid.
           if ! getent group euclid-wrk >/dev/null; then
             groupadd --system euclid-wrk
           fi
           if ! getent passwd euclid-wrk >/dev/null; then
-            useradd --system --gid euclid-wrk --home-dir /var/lib/euclid-wrk \
+            useradd --system --gid euclid-wrk --home-dir /usr/local/euclid-wrk \
                     --shell /usr/sbin/nologin --comment "Euclid Worker Node" euclid-wrk
           fi
 
-          # StateDirectory= in the unit creates this on start, but the configuration file has to be
-          # readable before that and the log directory it names has to exist.
-          mkdir -p /var/lib/euclid-wrk/log
-          chown -R euclid-wrk:euclid-wrk /var/lib/euclid-wrk
-          chown euclid-wrk:euclid-wrk /usr/local/euclid/etc/euclid-wrk.json
-          chmod 0640 /usr/local/euclid/etc/euclid-wrk.json
+          # Whether the worker was running before this install, so an upgrade can put it back on the
+          # new version - the move below may have to stop it first.
+          WAS_ACTIVE=no
+          if systemctl is-active --quiet euclid-wrk.service; then WAS_ACTIVE=yes; fi
+
+          # An upgrade from a release that installed into /usr/local/euclid and kept its state in
+          # /var/lib/euclid-wrk. Done once: the old configuration is renamed afterwards, so the next
+          # upgrade finds nothing to move.
+          #
+          # The configuration first. dpkg leaves an edited conffile that a package no longer ships
+          # where it was; rpm saves it as .rpmsave. Either is the endpoint and node this worker was
+          # set up with, so it replaces the template just installed, with the old paths rewritten.
+          for OLD in /usr/local/euclid/etc/euclid-wrk.json /usr/local/euclid/etc/euclid-wrk.json.rpmsave; do
+            if [ -f "\$OLD" ]; then
+              sed -e 's#/var/lib/euclid-wrk/log#/usr/local/euclid-wrk/logs#g' \
+                  -e 's#/var/lib/euclid-wrk#/usr/local/euclid-wrk/data#g' \
+                  -e 's#/usr/local/euclid/etc/#/usr/local/euclid-wrk/etc/#g' \
+                  "\$OLD" > /usr/local/euclid-wrk/etc/euclid-wrk.json
+              mv "\$OLD" "\$OLD.migrated"
+              echo "euclid-wrk: configuration moved from \$OLD to /usr/local/euclid-wrk/etc/euclid-wrk.json"
+              break
+            fi
+          done
+          # The account's home, which is where its login's credentials are. usermod will not move
+          # the home of an account with a running process, hence the stop - and only the
+          # credentials are carried over: everything else under the old home is artifacts and logs,
+          # re-fetched or superseded, and left where it is for whoever wants the old logs.
+          if [ "\$(getent passwd euclid-wrk | cut -d: -f6)" != "/usr/local/euclid-wrk" ]; then
+            systemctl stop euclid-wrk.service || true
+            usermod --home /usr/local/euclid-wrk euclid-wrk
+            if [ -d /var/lib/euclid-wrk/.euclid ] && [ ! -e /usr/local/euclid-wrk/.euclid ]; then
+              cp -a /var/lib/euclid-wrk/.euclid /usr/local/euclid-wrk/.euclid
+              echo "euclid-wrk: credentials copied from /var/lib/euclid-wrk/.euclid; /var/lib/euclid-wrk can be removed"
+            fi
+          fi
+
+          # The tree. bin/ and etc/ stay root's - the account reads them and nothing it starts can
+          # change them - apart from the configuration, which only it and root may read. logs/ and
+          # data/ are its own, and data/tmp is the unit's TMPDIR: temporary files and Unix sockets
+          # the worker and its applications create, in a directory this account can clean up.
+          # .euclid is created rather than left to the login, because the home itself is root's.
+          mkdir -p /usr/local/euclid-wrk/logs /usr/local/euclid-wrk/data/tmp /usr/local/euclid-wrk/.euclid
+          chown root:euclid-wrk /usr/local/euclid-wrk/etc
+          chmod 0750 /usr/local/euclid-wrk/etc
+          chown euclid-wrk:euclid-wrk /usr/local/euclid-wrk/etc/euclid-wrk.json
+          chmod 0640 /usr/local/euclid-wrk/etc/euclid-wrk.json
+          chown -R euclid-wrk:euclid-wrk /usr/local/euclid-wrk/logs /usr/local/euclid-wrk/data /usr/local/euclid-wrk/.euclid
+          chmod 0750 /usr/local/euclid-wrk/logs /usr/local/euclid-wrk/data /usr/local/euclid-wrk/data/tmp
+          chmod 0700 /usr/local/euclid-wrk/.euclid
 
           systemctl daemon-reload
-          # Enabled but deliberately NOT started. A worker cannot do anything until it has been
-          # given an endpoint and logged in as its own principal, and a service that restart-loops
-          # from the moment it is installed buries the one message saying so.
           systemctl enable euclid-wrk.service
 
+          # Installed on top of the server package: this host becomes the local node
+          # (docs/worker-nodes.md §13.3). The server package's drop-in already points the unit at
+          # the configuration the manager generates, so there is nothing to configure or log in -
+          # only the manager's account to put in this package's group, and the manager to restart
+          # so that it picks the membership up and EAP provisions the node. The worker waits for
+          # those files (--wait-for-config), so it is started straight away.
+          #
+          # Both the unit and the account, not just one: when the two packages are installed in
+          # one transaction this may run before the server's postinstall has created the euclid
+          # account. Then this takes the standalone branch, and the server's postinstall - which
+          # adds euclid to this group and starts this unit when it finds it - finishes the job.
+          if [ -f /etc/systemd/system/euclid.service ] && getent passwd euclid >/dev/null; then
+            # The manager is restarted only when the membership is new - a worker upgrade on a host
+            # that already is the local node has no reason to restart every module.
+            if ! id -nG euclid | tr ' ' '\n' | grep -qx euclid-wrk; then
+              usermod -a -G euclid-wrk euclid
+              systemctl try-restart euclid.service || echo "warning: could not restart euclid; run: systemctl restart euclid"
+            fi
+            systemctl restart euclid-wrk.service || echo "warning: could not start euclid-wrk; run: systemctl restart euclid-wrk"
+            echo "euclid-wrk installed as this manager host's local node"
+            exit 0
+          fi
+
+          # A standalone worker host: enabled but deliberately NOT started. A worker cannot do
+          # anything until it has been given an endpoint and logged in as its own principal, and a
+          # service that restart-loops from the moment it is installed buries the one message
+          # saying so.
+          #
           # An upgrade is the exception: a worker that is running has been configured, and left
           # alone it goes on executing the binary this package just replaced - the new version is
           # on disk and in nothing, until somebody thinks to restart it. try-restart restarts only
@@ -1472,12 +1567,13 @@ jobs:
           # stopped stays stopped. After daemon-reload, so a changed unit (Delegate=, limits) takes
           # effect with it. Restarting the worker stops and starts every application instance on
           # this node; that is what installing a new worker means.
-          if systemctl is-active --quiet euclid-wrk.service; then
-            echo "euclid-wrk is running; restarting it on the new version"
-            systemctl try-restart euclid-wrk.service || echo "warning: could not restart euclid-wrk; run: systemctl restart euclid-wrk"
+          # WAS_ACTIVE rather than asking systemd now: the move above may have stopped it.
+          if [ "\$WAS_ACTIVE" = yes ]; then
+            echo "euclid-wrk was running; restarting it on the new version"
+            systemctl restart euclid-wrk.service || echo "warning: could not restart euclid-wrk; run: systemctl restart euclid-wrk"
           else
             echo "euclid-wrk installed. Set euclid.worker.endpoint in"
-            echo "/usr/local/euclid/etc/euclid-wrk.json, log in as this node's principal with"
+            echo "/usr/local/euclid-wrk/etc/euclid-wrk.json, log in as this node's principal with"
             echo "'euclid-cli eam login', then: systemctl start euclid-wrk"
           fi
           EOF
@@ -1514,11 +1610,11 @@ jobs:
 
       - name: Verify worker package contents
         run: |
-          test -x ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin/euclid-wrk \
+          test -x ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid-wrk/bin/euclid-wrk \
             || { echo "::error::euclid-wrk is missing or not executable in the worker package"; exit 1; }
           test -s ${{ env.PACKAGE_DIR_WORKER }}/etc/systemd/system/euclid-wrk.service \
             || { echo "::error::euclid-wrk.service is missing from the worker package"; exit 1; }
-          test -s ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc/euclid-wrk.json \
+          test -s ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid-wrk/etc/euclid-wrk.json \
             || { echo "::error::euclid-wrk.json is missing from the worker package"; exit 1; }
           test -s ${{ env.PACKAGE_DIR_WORKER }}/usr/local/share/man/man8/euclid-wrk.8.gz \
             || { echo "::error::the euclid-wrk(8) man page is missing from the worker package"; exit 1; }
@@ -1527,10 +1623,22 @@ jobs:
           # a worker refuses to start if its configuration names the signing secret, so shipping a
           # file that does would make every installed worker fail to start - and the fix would look
           # like a euclid bug rather than a packaging one. Checked here, where it is one grep.
-          if grep -q "jwt-secret" ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc/euclid-wrk.json; then
+          if grep -q "jwt-secret" ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid-wrk/etc/euclid-wrk.json; then
             echo "::error::the shipped euclid-wrk.json names jwt-secret; a worker refuses to start with it (see docs/worker-nodes.md §3.2)"
             exit 1
           fi
+
+          # Every path the unit, the drop-in and the configuration name is in the worker's own tree:
+          # a leftover /usr/local/euclid/bin/euclid-wrk is an ExecStart that cannot exec, and a
+          # leftover /var/lib/euclid-wrk is a directory ProtectSystem=strict no longer lets it write.
+          for file in ${{ env.PACKAGE_DIR_WORKER }}/etc/systemd/system/euclid-wrk.service \
+                      ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid-wrk/etc/euclid-wrk.json \
+                      ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system/euclid-wrk.service.d/local-node.conf; do
+            if grep -nE '/var/lib/euclid-wrk|/usr/local/euclid/(bin|etc)/euclid-wrk' "$file"; then
+              echo "::error::$file still names the worker's old location"
+              exit 1
+            fi
+          done
 
           # The local node's drop-in ships in the server packages, and has to clear the worker unit's
           # own ExecStart before setting its own - a second ExecStart= without the empty one first is
@@ -1572,7 +1680,7 @@ jobs:
           # vcpkg's own statically, which is why the server package bundles magic.mgc rather than
           # reading the system one.
           fpm -s dir -t deb --name "${{ env.WORKER_NAME }}" \
-          --config-files /usr/local/euclid/etc/euclid-wrk.json \
+          --config-files /usr/local/euclid-wrk/etc/euclid-wrk.json \
           --deb-compression xz \
           --version "${{ env.SEMVER }}" \
           --architecture ${{ matrix.arch }} \
@@ -1601,7 +1709,7 @@ jobs:
         run: |
           fpm -s dir -t rpm \
           -n "${{ env.WORKER_NAME }}" \
-          --config-files /usr/local/euclid/etc/euclid-wrk.json \
+          --config-files /usr/local/euclid-wrk/etc/euclid-wrk.json \
           -v ${SEMVER} \
           --architecture ${{ matrix.rpm_arch }} \
           --description "Euclid worker node - runs euclid applications on a host that is not the manager" \

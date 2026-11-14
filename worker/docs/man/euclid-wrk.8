@@ -139,7 +139,7 @@ by an upgrade, the configuration file is not. The command line wins.
 .TP
 .BR \-c ", " \-\-config " " \fIPATH\fR
 Configuration file to read. The packaged service uses
-.IR /usr/local/euclid/etc/euclid-wrk.json .
+.IR /usr/local/euclid-wrk/etc/euclid-wrk.json .
 .TP
 .BR \-e ", " \-\-endpoint " " \fIURL\fR
 The manager's gateway, e.g. \fIhttps://euclid.example:5566\fR. Required.
@@ -176,9 +176,8 @@ side sees, e.g. behind NAT.
 .BR \-d ", " \-\-data\-dir " " \fIPATH\fR
 Where fetched artifacts, instance credentials and application output go.
 Defaults to
-.IR /var/lib/euclid-wrk ;
-the macOS package sets
-.IR /usr/local/var/euclid-wrk .
+.IR /usr/local/euclid-wrk/data ,
+which the macOS package's configuration also names.
 Nothing in it is durable and it can be deleted while the worker is
 stopped.
 .I (config:
@@ -231,7 +230,7 @@ Run as an ordinary console process instead of under the Service Control
 Manager.
 .SH CONFIGURATION
 A JSON file, by default
-.IR /usr/local/euclid/etc/euclid-wrk.json :
+.IR /usr/local/euclid-wrk/etc/euclid-wrk.json :
 .PP
 .RS
 .nf
@@ -255,7 +254,7 @@ A JSON file, by default
     },
     "logging": {
       "level": "info",
-      "dir": "/var/lib/euclid-wrk/log",
+      "dir": "/usr/local/euclid-wrk/logs",
       "prefix": "euclid-wrk"
     }
   }
@@ -470,7 +469,7 @@ sudo -H -u euclid-wrk euclid-cli --endpoint https://euclid.example:5566 \e
 puts the credentials in the
 .I euclid-wrk
 account's home,
-.IR /var/lib/euclid-wrk ,
+.IR /usr/local/euclid-wrk ,
 which is where the service reads them. A login leaves a session token
 and a long-lived access key there; the worker signs every request with
 the key, so the session expiring does not stop it.
@@ -488,8 +487,13 @@ for the application's principal, which the worker writes where the
 instance reads it and replaces halfway through its life. The
 installation's signing secret never reaches a worker.
 .SH THE LOCAL NODE
-On Linux the server package depends on this one, and the manager's own
-host runs a worker too: the local node. Nothing is set up by hand. When
+On Linux, installing this package on top of the server package makes the
+manager's own host run a worker too: the local node. The server package
+does not depend on this one; without it the manager's host runs no
+applications. Nothing is set up by hand: this package's installation adds
+the manager's account to the
+.I euclid-wrk
+group and restarts the manager once. When
 the manager's EAP starts, it makes sure a
 .I local-node
 principal exists \- no login, one access key, the
@@ -515,7 +519,7 @@ It is configured in the manager's
 .I euclid.json
 under
 .IR euclid.modules.eap.local-node ,
-and removed with the server package.
+and removed with the server package or this one.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -531,28 +535,38 @@ standard error.
 The command line could not be parsed.
 .SH FILES
 .TP
-.I /usr/local/euclid/bin/euclid-wrk
+.I /usr/local/euclid-wrk
+The worker's own tree on Linux, and the
+.I euclid-wrk
+account's home: the worker's own credentials are under
+.IR .euclid/ .
+.TP
+.I /usr/local/euclid-wrk/bin/euclid-wrk
 The executable, linked from
 .IR /usr/local/bin/euclid-wrk .
 .TP
-.I /usr/local/euclid/etc/euclid-wrk.json
+.I /usr/local/euclid-wrk/etc/euclid-wrk.json
 The configuration file the packaged service reads.
 .TP
-.I /var/lib/euclid-wrk
-The data directory and the
-.I euclid-wrk
-account's home: artifacts under
-.IR applications/ ,
-logs under
-.IR log/ ,
-and the worker's own credentials under
-.IR .euclid/ .
+.I /usr/local/euclid-wrk/logs
+The log files.
 .TP
-.I /usr/local/var/euclid-wrk
-On macOS, the
+.I /usr/local/euclid-wrk/data
+The data directory: artifacts under
+.IR applications/ .
+.TP
+.I /usr/local/euclid-wrk/data/tmp
+The service's
+.BR TMPDIR :
+temporary files and Unix sockets of the worker and of every application
+it starts, owned by the
+.I euclid-wrk
+account so that it can remove them.
+.PP
+The same tree on macOS, where the account is
 .I _euclid-wrk
-account's home: its log, its credentials and launchd's capture of the
-worker's console output.
+and launchd's capture of the worker's console output is in
+.IR logs/ .
 .TP
 .I /etc/systemd/system/euclid-wrk.service
 The systemd unit. Installed enabled but not started, since a worker can
@@ -566,7 +580,7 @@ Set up a node after installing the package:
 .PP
 .RS
 .nf
-sudoedit /usr/local/euclid/etc/euclid-wrk.json      # euclid.worker.endpoint
+sudoedit /usr/local/euclid-wrk/etc/euclid-wrk.json  # euclid.worker.endpoint
 sudo -H -u euclid-wrk euclid-cli --endpoint https://euclid.example:5566 \e
     eam login --user raspi-01 --password <secret>
 sudo systemctl start euclid-wrk

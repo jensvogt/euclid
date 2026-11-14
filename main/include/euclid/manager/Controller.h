@@ -137,7 +137,7 @@ namespace Euclid::main {
          *
          * @par What that means for a host
          * A host with euclid-wrk installed runs applications as any other worker does - the
-         * manager's host included, through the local node the server package provisions (§13.3). A
+         * manager's host included, when euclid-wrk is installed on top of the server package, as the local node (§13.3). A
          * host without one is a manager and runs no application at all: its applications stay
          * unplaced, which is said once per pass rather than once per application.
          *

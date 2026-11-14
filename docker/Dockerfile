@@ -52,7 +52,7 @@ RUN --mount=type=cache,target=/vcpkg-cache \
     cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
     -DCMAKE_BUILD_TYPE=Release -Wno-dev && \
     cmake --build build && \
-    rm -f build/bin/*-tests
+    rm -f build/bin/*-tests build/bin/euclid-wrk
 
 # Debian rather than alpine, for a stage that is discarded anyway: this is the libc and the node
 # that the release pipeline builds euclid-web on (actions/setup-node on ubuntu), so a frontend that
@@ -132,7 +132,9 @@ COPY --from=buildfrontend /usr/src/euclid-web/dist/euclid-web/browser/ /usr/loca
 # it, leaving the manager restart-looping for the life of the container on a binary that was never
 # installed. The same drift the macOS package hit, fixed the same way. The test executables land in
 # this directory too and are removed in the build stage above, so they are gone before the layer
-# that would otherwise carry them: deleting them here would leave them in the image.
+# that would otherwise carry them: deleting them here would leave them in the image. So is
+# euclid-wrk: like the server packages, the image is the manager only, and nothing here starts a
+# worker (docs/worker-nodes.md §13.3).
 #
 # Includes euclid-mgr and euclid-cli, the document store euclid-emd - the image runs on it rather
 # than on MongoDB, see euclid.database.backend in the bundled configuration, so nothing else here

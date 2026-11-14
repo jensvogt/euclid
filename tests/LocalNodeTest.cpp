@@ -12,6 +12,11 @@
 #include <sstream>
 #include <string>
 
+#ifndef _WIN32
+#include <grp.h>
+#include <unistd.h>
+#endif
+
 // Boost includes
 #include <boost/json.hpp>
 
@@ -42,7 +47,17 @@ namespace {
         Configuration::instance().load(path);
     }
 
-    std::string configurationWith(const bool enabled) {
+    // The group the worker's files are handed to. Provision does nothing without it - its absence
+    // means euclid-wrk is not installed - and a test host has no euclid-wrk group, so the tests
+    // name one this process is certainly in: its own.
+    std::string ownGroup() {
+#ifndef _WIN32
+        if (const auto *entry = getgrgid(getgid()); entry != nullptr) return entry->gr_name;
+#endif
+        return "euclid-wrk";
+    }
+
+    std::string configurationWith(const bool enabled, const std::string &group = ownGroup()) {
         // A path in JSON, so its backslashes on Windows have to be escaped.
         auto directory = kDirectory.string();
         for (std::size_t at = 0; (at = directory.find('\\', at)) != std::string::npos; at += 2) directory.replace(at, 1, "\\\\");
@@ -57,13 +72,14 @@ namespace {
                 "http-port-min": 9000, "http-port-max": 9999,
                 "runtimes": {"java21": "/opt/jdk21/bin/java"},
                 "local-node": {"enabled": )" + std::string(enabled ? "true" : "false") + R"(, "name": "local",
+                               "group": ")" + group + R"(",
                                "dir": ")" + directory + R"(", "http-port-min": 10000, "http-port-max": 10999}}}}})";
     }
 
-    void freshInstallation(const bool enabled) {
+    void freshInstallation(const bool enabled, const std::string &group = ownGroup()) {
         std::error_code ec;
         std::filesystem::remove_all(kDirectory, ec);
-        configure(configurationWith(enabled));
+        configure(configurationWith(enabled, group));
         Euclid::Database::Database::instance().initializeMemory();
     }
 
@@ -84,6 +100,20 @@ BOOST_AUTO_TEST_CASE(NothingHappensUnlessItIsEnabled) {
     BOOST_TEST(!Euclid::Database::RepositoryFactory::instance().eamRepository()->findUserByUserId("local-node").has_value());
     BOOST_TEST(!std::filesystem::exists(kDirectory / "credentials"));
 }
+
+#ifndef _WIN32
+// The server package does not bring the worker. Without its group euclid-wrk is not installed here,
+// and a principal and key for a node that will never run would only be one more credential lying
+// about - so nothing is made until the worker is installed on top and the manager restarted.
+BOOST_AUTO_TEST_CASE(NothingHappensWithoutTheWorkersGroup) {
+
+    freshInstallation(true, "euclid-no-such-group");
+    LocalNode::Provision();
+
+    BOOST_TEST(!Euclid::Database::RepositoryFactory::instance().eamRepository()->findUserByUserId("local-node").has_value());
+    BOOST_TEST(!std::filesystem::exists(kDirectory / "credentials"));
+}
+#endif
 
 BOOST_AUTO_TEST_CASE(ItIsAPrincipalThatCannotLogInHoldingOneKeyAndTheNodeRole) {
 

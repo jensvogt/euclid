@@ -7,6 +7,7 @@
       "address": "",
       "monitoring-active": true,
       "application-monitoring-active": true,
+      "data-dir": "/usr/local/euclid-wrk/data",
       "http-port-min": 9000,
       "http-port-max": 9999,
       "cgroups-active": true,
@@ -27,7 +28,7 @@
       "file-size-mb": 50,
       "file-count": 10,
       "application-files": false,
-      "dir": "/var/lib/euclid-wrk/log",
+      "dir": "/usr/local/euclid-wrk/logs",
       "prefix": "euclid-wrk"
     }
   }

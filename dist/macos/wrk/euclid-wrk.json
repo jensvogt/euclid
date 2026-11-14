@@ -16,13 +16,13 @@
         "python": "python3",
         "nodejs": "node"
       },
-      "data-dir": "/usr/local/var/euclid-wrk",
-      "credentials": "/usr/local/var/euclid-wrk/.euclid/credentials"
+      "data-dir": "/usr/local/euclid-wrk/data",
+      "credentials": "/usr/local/euclid-wrk/.euclid/credentials"
     },
     "logging": {
       "level": "info",
       "file-active": true,
-      "dir": "/usr/local/var/euclid-wrk/log",
+      "dir": "/usr/local/euclid-wrk/logs",
       "prefix": "euclid-wrk",
       "file-size-mb": 50,
       "file-count": 10

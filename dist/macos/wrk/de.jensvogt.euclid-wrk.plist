@@ -60,19 +60,28 @@
              loglevel option is passed. -->
         <key>ProgramArguments</key>
         <array>
-            <string>/usr/local/euclid/bin/euclid-wrk</string>
+            <string>/usr/local/euclid-wrk/bin/euclid-wrk</string>
             <string>--config</string>
-            <string>/usr/local/euclid/etc/euclid-wrk.json</string>
+            <string>/usr/local/euclid-wrk/etc/euclid-wrk.json</string>
         </array>
+
+        <!-- Temporary files and Unix sockets, the worker's and those of every application it starts,
+             which inherit this: in a directory _euclid-wrk owns, so it can remove what it and its
+             applications leave behind. The same TMPDIR the Linux unit sets. -->
+        <key>EnvironmentVariables</key>
+        <dict>
+            <key>TMPDIR</key>
+            <string>/usr/local/euclid-wrk/data/tmp</string>
+        </dict>
 
         <!-- launchd's own capture of anything the worker writes to the console before its logger is
              up: a configuration that will not parse, a jwt-secret that must not be there, no
-             credentials. The worker's real log is euclid.logging.dir in the configuration. Both land
-             under the state directory because that is the one place _euclid-wrk can write. -->
+             credentials. The worker's real log is euclid.logging.dir in the configuration, in the
+             same directory, which is one of the two places _euclid-wrk can write. -->
         <key>StandardOutPath</key>
-        <string>/usr/local/var/euclid-wrk/launchd-stdout.log</string>
+        <string>/usr/local/euclid-wrk/logs/launchd-stdout.log</string>
         <key>StandardErrorPath</key>
-        <string>/usr/local/var/euclid-wrk/launchd-stderr.log</string>
+        <string>/usr/local/euclid-wrk/logs/launchd-stderr.log</string>
 
         <!-- A worker stops its own instances on an orderly shutdown, but a JVM given SIGTERM may
              take a moment to finish what it is doing. The unit file's TimeoutStopSec=60; launchd's

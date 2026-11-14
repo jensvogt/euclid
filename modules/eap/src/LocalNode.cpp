@@ -233,7 +233,7 @@ namespace Euclid::EAP::LocalNode {
                 // Inherited the same way: the applications the local node runs are the ones a
                 // manager's euclid.logging.application-files is about.
                 {"application-files", configuration.getOr<bool>("euclid.logging.application-files", false)},
-                {"dir", configuration.getOr<std::string>("euclid.modules.eap.local-node.log-dir", "/var/lib/euclid-wrk/log")},
+                {"dir", configuration.getOr<std::string>("euclid.modules.eap.local-node.log-dir", "/usr/local/euclid-wrk/logs")},
                 {"prefix", "euclid-wrk"}};
 
         // The file's format: the node's own if one is set, the manager's if not. This node's file
@@ -283,6 +283,18 @@ namespace Euclid::EAP::LocalNode {
 
         const auto &configuration = Core::Configuration::instance();
         if (!configuration.getOr<bool>("euclid.modules.eap.local-node.enabled", false)) return;
+
+#ifndef _WIN32
+        // The worker's group is the sign that euclid-wrk is installed on this host: its package
+        // creates it. The server package does not bring the worker - a manager host is a worker
+        // only when euclid-wrk is installed on top - so without the group there is nobody to read
+        // what would be written, and no principal or key is made for a node that will never run.
+        // Installing the worker restarts the manager, and this runs again.
+        if (const auto group = configuration.getOr<std::string>("euclid.modules.eap.local-node.group", "euclid-wrk"); getgrnam(group.c_str()) == nullptr) {
+            log_info << "Local node not provisioned: no group " << group << " - euclid-wrk is not installed on this host";
+            return;
+        }
+#endif
 
         try {
             std::string accountId;

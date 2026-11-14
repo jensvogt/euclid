@@ -9,27 +9,32 @@ Restart=always
 RestartSec=1
 
 # Its own user, not euclid's. A worker host is deliberately not a euclid host - it runs no modules,
-# holds no database credentials and has nothing listening - so it has no /usr/local/euclid tree to
-# own and no reason to be able to read one if somebody later installs the server package here.
+# holds no database credentials and has nothing listening - so it has its own tree,
+# /usr/local/euclid-wrk, and no reason to be able to read the manager's /usr/local/euclid if somebody
+# later installs the server package here.
 User=euclid-wrk
 Group=euclid-wrk
 
-# Everything a worker writes: fetched artifacts, each instance's credentials file, and the
-# applications' own output. Nothing here is durable - an artifact is re-fetched when its content
-# hash differs from the object's, and credentials are re-issued by the master every half life - so
-# this directory can be thrown away without losing anything.
-StateDirectory=euclid-wrk
-StateDirectoryMode=0750
-
 # The applications a worker runs are somebody else's code, forked from this process, and they
 # inherit what is allowed here. ProtectSystem=strict makes the filesystem read-only apart from the
-# state directory, which is the one place a worker - or anything it starts - has any business
-# writing.
+# two directories below, which are the only places a worker - or anything it starts - has any
+# business writing. bin/ and etc/ stay read-only to it.
+#
+# data/: everything a worker keeps - fetched artifacts, each instance's credentials file. Nothing
+# there is durable - an artifact is re-fetched when its content hash differs from the object's, and
+# credentials are re-issued by the master every half life - so it can be thrown away without losing
+# anything. logs/: its log files and, when asked for, one per application.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/euclid-wrk
+ReadWritePaths=/usr/local/euclid-wrk/data /usr/local/euclid-wrk/logs
+
+# Temporary files and Unix sockets - the worker's and those of every application it starts, which
+# inherit this - in a directory the euclid-wrk account owns, so it can remove what it and its
+# applications leave behind. Not /tmp: under PrivateTmp= that is a private directory that is gone
+# with every restart, and a socket an application expects to find again would go with it.
+Environment=TMPDIR=/usr/local/euclid-wrk/data/tmp
 
 # The unit's cgroup subtree, handed to euclid-wrk so that every application instance gets a cgroup
 # of its own - its memory, its peak and the OOM killer's visits measured per instance, and later
@@ -43,14 +48,14 @@ Delegate=memory cpu pids
 # configuration file rather than here, so that changing where this worker reports to is not an edit
 # to a unit file that the next package upgrade would overwrite.
 #
-# On a manager host the server package's drop-in (euclid-wrk.service.d/local-node.conf) replaces this
+# On a manager host (this package installed on top of the server package) the server package's drop-in (euclid-wrk.service.d/local-node.conf) replaces this
 # ExecStart with one reading the configuration the manager generates - see docs/worker-nodes.md §13.3.
 #
 # Deliberately *not* --config /usr/local/euclid/etc/euclid.json. That is the manager's
 # configuration and it holds euclid.modules.eam.jwt-secret; a worker refuses to start if it finds
 # that key, because anything holding it can mint a token for any principal in the installation.
 # See docs/worker-nodes.md §3.2.
-ExecStart=/usr/local/euclid/bin/euclid-wrk --config /usr/local/euclid/etc/euclid-wrk.json
+ExecStart=/usr/local/euclid-wrk/bin/euclid-wrk --config /usr/local/euclid-wrk/etc/euclid-wrk.json
 KillSignal=SIGTERM
 
 # A worker stops its own instances when its lease runs out, and stops them on an orderly shutdown

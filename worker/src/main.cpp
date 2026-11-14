@@ -76,11 +76,26 @@ namespace {
     // there - a worker started by hand with no --data-dir would fail on its first fetch, somewhere
     // well away from the thing that was actually wrong. The MSI passes --data-dir explicitly, the
     // same way it passes --config, so the service does not depend on this.
+    //
+    // On Linux everything the package installs is under /usr/local/euclid-wrk, the worker's own
+    // tree beside the manager's /usr/local/euclid: bin, etc, logs and data, the last with a tmp/
+    // that the unit points TMPDIR at.
     const char *defaultDataDir() {
 #if defined(_WIN32)
         return R"(C:\Program Files\euclid-wrk\data)";
 #else
-        return "/var/lib/euclid-wrk";
+        return "/usr/local/euclid-wrk/data";
+#endif
+    }
+
+    // Where the log files go when euclid.logging.dir does not say. Beside the data directory on
+    // Linux rather than inside it, so that throwing the data away - which loses nothing, see the
+    // unit file - does not throw away the log that explains why somebody did.
+    std::string defaultLogDir() {
+#if defined(_WIN32)
+        return std::string(defaultDataDir()) + R"(\log)";
+#else
+        return "/usr/local/euclid-wrk/logs";
 #endif
     }
 
@@ -275,7 +290,7 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     // configuration's whole logging block was inert. euclid.logging.level was never applied, so a
     // worker configured for "info" logged at the library's own default and filled the journal with
     // debug lines; euclid.logging.dir and .prefix named a directory nothing ever wrote to - the
-    // package creates /var/lib/euclid-wrk/log and chowns it, and it stayed empty; and the records
+    // package creates /usr/local/euclid-wrk/logs and chowns it, and it stayed empty; and the records
     // carried no process channel, so a worker could not be turned down through
     // euclid.logging.channels the way a module can.
     //
@@ -292,7 +307,7 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     // where it is not, and for keeping more than the journal's retention.
     if (const auto &configuration = Euclid::Core::Configuration::instance();
         configuration.getOr<bool>("euclid.logging.file-active", false)) {
-        Euclid::Core::LogStream::AddFile(configuration.getOr<std::string>("euclid.logging.dir", std::string(defaultDataDir()) + "/log"),
+        Euclid::Core::LogStream::AddFile(configuration.getOr<std::string>("euclid.logging.dir", defaultLogDir()),
                                          configuration.getOr<std::string>("euclid.logging.prefix", "euclid-wrk"),
                                          Euclid::Core::LogStream::FileSizeFromConfiguration(), Euclid::Core::LogStream::FileCountFromConfiguration());
     }
@@ -302,7 +317,7 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     // their combined volume - so a quiet application's lines were gone within hours.
     if (const auto &configuration = Euclid::Core::Configuration::instance();
         configuration.getOr<bool>("euclid.logging.application-files", false)) {
-        Euclid::Core::LogStream::EnableApplicationFiles(configuration.getOr<std::string>("euclid.logging.dir", std::string(defaultDataDir()) + "/log"),
+        Euclid::Core::LogStream::EnableApplicationFiles(configuration.getOr<std::string>("euclid.logging.dir", defaultLogDir()),
                                                         Euclid::Core::LogStream::FileSizeFromConfiguration(),
                                                         Euclid::Core::LogStream::FileCountFromConfiguration());
     }
@@ -384,10 +399,9 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     if (workerOptions.address.empty()) {
         workerOptions.address = Euclid::Core::Configuration::instance().getOr<std::string>("euclid.worker.address", "");
     }
-    // From the configuration too, and only then the built-in default, because the default is the
-    // Linux one: a macOS worker's account can write /usr/local/var/euclid-wrk and nothing under
-    // /var/lib, and the launchd job - like the unit file - is not the place to say so, since an
-    // upgrade overwrites it.
+    // From the configuration too, and only then the built-in default: where a worker keeps its
+    // data is the operator's to decide, and the unit file or launchd job is not the place to say
+    // so, since an upgrade overwrites it. The packages' configurations name the default anyway.
     if (workerOptions.dataDir.empty()) {
         workerOptions.dataDir = Euclid::Core::Configuration::instance().getOr<std::string>("euclid.worker.data-dir", defaultDataDir());
     }
