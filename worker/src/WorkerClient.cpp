@@ -5,11 +5,13 @@
 // C++ includes
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <ranges>
 #include <string_view>
 #include <utility>
@@ -157,11 +159,8 @@ namespace Euclid::Worker {
 
     void CheckRuntimes() {
 
-        const auto unusable = Core::Launch::UnusableRuntimes(RuntimeLookup());
-        if (unusable.empty()) {
-            log_debug << "Every runtime this node is configured for can be started";
-            return;
-        }
+        const auto lookup = RuntimeLookup();
+        const auto unusable = Core::Launch::UnusableRuntimes(lookup);
 
         // A warning rather than a refusal to start: a node that can run two of the three runtimes
         // an installation uses is still worth having, and which ones it is asked for is not its
@@ -170,6 +169,34 @@ namespace Euclid::Worker {
             log_warning << "Runtime " << runtime << " resolves to '" << command << "', which " << reason
                         << " - an application with this runtime placed here will exit 127."
                         << " Set euclid.worker.runtimes." << runtime << " to this host's path for it";
+        }
+
+        // And of the ones that are there, which version each actually is - asked of the interpreter
+        // rather than read off its path, since the path says what somebody meant to install. One
+        // line per runtime at info, so "which Java does this node run java21 with" is answered by
+        // the log of the node that runs it. Each is asked once even where several runtimes share an
+        // interpreter (java and java21, typically).
+        std::map<std::string, std::optional<std::string> > versions;
+        for (const auto &[runtime, command]: Core::Launch::ConfiguredRuntimes(lookup)) {
+
+            if (std::ranges::any_of(unusable, [&](const auto &entry) { return entry.runtime == runtime; })) continue;
+
+            auto found = versions.find(command);
+            if (found == versions.end()) {
+                // Generous for a JVM starting cold on a small host, and still short enough that an
+                // interpreter that hangs costs the start a few seconds rather than the start itself.
+                found = versions.emplace(command, Core::Launch::RuntimeVersion(command, std::chrono::seconds(10))).first;
+            }
+
+            if (found->second.has_value()) {
+                log_info << "Runtime " << runtime << ": " << *found->second << ", command: " << command;
+            } else {
+                // There, executable, and still not answering: the wrong architecture's build, a
+                // broken install, a wrapper script that fails. Worth a warning, because it is what
+                // an application with this runtime will run into too.
+                log_warning << "Runtime " << runtime << " resolves to '" << command << "', which exists but did not answer"
+                            << " '--version' - an application with this runtime placed here will likely fail to start";
+            }
         }
     }
 

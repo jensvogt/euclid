@@ -66,9 +66,14 @@ FROM alpine:latest AS worker
 
 # The runtime libraries euclid's binaries are linked against - the manager stage's set, less what
 # only a module uses - and the interpreters the applications this node runs need: java, python and
-# node, what euclid.worker.runtimes names. Overridable, since a JRE is most of the image: build with
-# --build-arg WORKER_PACKAGES="python3 nodejs" for a node that never runs Java.
-ARG WORKER_PACKAGES="python3 nodejs openjdk21-jre-headless"
+# node, what euclid.worker.runtimes names - Java 21 and 25 both, as the manager's runtimes table
+# does, so an application asking for either can be placed here. Overridable, since the JREs are most
+# of the image: build with --build-arg WORKER_PACKAGES="python3 nodejs openjdk21-jre-headless" for a
+# node that only runs Java 21, or "python3 nodejs" for one that never runs Java. With both installed
+# Alpine points the default JVM - plain "java" - at 25, so wrk/euclid-wrk.json names 21's path for the
+# "java" runtime rather than leaving it to whatever was installed last. Building without Java 21 means
+# changing that path too.
+ARG WORKER_PACKAGES="python3 nodejs openjdk21-jre-headless openjdk25-jre-headless"
 RUN apk upgrade --no-cache && \
     apk add --no-cache libstdc++ libgcc libarchive libmagic unbound-libs ${WORKER_PACKAGES}
 

@@ -365,7 +365,7 @@
       "port": 27017,
       "user": "root",
       "password": "euclid-example-password",
-      "replica-set": "",
+      "replica-set": "rs0",
       "server-selection-timeout-ms": 30000,
       "pool-size": 256
     },

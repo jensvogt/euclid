@@ -29,7 +29,6 @@
 
 // Euclid includes
 #include <euclid/core/SystemUtils.h>
-#include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/CertificateUtils.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/Configuration.h>
@@ -890,23 +889,11 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     // Register modules
     registerModules(ctrl);
 
-    // The interpreters this host was told about, before an application needs one.
-    //
-    // The manager starts no application itself - every one of them is a worker's to run, see
-    // reconcileApplications() - so these paths are not for this process to exec. They are what
-    // LocalNode::WorkerConfiguration copies into the local node's euclid.worker.runtimes, which is
-    // how the worker on this host learns where its JDKs are. A wrong one here is therefore a
-    // failure on the local node rather than in the manager, which is what the message says: a
-    // worker on another host is told by its own configuration and checks that itself.
-    for (const auto &[runtime, command, reason]: Euclid::Core::Launch::UnusableRuntimes(
-                 [](const std::string &key, const std::string &fallback) {
-                     return Euclid::Core::Configuration::instance().getOr<std::string>("euclid.modules.eap.runtimes." + key, fallback);
-                 })) {
-        log_warning << "Runtime " << runtime << " resolves to '" << command << "', which " << reason
-                    << " - the local node is given these paths, so an application with this runtime placed"
-                    << " there will exit 127. Set euclid.modules.eap.runtimes." << runtime
-                    << " to this host's path for it";
-    }
+    // No check of euclid.modules.eap.runtimes here. The manager starts no application itself -
+    // every one is a worker's to run - so whether an interpreter exists is a question about the
+    // host a worker runs on, and euclid-wrk answers it at its own start (Worker::CheckRuntimes),
+    // against the paths it was actually given. Asked here it was asked of the wrong machine: a
+    // manager in a container, or on a host with no worker at all, warned about every runtime.
 
     ctrl.startAll();
     ctrl.startWatchdog();

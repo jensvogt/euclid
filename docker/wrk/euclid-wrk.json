@@ -11,8 +11,9 @@
       "http-port-max": 9999,
       "cgroups-active": false,
       "runtimes": {
-        "java": "java",
+        "java": "/usr/lib/jvm/java-21-openjdk/bin/java",
         "java21": "/usr/lib/jvm/java-21-openjdk/bin/java",
+        "java25": "/usr/lib/jvm/java-25-openjdk/bin/java",
         "python": "python3",
         "nodejs": "node"
       },

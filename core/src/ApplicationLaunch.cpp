@@ -21,6 +21,15 @@
 #include <unistd.h>
 #endif
 
+// Boost includes
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/read.hpp>
+#include <boost/asio/readable_pipe.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/process/environment.hpp>
+#include <boost/process/process.hpp>
+#include <boost/process/stdio.hpp>
+
 // Euclid includes
 #include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/Configuration.h>
@@ -91,9 +100,9 @@ namespace Euclid::Core::Launch {
 
     }// namespace
 
-    std::vector<UnusableRuntime> UnusableRuntimes(const Interpreter &interpreter) {
+    std::vector<ConfiguredRuntime> ConfiguredRuntimes(const Interpreter &interpreter) {
 
-        std::vector<UnusableRuntime> unusable;
+        std::vector<ConfiguredRuntime> configured;
 
         // The runtimes that have an interpreter at all. BINARY is its own command, so there is
         // nothing a host could be told about it and nothing to check.
@@ -103,7 +112,80 @@ namespace Euclid::Core::Launch {
             if (prefix.empty()) continue;
 
             const auto key = RuntimeKey(runtime);
-            const auto command = interpreter ? interpreter(key, prefix.front()) : prefix.front();
+            configured.push_back({.runtime = key, .command = interpreter ? interpreter(key, prefix.front()) : prefix.front()});
+        }
+        return configured;
+    }
+
+    std::optional<std::string> RuntimeVersion(const std::string &command, const std::chrono::milliseconds timeout) {
+
+        namespace asio = boost::asio;
+        namespace bp = boost::process;
+
+        if (command.empty()) return std::nullopt;
+
+        try {
+            // A name is looked up the way execvp() would, so the version reported is that of the
+            // interpreter an application would actually be started with.
+            // Boost.Process's own path type - boost::filesystem's unless it was built for std - which
+            // is what both find_executable() answers and the process constructor takes.
+            bp::filesystem::path executable(command);
+            if (executable.filename() == executable) {
+                executable = bp::environment::find_executable(command);
+                if (executable.empty()) return std::nullopt;
+            }
+
+            asio::io_context context;
+            asio::readable_pipe output(context);
+
+            // Standard output only: every interpreter this is asked of writes its version there.
+            // Standard input and error go to the null device - nothing is asked of it, and a
+            // diagnostic it prints on the way is not the version.
+            bp::process process(context, executable, {"--version"}, bp::process_stdio{nullptr, output, nullptr});
+
+            // Read to the end, bounded: a version is a line or three, and an interpreter that writes
+            // more than this is not answering the question.
+            std::string text;
+            bool timedOut = false;
+            asio::steady_timer timer(context, timeout);
+            asio::async_read(output, asio::dynamic_buffer(text, 64 * 1024),
+                             [&](const boost::system::error_code &, std::size_t) { timer.cancel(); });
+            timer.async_wait([&](const boost::system::error_code &ec) {
+                if (ec) return;// cancelled: the read finished first
+                timedOut = true;
+                boost::system::error_code ignored;
+                process.terminate(ignored);
+                output.close(ignored);
+            });
+            context.run();
+
+            // Reaped either way, so a killed one does not linger as a zombie. The exit code is not
+            // the point: "--version" answering on stdout and then exiting 1 is still an answer.
+            boost::system::error_code ec;
+            process.wait(ec);
+            if (timedOut || ec) return std::nullopt;
+
+            std::istringstream lines(text);
+            for (std::string line; std::getline(lines, line);) {
+                const auto first = line.find_first_not_of(" \t\r");
+                if (first == std::string::npos) continue;
+                const auto last = line.find_last_not_of(" \t\r");
+                return line.substr(first, last - first + 1);
+            }
+            // Nothing written: whatever it is, it did not say what version it is.
+            return std::nullopt;
+
+        } catch (const std::exception &) {
+            // Could not be started at all - which UnusableRuntimes has already said, or will.
+            return std::nullopt;
+        }
+    }
+
+    std::vector<UnusableRuntime> UnusableRuntimes(const Interpreter &interpreter) {
+
+        std::vector<UnusableRuntime> unusable;
+
+        for (const auto &[key, command]: ConfiguredRuntimes(interpreter)) {
 
             if (command.empty()) {
                 unusable.push_back({.runtime = key, .command = command, .reason = "is configured as nothing at all"});

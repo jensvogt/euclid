@@ -167,6 +167,67 @@ BOOST_AUTO_TEST_CASE(AHostSaysWhichOfItsRuntimesItCouldNotStart) {
     std::filesystem::remove(present, ec);
 }
 
+BOOST_AUTO_TEST_CASE(EveryRuntimeWithAnInterpreterIsListedWithWhatItResolvesTo) {
+
+    const auto runtimes = Launch::ConfiguredRuntimes(configured({{"java21", "/opt/jdk21/bin/java"}}));
+
+    std::map<std::string, std::string> commands;
+    for (const auto &[runtime, command]: runtimes) commands[runtime] = command;
+
+    BOOST_TEST(commands.size() == 5U);
+    BOOST_TEST(commands["java21"] == "/opt/jdk21/bin/java");
+    // Not configured, so its own default name - the same rule CommandLine follows.
+    BOOST_TEST(commands["python"] == "python3");
+    BOOST_TEST(commands["nodejs"] == "node");
+}
+
+#ifndef _WIN32
+namespace {
+
+    // An interpreter that is a shell script, so what it answers is decided here rather than by
+    // whatever is installed where the test runs.
+    std::filesystem::path fakeInterpreter(const std::string &name, const std::string &body) {
+        const auto path = std::filesystem::temp_directory_path() / name;
+        std::ofstream(path, std::ios::trunc) << "#!/bin/sh\n" << body << "\n";
+        std::filesystem::permissions(path, std::filesystem::perms::owner_all);
+        return path;
+    }
+
+}// namespace
+
+BOOST_AUTO_TEST_CASE(AnInterpreterIsAskedForItsVersion) {
+
+    // The first non-empty line, trimmed - "openjdk 21.0.13 2026-10-24" and what follows it.
+    const auto java = fakeInterpreter("euclid-launch-test-version",
+                                      R"([ "$1" = "--version" ] || exit 2; echo; echo "  openjdk 21.0.13 2026-10-24  "; echo "OpenJDK Runtime Environment")");
+    BOOST_TEST(Launch::RuntimeVersion(java.string(), 5s).value_or("") == "openjdk 21.0.13 2026-10-24");
+
+    // Writing nothing, or only to stderr, is no answer.
+    const auto silent = fakeInterpreter("euclid-launch-test-silent", "echo 'Python 3.12.1' >&2");
+    BOOST_TEST(!Launch::RuntimeVersion(silent.string(), 5s).has_value());
+
+    BOOST_TEST(!Launch::RuntimeVersion("/euclid-no-such-dir/java", 5s).has_value());
+    BOOST_TEST(!Launch::RuntimeVersion("euclid-no-such-interpreter", 5s).has_value());
+
+    std::error_code ec;
+    std::filesystem::remove(java, ec);
+    std::filesystem::remove(silent, ec);
+}
+
+BOOST_AUTO_TEST_CASE(AnInterpreterThatHangsIsGivenUpOn) {
+
+    // exec, so the sleep is the process itself and is what the timeout kills.
+    const auto hung = fakeInterpreter("euclid-launch-test-hung", "exec sleep 30");
+
+    const auto started = std::chrono::steady_clock::now();
+    BOOST_TEST(!Launch::RuntimeVersion(hung.string(), 300ms).has_value());
+    BOOST_TEST(std::chrono::steady_clock::now() - started < 10s);
+
+    std::error_code ec;
+    std::filesystem::remove(hung, ec);
+}
+#endif
+
 BOOST_AUTO_TEST_CASE(OnlyTheInterpreterIsAskedFor) {
 
     // -jar is how a jar is started; what the host is asked is which java.

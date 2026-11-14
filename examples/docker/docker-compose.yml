@@ -13,6 +13,10 @@ name: euclid
 
 services:
 
+  # A single-node replica set rather than a standalone: only a replica set has an oplog, and euclid
+  # tails it (change streams) to deliver EQS receives and EventBus events the moment they happen. On
+  # a standalone it falls back to polling and says so at every start ("this MongoDB deployment is a
+  # standalone and has no oplog to tail").
   mongodb:
     image: mongo:7
     restart: unless-stopped
@@ -20,13 +24,40 @@ services:
       # Must match euclid.mongodb.user and .password in euclid.json.
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: euclid-example-password
+    # A replica set with authentication needs a key file its members authenticate each other with -
+    # even a set of one. Made on the first start, kept on the config volume, and only readable by
+    # mongod's own account, or it refuses the file.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        if [ ! -s /data/configdb/replica-set.key ]; then
+          head -c 768 /dev/urandom | base64 -w 0 > /data/configdb/replica-set.key
+        fi
+        chown mongodb:mongodb /data/configdb/replica-set.key
+        chmod 0400 /data/configdb/replica-set.key
+        exec docker-entrypoint.sh "$$@"
+      - --
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--keyFile", "/data/configdb/replica-set.key"]
     volumes:
       - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+    # Initiates the set on its first run - rs.status() throws until it is - and is healthy only once
+    # this member is the writable primary, so the manager does not start against a set still
+    # electing. The member is named by its service name, which is what the driver connects to when
+    # it discovers the set's members, so it has to resolve from the manager's container too.
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD"
+          --authenticationDatabase admin --eval
+          "try { rs.status() } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongodb:27017'}]}) };
+          quit(db.hello().isWritablePrimary ? 0 : 1)"
       interval: 5s
-      timeout: 5s
+      timeout: 10s
       retries: 30
+      start_period: 10s
 
   euclid:
     image: jensvogt/euclid:${EUCLID_VERSION:-latest}
@@ -98,6 +129,7 @@ services:
 
 volumes:
   mongodb-data:
+  mongodb-config:
   gateway-certificate:
   gateway-key:
   manager-data:

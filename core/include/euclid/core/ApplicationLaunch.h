@@ -216,6 +216,47 @@ namespace Euclid::Core {
         [[nodiscard]] std::vector<UnusableRuntime> UnusableRuntimes(const Interpreter &interpreter);
 
         /**
+         * @brief One runtime this host is configured for, and what it resolves to here.
+         */
+        struct ConfiguredRuntime {
+            /** @brief The runtime's key, as it is named in the configuration: "java25". */
+            std::string runtime;
+
+            /** @brief What it resolves to here, which is the runtime's own name when nothing named a path. */
+            std::string command;
+        };
+
+        /**
+         * @brief Every runtime that has an interpreter, with the command this host resolves it to -
+         * the list @ref UnusableRuntimes checks, for whoever wants to ask more of each than whether it
+         * is there.
+         *
+         * @param interpreter how this host resolves a runtime's key - see Interpreter.
+         */
+        [[nodiscard]] std::vector<ConfiguredRuntime> ConfiguredRuntimes(const Interpreter &interpreter);
+
+        /**
+         * @brief What an interpreter says its version is: the first line "<command> --version" writes.
+         *
+         * @par
+         * Run rather than inferred from the path, because a path says what somebody meant to install
+         * and the interpreter says what is there - a java21 entry pointing at a JDK that was since
+         * upgraded in place, or at the wrong architecture's build, only shows up by asking it. Every
+         * interpreter euclid runs answers "--version" on standard output: java (9 and later), python3
+         * and node.
+         *
+         * @par
+         * Bounded by @p timeout, after which the process is killed: this is asked at a worker's start,
+         * and an interpreter that hangs must not keep the worker from starting.
+         *
+         * @param command the interpreter, a path or a name to look up on the PATH.
+         * @param timeout how long to wait for it to answer.
+         * @return the first non-empty line it wrote, trimmed; nothing when it could not be started,
+         *         did not answer in time, or wrote nothing.
+         */
+        [[nodiscard]] std::optional<std::string> RuntimeVersion(const std::string &command, std::chrono::milliseconds timeout);
+
+        /**
          * @brief Whether the file on disk is the object, byte for byte, so nothing needs fetching.
          *
          * @par
