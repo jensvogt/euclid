@@ -221,7 +221,10 @@ BOOST_AUTO_TEST_CASE(AnInterpreterThatHangsIsGivenUpOn) {
 
     const auto started = std::chrono::steady_clock::now();
     BOOST_TEST(!Launch::RuntimeVersion(hung.string(), 300ms).has_value());
-    BOOST_TEST(std::chrono::steady_clock::now() - started < 10s);
+    // A count rather than the comparison of two clock values: BOOST_TEST takes an expression apart
+    // to print its operands on failure, and has no way to print a time_point.
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    BOOST_TEST(elapsedMs < 10000);
 
     std::error_code ec;
     std::filesystem::remove(hung, ec);
