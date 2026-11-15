@@ -354,22 +354,27 @@ java -jar target/euclid-inbox-app.jar
 
 ## The C++ example
 
-`cpp/` is a queue worker built against the [euclid-cdk](https://github.com/jensvogt/euclid-cdk), and
-the only example here that is compiled — so it is also the one that shows the `BINARY` runtime, where
-the artifact is the executable and there is no interpreter in front of it.
+`cpp/` is `file-delivery`, built against the [euclid-cdk](https://github.com/jensvogt/euclid-cdk).
+It subscribes to the `transfer-server` bucket of `examples/docker`, copies every file FTP and SFTP
+clients upload into an `incoming` directory to the `file-delivery` bucket, and unpacks ZIP archives
+so that each file in them is delivered separately. It is the only example here that is compiled, so
+it is also the one that shows the `BINARY` runtime, where the artifact is the executable and there
+is no interpreter in front of it.
 
 ```bash
 cd cpp
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 64
 
-euclid-cli esm upload-file --bucket apps --key echo-worker --file build/echo-worker
-euclid-cli eap create-application --application-id echo-worker --runtime BINARY \
-    --bucket apps --artifact echo-worker --version 1.0.0 \
-    --min-instances 1 --max-instances 4 --queues echo-worker-queue
-euclid-cli eap start-application --application-id echo-worker
-
-euclid-cli eqs send-message --queue echo-worker-queue --body 'hello'
+euclid-cli esm upload-file --bucket apps --key file-delivery --file build/file-delivery
+euclid-cli eap create-application --application-id file-delivery --runtime BINARY \
+    --bucket apps --artifact file-delivery --version 1.0.0 \
+    --min-instances 1 --max-instances 4 \
+    --buckets transfer-server,file-delivery --queues file-delivery-queue
+euclid-cli eap start-application --application-id file-delivery
 ```
+
+It needs one role on top of the built-in `application` role, for files over 5 MiB. `cpp/README.md`
+has the grant.
 
 It is the one to read for **load reporting**, which is what decides whether an application scales at
 all: nothing asks an application for anything over a socket, so the manager cannot see its load the

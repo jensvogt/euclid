@@ -27,10 +27,11 @@ cd "$(dirname "$0")"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin}"
 ACCOUNT="000000000000"          # euclid.account-ids in euclid.json
 REGION="eu-central-1"           # euclid.region in euclid.json
-USERS=(ftpuser1 ftpuser2)
+USERS=("ftpuser1" "ftpuser2")
 GROUP="ftp-users"
-BUCKET="transfer-server"
-SERVERS=(ftp-server sftp-server)
+BUCKETS=("transfer-server" "file-delivery")
+SERVERS=("ftp-server" "sftp-server")
+QUEUES=("file-delivery-pdf" "file-delivery-image" "file-delivery-xml" "file-delivery-json")
 
 manager() { docker compose exec -T euclid euclid-cli --ca-cert /usr/local/euclid/certs/euclid_cert.crt "$@"; }
 
@@ -47,7 +48,7 @@ step() {
 }
 
 if [ "${1:-}" != "-y" ]; then
-    echo "This deletes the transfer servers ${SERVERS[*]}, the bucket $BUCKET with every file in it,"
+    echo "This deletes the transfer servers ${SERVERS[*]}, the buckets with every file in it,"
     echo "the users ${USERS[*]} and the user group $GROUP."
     read -rp "Continue? [y/N] " answer
     case "$answer" in
@@ -69,9 +70,18 @@ for server in "${SERVERS[@]}"; do
 done
 
 # Takes every object in the bucket with it - the files clients uploaded through the servers.
-echo "== bucket $BUCKET"
-step "deleted" "already gone" esm delete-bucket --bucket "$BUCKET"
+for bucket in "${BUCKETS[@]}"; do
+  echo "== bucket $bucket"
+  step "deleted" "already gone" esm delete-bucket --bucket "$bucket"
+done
 
+# Deletes the created queues, includes all messages existing in the queue
+for queue in "${QUEUES[@]}"; do
+  echo "== queue $queue"
+  step "deleted" "already gone" eqs delete-queue --queue "$queue"
+done
+
+# Delete the users
 for user in "${USERS[@]}"; do
     echo "== user $user"
     step "deleted" "already gone" eam delete-user --userId "$user"

@@ -27,9 +27,10 @@ ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin}"
 FTP_PASSWORD="${FTP_PASSWORD:-change-this-ftp-password}"
 ACCOUNT="000000000000"          # euclid.account-ids in euclid.json
 REGION="eu-central-1"           # euclid.region in euclid.json
-USERS=(ftpuser1 ftpuser2)
+USERS=("ftpuser1" "ftpuser2")
 GROUP="ftp-users"
-BUCKET="transfer-server"
+BUCKETS=("transfer-server" "file-delivery")
+QUEUES=("file-delivery-pdf" "file-delivery-image" "file-delivery-xml" "file-delivery-json")
 
 # Manager connection
 manager() { docker compose exec -T euclid euclid-cli --ca-cert /usr/local/euclid/certs/euclid_cert.crt "$@"; }
@@ -71,9 +72,11 @@ for user in "${USERS[@]}"; do
         eam user-group-add-user --user-group "$GROUP" --user "$user"
 done
 
-# Create the transfer server bucket
-echo "== bucket $BUCKET"
-step "created" "already exists" esm create-bucket --name "$BUCKET"
+# Create the buckets
+for bucket in "${BUCKETS[@]}"; do
+  echo "== bucket $bucket"
+  step "created" "already exists" esm create-bucket --name "$bucket"
+done
 
 # Both servers admit the members of the group and root each user at a home of their own in the
 # bucket. They are created stopped, so each one is started as well. The FTP server's passive data
@@ -84,8 +87,15 @@ for server in "ftp-server FTP 2121 --pasv-min 6000 --pasv-max 6010" "sftp-server
     # shellcheck disable=SC2086 # options is split into its flags on purpose
     step "created" "already exists" \
         ets create-server --server-id "$id" --protocol "$protocol" --port "$port" \
-            --bucket "$BUCKET" --groups "$GROUP" ${options:-} --directories incoming,outgoing
+            --bucket "transfer-bucket" --groups "$GROUP" ${options:-} --directories incoming,outgoing
     step "started" "could not be started" ets start-server --server-id "$id"
+done
+
+# Create the EQS queues, each queue is feed be thy file-delivery application, which classifies the
+# incoming files according to their magic bytes using libmagic.so
+for queue in "${QUEUES[@]}"; do
+  echo "== queue $queue"
+  step "created" "already exists" eqs create-queue --name "$queue"
 done
 
 echo
