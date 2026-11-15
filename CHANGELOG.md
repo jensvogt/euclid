@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.39](https://github.com/jensvogt/euclid/compare/v2.1.38...v2.1.39) (2026-11-15)
+
+
+### Bug Fixes
+
+* add file-copy application ([e6b95e1](https://github.com/jensvogt/euclid/commit/e6b95e11b8199cb6d413d423acf8572bd13cfaba))
+
 ## [2.1.38](https://github.com/jensvogt/euclid/compare/2.1.37...v2.1.38) (2026-11-15)
 
 
