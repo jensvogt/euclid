@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.2.0](https://github.com/jensvogt/euclid/compare/2.1.39...v2.2.0) (2026-11-15)
+
+
+### Features
+
+* add better example docker compose ([7beb007](https://github.com/jensvogt/euclid/commit/7beb00772aee6e4b344a3242ae1e885ffe0c4d1f))
+* add better example docker compose ([989b74c](https://github.com/jensvogt/euclid/commit/989b74cb43d2cefd260aa5dc34330c19d12cb416))
+* add better example docker compose ([efdd98b](https://github.com/jensvogt/euclid/commit/efdd98b60158506810a912e51a0194e555fbddfb))
+
 ## [2.1.39](https://github.com/jensvogt/euclid/compare/v2.1.38...v2.1.39) (2026-11-15)
 
 
