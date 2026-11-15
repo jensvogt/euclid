@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct CreateBucketRequest {
 
@@ -41,23 +44,7 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] static CreateBucketRequest fromJson(const std::string &json) {
             return boost::json::value_to<CreateBucketRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend CreateBucketRequest tag_invoke(boost::json::value_to_tag<CreateBucketRequest>, boost::json::value const &v) {
-            CreateBucketRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            r.internal = Core::GetBoolValue(v, "internal");
-            r.priority = Core::GetStringValue(v, "priority");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateBucketRequest const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"internal", obj.internal},
-                    {"priority", obj.priority},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateBucketRequest, (), (name, internal, priority))
 }

@@ -12,8 +12,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct SubscribeRequest {
 
@@ -62,29 +65,7 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] static SubscribeRequest fromJson(const std::string &json) {
             return boost::json::value_to<SubscribeRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SubscribeRequest tag_invoke(boost::json::value_to_tag<SubscribeRequest>, boost::json::value const &v) {
-            SubscribeRequest r;
-            r.sourceErn = Core::GetStringValue(v, "sourceErn");
-            r.type = Core::GetStringValue(v, "type");
-            r.targetErn = Core::GetStringValue(v, "targetErn");
-            r.eventTypes = Core::GetStringArrayValue(v, "eventTypes");
-            r.prefix = Core::GetStringValue(v, "prefix");
-            r.directories = Core::GetBoolValue(v, "directories");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SubscribeRequest const &obj) {
-            jv = {
-                    {"sourceErn", obj.sourceErn},
-                    {"type", obj.type},
-                    {"targetErn", obj.targetErn},
-                    {"eventTypes", boost::json::value_from(obj.eventTypes)},
-                    {"prefix", obj.prefix},
-                    {"directories", obj.directories},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SubscribeRequest, (), (sourceErn, type, targetErn, eventTypes, prefix, directories))
 }

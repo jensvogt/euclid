@@ -12,8 +12,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Sets whether a topic deletes a message once it has been handed to every subscription,
@@ -49,23 +52,8 @@ namespace Euclid::Dto::ENS {
         [[nodiscard]] static SetTopicDeleteAfterDeliveryRequest fromJson(const std::string &json) {
             return boost::json::value_to<SetTopicDeleteAfterDeliveryRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SetTopicDeleteAfterDeliveryRequest tag_invoke(boost::json::value_to_tag<SetTopicDeleteAfterDeliveryRequest>,
-                                                             boost::json::value const &v) {
-            SetTopicDeleteAfterDeliveryRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.deleteAfterDelivery = Core::GetBoolValue(v, "deleteAfterDelivery");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetTopicDeleteAfterDeliveryRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"deleteAfterDelivery", obj.deleteAfterDelivery},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SetTopicDeleteAfterDeliveryRequest, (), (ern, deleteAfterDelivery))
 
 }

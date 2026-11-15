@@ -11,11 +11,18 @@
 // C++ includes
 #include <string>
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/ens/model/Topic.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One topic, as list-topics describes each of its own.
@@ -32,26 +39,17 @@ namespace Euclid::Dto::ENS {
         Topic topic;
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"topic"};
+
+        /**
          * @brief Serializes this response to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetTopicResponse tag_invoke(boost::json::value_to_tag<GetTopicResponse>, boost::json::value const &v) {
-            GetTopicResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.topic = boost::json::value_to<Topic>(v.at("topic"));
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetTopicResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"topic", boost::json::value_from(obj.topic)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetTopicResponse, (BaseDto), (topic))
 }// namespace Euclid::Dto::ENS

@@ -8,10 +8,17 @@
 
 #pragma once
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct CreateQueueRequest {
 
@@ -68,6 +75,12 @@ namespace Euclid::Dto::EQS {
         bool internal = false;
 
         /**
+         * @brief The members that keep their initial value when the JSON leaves them out, rather than
+         * becoming zero, as the other members do.
+         */
+        static constexpr std::array<std::string_view, 4> kJsonDefaults{"visibility", "maxRetries", "maxMessageLength", "priority"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -80,38 +93,7 @@ namespace Euclid::Dto::EQS {
         [[nodiscard]] static CreateQueueRequest fromJson(const std::string &json) {
             return boost::json::value_to<CreateQueueRequest>(Core::ParseJsonString(json));
         }
-
-        //curl -X POST http://localhost:8080/api/produktmeldungen/datenlieferantId=jvo -H 'Conteype: application/json' -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3ODg2ODcyODEsImV4cCI6MTc4ODY5MDg4MSwic3ViIjoianZvIn0.oW0SsBc_M9RTHNrwf7t7PGVCQkxHhenyl1KeaRCVErs"
-
-    private:
-
-        friend CreateQueueRequest tag_invoke(boost::json::value_to_tag<CreateQueueRequest>, boost::json::value const &v) {
-            CreateQueueRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            // The defaults the fields are declared with, not GetLongValue's 0: a queue created
-            // without naming its visibility came up at 0, which makes every received message
-            // visible again at once and hands it to a second consumer while the first works on it.
-            r.visibility = Core::GetLongValue(v, "visibility", r.visibility);
-            r.maxRetries = Core::GetLongValue(v, "maxRetries", r.maxRetries);
-            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
-            r.dlqName = Core::GetStringValue(v, "dlqName");
-            r.delay = Core::GetLongValue(v, "delay");
-            r.priority = Core::GetStringValue(v, "priority", r.priority);
-            r.internal = Core::GetBoolValue(v, "internal");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateQueueRequest const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"visibility", obj.visibility},
-                    {"maxRetries", obj.maxRetries},
-                    {"maxMessageLength", obj.maxMessageLength},
-                    {"dlqName", obj.dlqName},
-                    {"delay", obj.delay},
-                    {"priority", obj.priority},
-                    {"internal", obj.internal},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateQueueRequest, (), (name, visibility, maxRetries, maxMessageLength, dlqName, delay, priority, internal))
 }

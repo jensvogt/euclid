@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Names the object attribute to remove.
@@ -43,22 +46,8 @@ namespace Euclid::Dto::ESM {
         static DeleteObjectAttributeRequest fromJson(const std::string &json) {
             return boost::json::value_to<DeleteObjectAttributeRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend DeleteObjectAttributeRequest tag_invoke(boost::json::value_to_tag<DeleteObjectAttributeRequest>, boost::json::value const &v) {
-            DeleteObjectAttributeRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.name = Core::GetStringValue(v, "name");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteObjectAttributeRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"name", obj.name},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(DeleteObjectAttributeRequest, (), (ern, name))
 
 }// namespace Euclid::Dto::ESM

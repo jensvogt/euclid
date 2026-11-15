@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Throws away an upload that was started and will not be finished.
@@ -43,19 +46,7 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] static AbortUploadRequest fromJson(const std::string &json) {
             return boost::json::value_to<AbortUploadRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend AbortUploadRequest tag_invoke(boost::json::value_to_tag<AbortUploadRequest>, boost::json::value const &v) {
-            AbortUploadRequest r;
-            r.uploadId = Core::GetStringValue(v, "uploadId");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, AbortUploadRequest const &obj) {
-            jv = {
-                    {"uploadId", obj.uploadId},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(AbortUploadRequest, (), (uploadId))
 }// namespace Euclid::Dto::ESM

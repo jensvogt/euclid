@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One object attribute, as it now stands in the store.
@@ -49,24 +52,8 @@ namespace Euclid::Dto::ESM {
         static ObjectAttributeResponse fromJson(const std::string &json) {
             return boost::json::value_to<ObjectAttributeResponse>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend ObjectAttributeResponse tag_invoke(boost::json::value_to_tag<ObjectAttributeResponse>, boost::json::value const &v) {
-            ObjectAttributeResponse r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.name = Core::GetStringValue(v, "name");
-            if (Core::AttributeExists(v, "value")) r.value = boost::json::value_to<COM::Variant>(v.at("value"));
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ObjectAttributeResponse const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"name", obj.name},
-                    {"value", boost::json::value_from(obj.value)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ObjectAttributeResponse, (), (ern, name, value))
 
 }// namespace Euclid::Dto::ESM

@@ -8,11 +8,18 @@
 
 #pragma once
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct SetMessageAttributeRequest {
 
@@ -32,6 +39,11 @@ namespace Euclid::Dto::EQS {
         COM::Variant value{};
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"value"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -45,24 +57,8 @@ namespace Euclid::Dto::EQS {
         static SetMessageAttributeRequest fromJson(const std::string &json) {
             return boost::json::value_to<SetMessageAttributeRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SetMessageAttributeRequest tag_invoke(boost::json::value_to_tag<SetMessageAttributeRequest>, boost::json::value const &v) {
-            SetMessageAttributeRequest r;
-            r.messageId = Core::GetStringValue(v, "messageId");
-            r.key = Core::GetStringValue(v, "key");
-            r.value = boost::json::value_to<COM::Variant>(v.at("value"));
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetMessageAttributeRequest const &obj) {
-            jv = {
-                    {"messageId", obj.messageId},
-                    {"key", obj.key},
-                    {"value", boost::json::value_from(obj.value)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SetMessageAttributeRequest, (), (messageId, key, value))
 
 }

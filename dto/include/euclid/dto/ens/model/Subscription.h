@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     using std::chrono::system_clock;
 
@@ -61,30 +64,8 @@ namespace Euclid::Dto::ENS {
         static Subscription fromJson(const std::string &json) {
             return boost::json::value_to<Subscription>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend Subscription tag_invoke(boost::json::value_to_tag<Subscription>, boost::json::value const &v) {
-            Subscription r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.sourceErn = Core::GetStringValue(v, "sourceErn");
-            r.type = Core::GetStringValue(v, "type");
-            r.targetErn = Core::GetStringValue(v, "targetErn");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Subscription const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"sourceErn", obj.sourceErn},
-                    {"type", obj.type},
-                    {"targetErn", obj.targetErn},
-                    {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
-                    {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(Subscription, (), (ern, sourceErn, type, targetErn, created, modified))
 
 }// namespace Euclid::Dto::ENS

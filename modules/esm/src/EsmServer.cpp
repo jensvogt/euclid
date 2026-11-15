@@ -197,6 +197,15 @@ namespace Euclid::ESM {
     // Whether this caller was given this bucket, checked once a handler knows which bucket the
     // request is actually about - the account and namespace were settled before it ran, but which
     // bucket inside them is named in a body or a header only the handler understands.
+    // Fills in the caller identity every response DTO inherits from BaseDto and serialises as a
+    // nested "metadata" object - as EQS does. Resolved from the authenticated user rather than from
+    // anything the request said it was.
+    static void applyMetadata(Dto::BaseDto &response, const Database::Entity::EAM::User &user) {
+        response.user = user.userId;
+        response.accountId = user.accountId;
+        response.region = user.region;
+    }
+
     static std::optional<response<string_body> > denyUngrantedBucket(const request<string_body> &req, const AuthResult &auth, const std::string &bucketErn) {
 
         if (!auth.user.has_value()) return std::nullopt;
@@ -1423,6 +1432,7 @@ namespace Euclid::ESM {
                 "esm");
 
         Dto::ESM::CreateBucketResponse response;
+        applyMetadata(response, *auth.user);
         response.name = saved.name;
         response.ern = saved.ern;
 
@@ -1460,6 +1470,7 @@ namespace Euclid::ESM {
         log_info << "ESM bucket list, count: " << buckets.size();
 
         Dto::ESM::ListBucketsResponse response;
+        applyMetadata(response, *auth.user);
         response.buckets = Dto::ESM::EsmMapper::toDto(buckets);
         response.total = repo->countBuckets(auth.user->accountId, ns, request.prefix, includeInternal, matchType);
 
@@ -1506,6 +1517,7 @@ namespace Euclid::ESM {
         log_debug << "ESM get bucket, ern: " << bucket->ern;
 
         Dto::ESM::GetBucketResponse response;
+        applyMetadata(response, *auth.user);
         response.bucket = Dto::ESM::EsmMapper::toDto(*bucket);
 
         return JsonResponse(req, status::ok, response.toJson());
@@ -1535,6 +1547,7 @@ namespace Euclid::ESM {
         }
 
         Dto::ESM::GetBucketErnResponse response;
+        applyMetadata(response, *auth.user);
         response.ern = bucket->ern;
 
         return JsonResponse(req, status::ok, response.toJson());
@@ -1563,6 +1576,7 @@ namespace Euclid::ESM {
         log_debug << "ESM bucket size, ern: " << request.ern << ", size: " << bucket->size;
 
         Dto::ESM::GetBucketSizeResponse response;
+        applyMetadata(response, *auth.user);
         response.ern = bucket->ern;
         response.size = bucket->size;
 
@@ -2323,6 +2337,7 @@ namespace Euclid::ESM {
                 "esm");
 
         Dto::ESM::RenameBucketResponse response;
+        applyMetadata(response, *auth.user);
         response.name = stored->name;
         response.ern = stored->ern;
         response.objects = objects;
@@ -2398,6 +2413,7 @@ namespace Euclid::ESM {
         if (outcome == Database::Entity::ESM::UploadOutcome::UNCHANGED) {
             log_info << "ESM put object unchanged, bucket: " << bucketErn << ", key: " << key << ", md5Sum: " << md5Sum;
             Dto::ESM::CompleteUploadResponse response;
+            applyMetadata(response, *auth.user);
             response.bucketErn = bucketErn;
             response.key = key;
             response.ern = existingObject->ern;
@@ -2525,6 +2541,7 @@ namespace Euclid::ESM {
         publishObjectEvent(existingObject ? kObjectUpdated : kObjectCreated, object, bucket, auth.user->userId);
 
         Dto::ESM::CompleteUploadResponse response;
+        applyMetadata(response, *auth.user);
         response.bucketErn = bucketErn;
         response.key = key;
         response.ern = ern;
@@ -2636,6 +2653,7 @@ namespace Euclid::ESM {
         log_info << "ESM upload created, id: " << uploadId << ", path: " << uploadDir.string();
 
         Dto::ESM::CreateUploadResponse response;
+        applyMetadata(response, *auth.user);
         response.uploadId = uploadId;
         response.bucketErn = request.bucketErn;
         response.key = request.key;
@@ -2658,7 +2676,8 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "upload-part");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         const auto uploadId = std::string(req["x-euclid-upload-id"]);
         if (uploadId.empty()) {
@@ -2716,6 +2735,7 @@ namespace Euclid::ESM {
         log_debug << "ESM upload part, id: " << uploadId << ", part: " << partNumber << ", size: " << data.size();
 
         Dto::ESM::UploadPartResponse response;
+        applyMetadata(response, *auth.user);
         response.uploadId = uploadId;
         response.partNumber = partNumber;
         response.size = static_cast<long>(data.size());
@@ -2814,6 +2834,7 @@ namespace Euclid::ESM {
         // No counter adjustment: an upload that never completed was never counted. Only
         // complete-upload and put-object call adjustBucketCounters(), and neither ran.
         Dto::ESM::AbortUploadResponse response;
+        applyMetadata(response, *auth.user);
         response.uploadId = request.uploadId;
         response.bucketErn = bucketErn;
         response.key = key;
@@ -3175,6 +3196,7 @@ namespace Euclid::ESM {
         log_info << "Accepted upload, id: " << request.uploadId << ", key: " << key << ", size: " << totalSize << " - post-processing in background";
 
         Dto::ESM::CompleteUploadResponse response;
+        applyMetadata(response, *auth.user);
         response.bucketErn = bucketErn;
         response.key = key;
         response.ern = ern;
@@ -3409,6 +3431,7 @@ namespace Euclid::ESM {
         log_info << "ESM download created, id: " << downloadId << ", path: " << downloadDir.string();
 
         Dto::ESM::CreateDownloadResponse response;
+        applyMetadata(response, *auth.user);
         response.downloadId = downloadId;
         response.bucketErn = object->bucketErn;
         response.key = object->key;
@@ -3622,6 +3645,7 @@ namespace Euclid::ESM {
         if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
 
         Dto::ESM::ListObjectsResponse response;
+        applyMetadata(response, *auth.user);
 
         // Two different questions, and the delimiter is which one was asked. Without it the
         // prefix is matched against every key and the answer is the whole subtree; with it the
@@ -3666,7 +3690,8 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-object-count");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = ParseJsonBody(req, jv)) return *err;
@@ -3681,6 +3706,7 @@ namespace Euclid::ESM {
         log_info << "ESM get object count, ern: " << request.ern << ", count: " << bucket->objects;
 
         Dto::ESM::GetObjectCountResponse response;
+        applyMetadata(response, *auth.user);
         response.ern = bucket->ern;
         response.count = bucket->objects;
 
@@ -3813,6 +3839,7 @@ namespace Euclid::ESM {
         log_info << "ESM count objects, ern: " << request.ern << ", prefix: " << request.prefix << ", count: " << count;
 
         Dto::ESM::CountObjectsResponse response;
+        applyMetadata(response, *auth.user);
         response.ern = bucket->ern;
         response.prefix = request.prefix;
         response.includeDirectories = request.includeDirectories;
@@ -4066,6 +4093,7 @@ namespace Euclid::ESM {
         log_debug << "ESM bucket updated, ern: " << request.ern << ", removed: " << purgedObjects << ", bytes: " << purgedSize;
 
         Dto::ESM::PurgeBucketResponse response;
+        applyMetadata(response, *auth.user);
         response.ern = request.ern;
         response.count = purgedObjects;
 
@@ -4710,6 +4738,7 @@ namespace Euclid::ESM {
                 "esm");
 
         Dto::ESM::EnableEncryptionResponse response;
+        applyMetadata(response, *auth.user);
         response.ern = saved.ern;
         response.name = saved.name;
         response.keyErn = key.ern;
@@ -4791,6 +4820,7 @@ namespace Euclid::ESM {
                 "esm");
 
         Dto::ESM::DisableEncryptionResponse response;
+        applyMetadata(response, *auth.user);
         response.ern = saved.ern;
         response.name = saved.name;
         response.previousKeyErn = previousKeyErn;

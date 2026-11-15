@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     struct PurgeTopicRequest {
 
@@ -53,21 +56,7 @@ namespace Euclid::Dto::ENS {
         static PurgeTopicRequest fromJson(const std::string &json) {
             return boost::json::value_to<PurgeTopicRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend PurgeTopicRequest tag_invoke(boost::json::value_to_tag<PurgeTopicRequest>, boost::json::value const &v) {
-            PurgeTopicRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.async = Core::GetBoolValue(v, "async");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, PurgeTopicRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"async", obj.async},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(PurgeTopicRequest, (), (ern, async))
 }

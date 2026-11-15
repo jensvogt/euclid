@@ -16,8 +16,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Sets the largest message a queue accepts.
@@ -58,22 +61,8 @@ namespace Euclid::Dto::EQS {
         static SetQueueMaxMessageLengthRequest fromJson(const std::string &json) {
             return boost::json::value_to<SetQueueMaxMessageLengthRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SetQueueMaxMessageLengthRequest tag_invoke(boost::json::value_to_tag<SetQueueMaxMessageLengthRequest>, boost::json::value const &v) {
-            SetQueueMaxMessageLengthRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetQueueMaxMessageLengthRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"maxMessageLength", obj.maxMessageLength},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SetQueueMaxMessageLengthRequest, (), (ern, maxMessageLength))
 
 }

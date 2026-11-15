@@ -11,11 +11,18 @@
 // C++ includes
 #include <map>
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     using std::chrono::system_clock;
 
@@ -99,6 +106,12 @@ namespace Euclid::Dto::ESM {
         std::string restoredUntil;
 
         /**
+         * @brief The members that keep their initial value when the JSON leaves them out, rather than
+         * becoming zero, as the other members do.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonDefaults{"lifecycleState"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -114,26 +127,6 @@ namespace Euclid::Dto::ESM {
         }
 
     private:
-
-        friend Object tag_invoke(boost::json::value_to_tag<Object>, boost::json::value const &v) {
-            Object r;
-            r.bucketErn = Core::GetStringValue(v, "bucketErn");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.key = Core::GetStringValue(v, "key");
-            r.size = Core::GetLongValue(v, "size");
-            r.status = Core::GetStringValue(v, "status");
-            r.contentType = Core::GetStringValue(v, "contentType");
-            r.md5Sum = Core::GetStringValue(v, "md5Sum");
-            r.versionId = Core::GetStringValue(v, "versionId");
-            r.encrypted = Core::GetBoolValue(v, "encrypted");
-            r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            r.lastAccessed = Core::GetDatetimeValue(v, "lastAccessed");
-            r.lifecycleState = Core::GetStringValue(v, "lifecycleState", "STANDARD");
-            r.restoredUntil = Core::GetStringValue(v, "restoredUntil");
-            return r;
-        }
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Object const &obj) {
             jv = {
@@ -155,5 +148,7 @@ namespace Euclid::Dto::ESM {
             if (!obj.restoredUntil.empty()) jv.as_object()["restoredUntil"] = obj.restoredUntil;
         }
     };
+
+    BOOST_DESCRIBE_STRUCT(Object, (), (ern, bucketErn, key, size, status, contentType, md5Sum, versionId, encrypted, attributes, created, modified, lastAccessed, lifecycleState, restoredUntil))
 
 }// namespace Euclid::Dto::ESM

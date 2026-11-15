@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     struct GetTopicMetadataResponse {
 
@@ -83,42 +86,8 @@ namespace Euclid::Dto::ENS {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetTopicMetadataResponse tag_invoke(boost::json::value_to_tag<GetTopicMetadataResponse>, boost::json::value const &v) {
-            GetTopicMetadataResponse r;
-            r.region = Core::GetStringValue(v, "region");
-            r.accountId = Core::GetStringValue(v, "accountId");
-            r.owner = Core::GetStringValue(v, "owner");
-            r.nameSpace = Core::GetStringValue(v, "nameSpace");
-            r.name = Core::GetStringValue(v, "name");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.status = Core::GetStringValue(v, "status");
-            r.retentionPeriod = Core::GetLongValue(v, "retentionPeriod", 0);
-            r.deleteAfterDelivery = Core::GetBoolValue(v, "deleteAfterDelivery");
-            r.held = Core::GetLongValue(v, "held", 0);
-            r.size = Core::GetLongValue(v, "size");
-            r.messages = Core::GetLongValue(v, "messages");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetTopicMetadataResponse const &obj) {
-            jv = {
-                    {"region", obj.region},
-                    {"accountId", obj.accountId},
-                    {"owner", obj.owner},
-                    {"nameSpace", obj.nameSpace},
-                    {"name", obj.name},
-                    {"ern", obj.ern},
-                    {"size", obj.size},
-                    {"messages", obj.messages},
-                    {"status", obj.status},
-                    {"retentionPeriod", obj.retentionPeriod},
-                    {"deleteAfterDelivery", obj.deleteAfterDelivery},
-                    {"held", obj.held},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetTopicMetadataResponse, (), (region, accountId, owner, nameSpace, name, ern, size, messages, status, retentionPeriod, deleteAfterDelivery, held))
 
 }

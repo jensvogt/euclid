@@ -13,8 +13,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct ListMessagesRequest {
 
@@ -49,28 +52,8 @@ namespace Euclid::Dto::EQS {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListMessagesRequest tag_invoke(boost::json::value_to_tag<ListMessagesRequest>, boost::json::value const &v) {
-            ListMessagesRequest r;
-            r.queueErn = Core::GetStringValue(v, "queueErn");
-            r.pageSize = Core::GetLongValue(v, "pageSize");
-            r.pageIndex = Core::GetLongValue(v, "pageIndex");
-            r.sortColumn = Core::GetStringValue(v, "sortColumn");
-            r.sortDirection = Core::GetStringValue(v, "sortDirection");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListMessagesRequest const &obj) {
-            jv = {
-                    {"queueErn", obj.queueErn},
-                    {"pageSize", obj.pageSize},
-                    {"pageIndex", obj.pageIndex},
-                    {"sortColumn", obj.sortColumn},
-                    {"sortDirection", obj.sortDirection},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListMessagesRequest, (), (queueErn, pageSize, pageIndex, sortColumn, sortDirection))
 
 }

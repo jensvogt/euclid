@@ -14,8 +14,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     struct PublishMessageRequest {
 
@@ -75,15 +78,8 @@ namespace Euclid::Dto::ENS {
             }
             return r;
         }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, PublishMessageRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"body", obj.body},
-                    {"attributes", boost::json::value_from(obj.attributes)},
-                    {"priority", obj.priority},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(PublishMessageRequest, (), (ern, body, attributes, priority))
 
 }

@@ -8,10 +8,17 @@
 
 #pragma once
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     struct CreateTopicRequest {
 
@@ -32,6 +39,12 @@ namespace Euclid::Dto::ENS {
         long maxMessageLength = 1024 * 1024;
 
         /**
+         * @brief The members that keep their initial value when the JSON leaves them out, rather than
+         * becoming zero, as the other members do.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonDefaults{"maxMessageLength"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -44,21 +57,7 @@ namespace Euclid::Dto::ENS {
         [[nodiscard]] static CreateTopicRequest fromJson(const std::string &json) {
             return boost::json::value_to<CreateTopicRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend CreateTopicRequest tag_invoke(boost::json::value_to_tag<CreateTopicRequest>, boost::json::value const &v) {
-            CreateTopicRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateTopicRequest const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"maxMessageLength", obj.maxMessageLength},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateTopicRequest, (), (name, maxMessageLength))
 }

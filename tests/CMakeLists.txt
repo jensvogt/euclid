@@ -1168,3 +1168,12 @@ set_target_properties(${CGROUP_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${CGROUP_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${CGROUP_BINARY} COMMAND ${CGROUP_BINARY})
+
+set(DESCRIBED_JSON_BINARY euclid-described-json-tests)
+
+add_executable(${DESCRIBED_JSON_BINARY} DescribedJsonTest.cpp)
+set_target_properties(${DESCRIBED_JSON_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${DESCRIBED_JSON_BINARY} PRIVATE eucliddto euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${DESCRIBED_JSON_BINARY} COMMAND ${DESCRIBED_JSON_BINARY})

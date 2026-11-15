@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Sets a queue's default visibility timeout.
@@ -49,22 +52,8 @@ namespace Euclid::Dto::EQS {
         static SetQueueVisibilityRequest fromJson(const std::string &json) {
             return boost::json::value_to<SetQueueVisibilityRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SetQueueVisibilityRequest tag_invoke(boost::json::value_to_tag<SetQueueVisibilityRequest>, boost::json::value const &v) {
-            SetQueueVisibilityRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.visibility = Core::GetLongValue(v, "visibility");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetQueueVisibilityRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"visibility", obj.visibility},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SetQueueVisibilityRequest, (), (ern, visibility))
 
 }

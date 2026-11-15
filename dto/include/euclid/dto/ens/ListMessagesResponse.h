@@ -11,10 +11,17 @@
 // C++ includes
 #include <vector>
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/dto/ens/model/Message.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     struct ListMessagesResponse {
 
@@ -29,27 +36,18 @@ namespace Euclid::Dto::ENS {
         long total{};
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"messages"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListMessagesResponse tag_invoke(boost::json::value_to_tag<ListMessagesResponse>, boost::json::value const &v) {
-            ListMessagesResponse r;
-            r.messages = boost::json::value_to<std::vector<Message> >(v.at("messages"));
-            r.total = Core::GetLongValue(v, "total");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListMessagesResponse const &obj) {
-            jv = {
-                    {"messages", boost::json::value_from(obj.messages)},
-                    {"total", obj.total},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListMessagesResponse, (), (messages, total))
 
 }

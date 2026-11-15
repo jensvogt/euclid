@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct CompleteDownloadRequest {
 
@@ -26,19 +29,7 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] static CompleteDownloadRequest fromJson(const std::string &json) {
             return boost::json::value_to<CompleteDownloadRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend CompleteDownloadRequest tag_invoke(boost::json::value_to_tag<CompleteDownloadRequest>, boost::json::value const &v) {
-            CompleteDownloadRequest r;
-            r.downloadId = Core::GetStringValue(v, "downloadId");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CompleteDownloadRequest const &obj) {
-            jv = {
-                    {"downloadId", obj.downloadId},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CompleteDownloadRequest, (), (downloadId))
 }// namespace Euclid::Dto::ESM

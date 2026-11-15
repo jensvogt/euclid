@@ -50,6 +50,10 @@ QUEUES=("file-delivery-pdf" "file-delivery-image" "file-delivery-xml" "file-deli
 APP_ID="file-delivery"
 # Created by the application itself on its first start, not by setup-infrastructure.sh.
 APP_QUEUE="$APP_ID-queue"
+PRINTER_ID="protocol-printer"
+PRINTER_QUEUE="$PRINTER_ID-queue"
+SPLITTER_ID="xml-splitter"
+SPLITTER_OUTPUT="splitting-output"
 
 manager() { compose exec -T euclid euclid-cli --ca-cert /usr/local/euclid/certs/euclid_cert.crt "$@"; }
 
@@ -72,7 +76,7 @@ step() {
 }
 
 if [ "${1:-}" != "-y" ]; then
-    echo "This deletes the application $APP_ID, the transfer servers ${SERVERS[*]},"
+    echo "This deletes the applications $APP_ID, $PRINTER_ID and $SPLITTER_ID, the transfer servers ${SERVERS[*]},"
     echo "the buckets ${BUCKETS[*]} with every file in them, the queues, the topics ${TOPICS[*]},"
     echo "the users ${USERS[*]} and the user group $GROUP."
     read -rp "Continue? [y/N] " answer
@@ -111,6 +115,40 @@ for role in "$APP_ID" "$APP_ID-cleanup" "$APP_ID-protocol"; do
     step "role $role deleted" "role $role already gone" eam delete-role --name "$role"
 done
 
+# The protocol-printer application, the same way: its grants, then itself, then its role.
+echo "== application $PRINTER_ID"
+step "stopped" "not running" eap stop-application --application-id "$PRINTER_ID"
+printerPrincipal="ern:eam:$REGION:$ACCOUNT:user:app-$PRINTER_ID"
+for grant in $(grant_ids "$printerPrincipal" "$PRINTER_ID"); do
+    step "$PRINTER_ID role revoked ($grant)" "could not revoke grant $grant" eam revoke-role --grant-id "$grant"
+done
+step "deleted" "already gone" eap delete-application --application-id "$PRINTER_ID"
+step "role $PRINTER_ID deleted" "role $PRINTER_ID already gone" eam delete-role --name "$PRINTER_ID"
+
+# The xml-splitter application, the same way.
+echo "== application $SPLITTER_ID"
+step "stopped" "not running" eap stop-application --application-id "$SPLITTER_ID"
+splitterPrincipal="ern:eam:$REGION:$ACCOUNT:user:app-$SPLITTER_ID"
+for grant in $(grant_ids "$splitterPrincipal" "$SPLITTER_ID"); do
+    step "$SPLITTER_ID role revoked ($grant)" "could not revoke grant $grant" eam revoke-role --grant-id "$grant"
+done
+step "deleted" "already gone" eap delete-application --application-id "$SPLITTER_ID"
+step "role $SPLITTER_ID deleted" "role $SPLITTER_ID already gone" eam delete-role --name "$SPLITTER_ID"
+
+# The subscriptions on the topics - protocol-printer's queue on "protocol", and any a developer's
+# local run left there: they name queues that go below.
+for topic in "${TOPICS[@]}"; do
+    echo "== subscriptions on topic $topic"
+    subscriptions="$(manager ens list-subscriptions --topic "$topic" 2>/dev/null \
+        | grep -oE '"ern"[[:space:]]*:[[:space:]]*"[^"]+"' | sed -E 's/.*"([^"]+)"$/\1/' || true)"
+    if [ -z "$subscriptions" ]; then
+        echo "   none"
+    fi
+    for subscription in $subscriptions; do
+        step "unsubscribed ($subscription)" "could not unsubscribe $subscription" ens unsubscribe --subscription "$subscription"
+    done
+done
+
 # The subscriptions the application put on the transfer bucket: they name its queue, which goes
 # below, and would otherwise be left pointing at nothing.
 echo "== subscriptions on transfer-server"
@@ -142,7 +180,7 @@ for topic in "${TOPICS[@]}"; do
 done
 
 # Deletes the created queues, includes all messages existing in the queue
-for queue in "${QUEUES[@]}" "$APP_QUEUE"; do
+for queue in "${QUEUES[@]}" "$APP_QUEUE" "$PRINTER_QUEUE" "$SPLITTER_OUTPUT"; do
   echo "== queue $queue"
   step "deleted" "already gone" eqs delete-queue --queue "$queue"
 done

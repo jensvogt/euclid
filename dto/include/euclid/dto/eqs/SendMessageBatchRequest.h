@@ -12,8 +12,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One message within a send-message-batch request.
@@ -45,30 +48,9 @@ namespace Euclid::Dto::EQS {
          * @brief Message priority, i.e. "LOW", "MEDIUM" or "HIGH". Empty takes the queue's own.
          */
         std::string priority{};
-
-    private:
-
-        friend SendMessageBatchEntry tag_invoke(boost::json::value_to_tag<SendMessageBatchEntry>, boost::json::value const &v) {
-            SendMessageBatchEntry e;
-            e.body = Core::GetStringValue(v, "body");
-            e.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
-            e.systemAttributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "systemAttributes");
-            // Not defaulted to "MEDIUM" the way SendMessageRequest does: empty means "the queue's
-            // own", and a batch that quietly turned every unset entry into MEDIUM would override
-            // the queue default that a single send of the same message respects.
-            e.priority = Core::GetStringValue(v, "priority");
-            return e;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SendMessageBatchEntry const &obj) {
-            jv = {
-                    {"body", obj.body},
-                    {"attributes", boost::json::value_from(obj.attributes)},
-                    {"systemAttributes", boost::json::value_from(obj.systemAttributes)},
-                    {"priority", obj.priority},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SendMessageBatchEntry, (), (body, attributes, systemAttributes, priority))
 
     /**
      * @brief Request to put several messages on one queue in a single call.
@@ -127,13 +109,8 @@ namespace Euclid::Dto::EQS {
             }
             return r;
         }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SendMessageBatchRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"messages", boost::json::value_from(obj.messages)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SendMessageBatchRequest, (), (ern, messages))
 
 }// namespace Euclid::Dto::EQS

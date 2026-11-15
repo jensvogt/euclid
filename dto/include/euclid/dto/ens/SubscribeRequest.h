@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     struct SubscribeRequest {
 
@@ -43,23 +46,7 @@ namespace Euclid::Dto::ENS {
         [[nodiscard]] static SubscribeRequest fromJson(const std::string &json) {
             return boost::json::value_to<SubscribeRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SubscribeRequest tag_invoke(boost::json::value_to_tag<SubscribeRequest>, boost::json::value const &v) {
-            SubscribeRequest r;
-            r.sourceErn = Core::GetStringValue(v, "sourceErn");
-            r.type = Core::GetStringValue(v, "type");
-            r.targetErn = Core::GetStringValue(v, "targetErn");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SubscribeRequest const &obj) {
-            jv = {
-                    {"sourceErn", obj.sourceErn},
-                    {"type", obj.type},
-                    {"targetErn", obj.targetErn},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SubscribeRequest, (), (sourceErn, type, targetErn))
 }

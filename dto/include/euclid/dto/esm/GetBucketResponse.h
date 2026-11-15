@@ -11,11 +11,18 @@
 // C++ includes
 #include <string>
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/esm/model/Bucket.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One bucket, as list-buckets describes each of its own.
@@ -32,26 +39,17 @@ namespace Euclid::Dto::ESM {
         Bucket bucket;
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"bucket"};
+
+        /**
          * @brief Serializes this response to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetBucketResponse tag_invoke(boost::json::value_to_tag<GetBucketResponse>, boost::json::value const &v) {
-            GetBucketResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.bucket = boost::json::value_to<Bucket>(v.at("bucket"));
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetBucketResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"bucket", boost::json::value_from(obj.bucket)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetBucketResponse, (BaseDto), (bucket))
 }// namespace Euclid::Dto::ESM

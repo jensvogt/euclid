@@ -30,6 +30,23 @@
 #include <euclid/dto/eqs/ListQueueResponse.h>
 #include <euclid/dto/eqs/ReceiveMessagesResponse.h>
 #include <euclid/dto/eqs/SendMessageResponse.h>
+#include <euclid/dto/esm/AbortUploadResponse.h>
+#include <euclid/dto/esm/CompleteUploadResponse.h>
+#include <euclid/dto/esm/CountObjectsResponse.h>
+#include <euclid/dto/esm/CreateBucketResponse.h>
+#include <euclid/dto/esm/CreateDownloadResponse.h>
+#include <euclid/dto/esm/CreateUploadResponse.h>
+#include <euclid/dto/esm/DisableEncryptionResponse.h>
+#include <euclid/dto/esm/EnableEncryptionResponse.h>
+#include <euclid/dto/esm/GetBucketErnResponse.h>
+#include <euclid/dto/esm/GetBucketResponse.h>
+#include <euclid/dto/esm/GetBucketSizeResponse.h>
+#include <euclid/dto/esm/GetObjectCountResponse.h>
+#include <euclid/dto/esm/ListBucketsResponse.h>
+#include <euclid/dto/esm/ListObjectsResponse.h>
+#include <euclid/dto/esm/PurgeBucketResponse.h>
+#include <euclid/dto/esm/RenameBucketResponse.h>
+#include <euclid/dto/esm/UploadPartResponse.h>
 
 // Every response DTO inherits region/accountId/user from BaseDto, and BaseDto's docstring says they
 // are "serialized as a nested 'metadata' object". Inheriting them is not the same as sending them:
@@ -109,6 +126,31 @@ BOOST_AUTO_TEST_CASE(EveryQueueResponseCarriesTheCallerIdentity) {
     assertCarriesCallerIdentity<GetMessageCountResponse>("GetMessageCountResponse");
     assertCarriesCallerIdentity<GetMessageAttributeResponse>("GetMessageAttributeResponse");
     assertCarriesCallerIdentity<GetMessageMetadataResponse>("GetMessageMetadataResponse");
+}
+
+BOOST_AUTO_TEST_CASE(EveryStorageResponseCarriesTheCallerIdentity) {
+
+    // ESM's responses inherited the identity from the start and never sent it, until ESM began
+    // filling it in (applyMetadata) - so these are the ones most likely to drift back.
+    using namespace Euclid::Dto::ESM;
+
+    assertCarriesCallerIdentity<AbortUploadResponse>("AbortUploadResponse");
+    assertCarriesCallerIdentity<CompleteUploadResponse>("CompleteUploadResponse");
+    assertCarriesCallerIdentity<CountObjectsResponse>("CountObjectsResponse");
+    assertCarriesCallerIdentity<CreateBucketResponse>("CreateBucketResponse");
+    assertCarriesCallerIdentity<CreateDownloadResponse>("CreateDownloadResponse");
+    assertCarriesCallerIdentity<CreateUploadResponse>("CreateUploadResponse");
+    assertCarriesCallerIdentity<DisableEncryptionResponse>("DisableEncryptionResponse");
+    assertCarriesCallerIdentity<EnableEncryptionResponse>("EnableEncryptionResponse");
+    assertCarriesCallerIdentity<GetBucketErnResponse>("GetBucketErnResponse");
+    assertCarriesCallerIdentity<GetBucketResponse>("GetBucketResponse");
+    assertCarriesCallerIdentity<GetBucketSizeResponse>("GetBucketSizeResponse");
+    assertCarriesCallerIdentity<GetObjectCountResponse>("GetObjectCountResponse");
+    assertCarriesCallerIdentity<ListBucketsResponse>("ListBucketsResponse");
+    assertCarriesCallerIdentity<ListObjectsResponse>("ListObjectsResponse");
+    assertCarriesCallerIdentity<PurgeBucketResponse>("PurgeBucketResponse");
+    assertCarriesCallerIdentity<RenameBucketResponse>("RenameBucketResponse");
+    assertCarriesCallerIdentity<UploadPartResponse>("UploadPartResponse");
 }
 
 BOOST_AUTO_TEST_CASE(TheIdentityIsNestedRatherThanMixedInWithTheResponsesOwnFields) {

@@ -54,6 +54,23 @@ APP_FILE="apps/file-delivery"
 APP_BUCKET="apps"
 APP_VERSION="1.0.0"
 
+# The protocol-printer application (examples/applications/rust), deployed from apps/ the same way:
+# it prints every message published to the "protocol" topic, so the steps file-delivery takes show
+# up in euclid's log. It subscribes its queue to the topic itself.
+PRINTER_ID="protocol-printer"
+PRINTER_FILE="apps/protocol-printer"
+PRINTER_VERSION="1.0.0"
+PRINTER_QUEUE="$PRINTER_ID-queue"
+
+# The xml-splitter application (examples/applications/python), a zipapp the workers' python3 runs:
+# it reads the XML files file-delivery announces on file-delivery-xml, and sends every CD in each to
+# splitting-output as a message of its own.
+SPLITTER_ID="xml-splitter"
+SPLITTER_FILE="apps/xml-splitter.pyz"
+SPLITTER_VERSION="1.0.0"
+SPLITTER_INPUT="file-delivery-xml"
+SPLITTER_OUTPUT="splitting-output"
+
 # Manager connection
 manager() { compose exec -T euclid euclid-cli --ca-cert /usr/local/euclid/certs/euclid_cert.crt "$@"; }
 
@@ -67,6 +84,17 @@ step() {
         echo "   $already?"
         sed 's/^/      /' <<<"$output"
     fi
+}
+
+# Uploads local file $1 to the apps bucket under key $2. Uploaded on every run, so running this
+# again deploys a rebuilt binary. euclid-cli runs inside the manager's container, so the file is
+# copied in first.
+upload() {
+    local file="$1" key="$2"
+    compose cp "$file" "euclid:/tmp/$key" >/dev/null
+    step "uploaded to $APP_BUCKET" "could not be uploaded" \
+        esm upload-file --bucket "$APP_BUCKET" --key "$key" --file "/tmp/$key"
+    compose exec -T euclid rm -f "/tmp/$key"
 }
 
 echo "Waiting for the manager..."
@@ -148,12 +176,7 @@ else
         echo "   warning: $APP_FILE needs glibc and will not start on the Alpine workers - build it fully static on Alpine"
     fi
 
-    # Uploaded on every run, so running this again deploys a rebuilt binary. euclid-cli runs inside
-    # the manager's container, so the file is copied in first.
-    compose cp "$APP_FILE" "euclid:/tmp/$APP_ID" >/dev/null
-    step "uploaded to $APP_BUCKET" "could not be uploaded" \
-        esm upload-file --bucket "$APP_BUCKET" --key "$APP_ID" --file "/tmp/$APP_ID"
-    compose exec -T euclid rm -f "/tmp/$APP_ID"
+    upload "$APP_FILE" "$APP_ID"
 
     # Its own principal, app-file-delivery, narrowed to the two buckets and the queues: the one it
     # reads, and the ones it announces delivered files on.
@@ -192,9 +215,10 @@ else
             --namespace development \
             --resource "ern:esm:$REGION:$ACCOUNT:development:bucket:transfer-server*"
 
-    # And publishing its protocol. --buckets and --queues narrowed the application to those
-    # resources, and create-application has no option to name a topic, so a role of its own,
-    # granted on the protocol topic alone.
+    # And publishing its protocol. ENS checks only that a role holds the action, not which topic it
+    # names, so today the built-in role already covers this - but create-application cannot name a
+    # topic, so this grant is what keeps it right once ENS does check: a role of its own, on the
+    # protocol topic alone.
     step "role $APP_ID-protocol created" "role $APP_ID-protocol already exists" \
         eam create-role --name "$APP_ID-protocol" \
             --permission ens:get-topic-ern --permission ens:publish-message \
@@ -206,6 +230,86 @@ else
             --resource "ern:ens:$REGION:$ACCOUNT:development:topic:protocol"
 
     step "started" "could not be started" eap start-application --application-id "$APP_ID"
+fi
+
+# The protocol-printer application. If the prebuilt binary is missing, build it first
+# (examples/applications/rust/build-alpine.sh).
+echo "== application $PRINTER_ID"
+if [ ! -f "$PRINTER_FILE" ]; then
+    echo "   skipped: no $PRINTER_FILE - run examples/applications/rust/build-alpine.sh"
+else
+    if command -v file >/dev/null 2>&1 && file "$PRINTER_FILE" | grep -q 'ld-linux'; then
+        echo "   warning: $PRINTER_FILE needs glibc and will not start on the Alpine workers - build it with build-alpine.sh"
+    fi
+
+    upload "$PRINTER_FILE" "$PRINTER_ID"
+
+    # Its queue made here rather than left to the application: --queues names it, and
+    # create-application refuses a resource that does not exist yet.
+    step "queue $PRINTER_QUEUE created" "queue $PRINTER_QUEUE already exists" \
+        eqs create-queue --name "$PRINTER_QUEUE"
+
+    # Its own principal, app-protocol-printer, narrowed to that queue and no bucket. One instance:
+    # instances would share the queue, so more only split the same lines between them.
+    step "created" "already exists" \
+        eap create-application --application-id "$PRINTER_ID" --runtime RUST \
+            --bucket "$APP_BUCKET" --artifact "$PRINTER_ID" --version "$PRINTER_VERSION" \
+            --min-instances 1 --max-instances 1 \
+            --queues "$PRINTER_QUEUE"
+
+    # Looking the topic up and subscribing its queue to it. As for file-delivery's protocol role:
+    # covered by the built-in role today, since ENS does not check which topic, and named here so it
+    # stays right once ENS does.
+    step "role $PRINTER_ID created" "role $PRINTER_ID already exists" \
+        eam create-role --name "$PRINTER_ID" \
+            --permission ens:get-topic-ern --permission ens:subscribe --permission ens:list-subscriptions \
+            --description "Subscribe to the protocol topic"
+    step "granted the $PRINTER_ID role" "already holds the $PRINTER_ID role" \
+        eam grant-role --role "$PRINTER_ID" \
+            --principal "ern:eam:$REGION:$ACCOUNT:user:app-$PRINTER_ID" \
+            --namespace development \
+            --resource "ern:ens:$REGION:$ACCOUNT:development:topic:protocol"
+
+    step "started" "could not be started" eap start-application --application-id "$PRINTER_ID"
+fi
+
+# The xml-splitter application. If the zipapp is missing, build it first
+# (examples/applications/python/build-pyz.sh).
+echo "== application $SPLITTER_ID"
+if [ ! -f "$SPLITTER_FILE" ]; then
+    echo "   skipped: no $SPLITTER_FILE - run examples/applications/python/build-pyz.sh"
+else
+    upload "$SPLITTER_FILE" "$SPLITTER_ID.pyz"
+
+    # Its output queue, made here: --queues names it, and create-application refuses a resource
+    # that does not exist yet. Its input, file-delivery-xml, is one of the QUEUES above.
+    step "queue $SPLITTER_OUTPUT created" "queue $SPLITTER_OUTPUT already exists" \
+        eqs create-queue --name "$SPLITTER_OUTPUT"
+
+    # Its own principal, app-xml-splitter, narrowed to the bucket it reads the XML from and its
+    # two queues. One instance: a catalogue at a time is plenty for an example.
+    step "created" "already exists" \
+        eap create-application --application-id "$SPLITTER_ID" --runtime PYTHON \
+            --bucket "$APP_BUCKET" --artifact "$SPLITTER_ID.pyz" --version "$SPLITTER_VERSION" \
+            --min-instances 1 --max-instances 1 \
+            --buckets file-delivery --queues "$SPLITTER_INPUT,$SPLITTER_OUTPUT"
+
+    # What the built-in "application" role does not cover: sending the pieces in batches
+    # (eqs:send-message-batch is an action of its own, not a kind of send-message), on the output
+    # queue only, and downloading an XML file over 5 MiB in parts, from file-delivery only.
+    step "role $SPLITTER_ID created" "role $SPLITTER_ID already exists" \
+        eam create-role --name "$SPLITTER_ID" \
+            --permission eqs:send-message-batch \
+            --permission esm:create-download --permission esm:download-part --permission esm:complete-download \
+            --description "Send CD pieces in batches, and download large XML files"
+    step "granted the $SPLITTER_ID role" "already holds the $SPLITTER_ID role" \
+        eam grant-role --role "$SPLITTER_ID" \
+            --principal "ern:eam:$REGION:$ACCOUNT:user:app-$SPLITTER_ID" \
+            --namespace development \
+            --resource "ern:eqs:$REGION:$ACCOUNT:development:queue:$SPLITTER_OUTPUT" \
+                       "ern:esm:$REGION:$ACCOUNT:development:bucket:file-delivery*"
+
+    step "started" "could not be started" eap start-application --application-id "$SPLITTER_ID"
 fi
 
 echo

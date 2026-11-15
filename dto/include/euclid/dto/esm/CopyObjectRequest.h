@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Names an object and where it should end up.
@@ -59,26 +62,8 @@ namespace Euclid::Dto::ESM {
         static CopyObjectRequest fromJson(const std::string &json) {
             return boost::json::value_to<CopyObjectRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend CopyObjectRequest tag_invoke(boost::json::value_to_tag<CopyObjectRequest>, boost::json::value const &v) {
-            CopyObjectRequest r;
-            r.sourceBucketErn = Core::GetStringValue(v, "sourceBucketErn");
-            r.sourceKey = Core::GetStringValue(v, "sourceKey");
-            r.targetBucketErn = Core::GetStringValue(v, "targetBucketErn");
-            r.targetKey = Core::GetStringValue(v, "targetKey");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CopyObjectRequest const &obj) {
-            jv = {
-                    {"sourceBucketErn", obj.sourceBucketErn},
-                    {"sourceKey", obj.sourceKey},
-                    {"targetBucketErn", obj.targetBucketErn},
-                    {"targetKey", obj.targetKey},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CopyObjectRequest, (), (sourceBucketErn, sourceKey, targetBucketErn, targetKey))
 
 }// namespace Euclid::Dto::ESM

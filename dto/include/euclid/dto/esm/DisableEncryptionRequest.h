@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Names the bucket whose objects should stop being encrypted at rest.
@@ -43,20 +46,8 @@ namespace Euclid::Dto::ESM {
         static DisableEncryptionRequest fromJson(const std::string &json) {
             return boost::json::value_to<DisableEncryptionRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend DisableEncryptionRequest tag_invoke(boost::json::value_to_tag<DisableEncryptionRequest>, boost::json::value const &v) {
-            DisableEncryptionRequest r;
-            r.bucketErn = Core::GetStringValue(v, "bucketErn");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DisableEncryptionRequest const &obj) {
-            jv = {
-                    {"bucketErn", obj.bucketErn},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(DisableEncryptionRequest, (), (bucketErn))
 
 }// namespace Euclid::Dto::ESM

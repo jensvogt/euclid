@@ -16,8 +16,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Sets how long a topic keeps the messages published to it.
@@ -54,22 +57,8 @@ namespace Euclid::Dto::ENS {
         [[nodiscard]] static SetTopicRetentionRequest fromJson(const std::string &json) {
             return boost::json::value_to<SetTopicRetentionRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SetTopicRetentionRequest tag_invoke(boost::json::value_to_tag<SetTopicRetentionRequest>, boost::json::value const &v) {
-            SetTopicRetentionRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.retentionPeriod = Core::GetLongValue(v, "retentionPeriod");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetTopicRetentionRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"retentionPeriod", obj.retentionPeriod},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SetTopicRetentionRequest, (), (ern, retentionPeriod))
 
 }

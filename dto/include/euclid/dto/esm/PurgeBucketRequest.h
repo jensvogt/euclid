@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct PurgeBucketRequest {
 
@@ -40,21 +43,7 @@ namespace Euclid::Dto::ESM {
         static PurgeBucketRequest fromJson(const std::string &json) {
             return boost::json::value_to<PurgeBucketRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend PurgeBucketRequest tag_invoke(boost::json::value_to_tag<PurgeBucketRequest>, boost::json::value const &v) {
-            PurgeBucketRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.prefix = Core::GetStringValue(v, "prefix");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, PurgeBucketRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"prefix", obj.prefix},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(PurgeBucketRequest, (), (ern, prefix))
 }// namespace Euclid::Dto::ESM

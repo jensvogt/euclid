@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One message a batch would not send, and why.
@@ -33,23 +36,9 @@ namespace Euclid::Dto::EQS {
          * @brief Why it was refused, in the same words a single send would have used.
          */
         std::string reason{};
-
-    private:
-
-        friend SendMessageBatchFailure tag_invoke(boost::json::value_to_tag<SendMessageBatchFailure>, boost::json::value const &v) {
-            SendMessageBatchFailure f;
-            f.index = Core::GetLongValue(v, "index");
-            f.reason = Core::GetStringValue(v, "reason");
-            return f;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SendMessageBatchFailure const &obj) {
-            jv = {
-                    {"index", obj.index},
-                    {"reason", obj.reason},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SendMessageBatchFailure, (), (index, reason))
 
     /**
      * @brief What a send-message-batch did.
@@ -126,17 +115,8 @@ namespace Euclid::Dto::EQS {
             }
             return r;
         }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SendMessageBatchResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"ern", obj.ern},
-                    {"asked", obj.asked},
-                    {"sent", obj.sent},
-                    {"messageIds", boost::json::value_from(obj.messageIds)},
-                    {"failed", boost::json::value_from(obj.failed)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SendMessageBatchResponse, (BaseDto), (ern, asked, sent, messageIds, failed))
 
 }// namespace Euclid::Dto::EQS

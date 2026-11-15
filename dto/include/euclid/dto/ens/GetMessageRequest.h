@@ -14,8 +14,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Asks for one message, by the id it was given when it was published.
@@ -39,19 +42,7 @@ namespace Euclid::Dto::ENS {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetMessageRequest tag_invoke(boost::json::value_to_tag<GetMessageRequest>, boost::json::value const &v) {
-            GetMessageRequest r;
-            r.messageId = Core::GetStringValue(v, "messageId");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetMessageRequest const &obj) {
-            jv = {
-                    {"messageId", obj.messageId},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetMessageRequest, (), (messageId))
 }// namespace Euclid::Dto::ENS

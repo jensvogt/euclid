@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     struct GetMessageAttributeRequest {
 
@@ -39,22 +42,8 @@ namespace Euclid::Dto::ENS {
         static GetMessageAttributeRequest fromJson(const std::string &json) {
             return boost::json::value_to<GetMessageAttributeRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend GetMessageAttributeRequest tag_invoke(boost::json::value_to_tag<GetMessageAttributeRequest>, boost::json::value const &v) {
-            GetMessageAttributeRequest r;
-            r.messageId = Core::GetStringValue(v, "messageId");
-            r.key = Core::GetStringValue(v, "key");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetMessageAttributeRequest const &obj) {
-            jv = {
-                    {"messageId", obj.messageId},
-                    {"key", obj.key},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetMessageAttributeRequest, (), (messageId, key))
 
 }

@@ -20,6 +20,11 @@ docker compose up -d
 ./setup-workers.sh
 ```
 
+The commands in this README use `docker compose`, the compose plugin. Where Docker has no plugin,
+`docker compose` fails with errors like `unknown shorthand flag: 'f'`. That's the case for Ubuntu's
+`docker.io` package unless `docker-compose-v2` is installed too. Use the standalone `docker-compose`
+in its place; it takes the same arguments. The scripts here pick whichever one is available.
+
 The first command starts MongoDB, then the manager once MongoDB answers, then the workers once the
 gateway does. The workers come up waiting: a worker is an ordinary euclid client and needs a login
 of its own before it can register. `setup-workers.sh` gives it one, once - for each worker it
@@ -75,6 +80,15 @@ the workers always use the same one.
   there. Left empty, the server would name the container's IP, which no client outside the compose
   network can reach.
 
+## What setup-infrastructure.sh sets up
+
+![What setup-infrastructure.sh sets up](diagram/setup-infrastructure.png)
+
+The AWS icons stand in for their euclid counterparts: Transfer Family for ETS, S3 for ESM, SQS for
+EQS, SNS for ENS, ECS containers for EAP applications, IAM for EAM, and CloudWatch Logs for euclid's
+log. The diagram is drawn from `diagram/setup-infrastructure.py`. After changing the setup, update
+that file and run `diagram/render.sh`, which needs only docker.
+
 ## The file-delivery application
 
 `apps/file-delivery` is the C++ example from [`examples/applications/cpp`](../applications/cpp),
@@ -88,11 +102,12 @@ runs it on the workers (1 to 4 instances). It processes what FTP and SFTP client
    it is delivered on its own.
 3. **Announces** each delivered file on a queue for its kind, which libmagic determines from the
    content, not the name: `file-delivery-pdf`, `-image`, `-xml`, `-json`, and `file-delivery-misc`
-   for everything else.
+   for everything else. The [xml-splitter application](#the-xml-splitter-application) reads
+   `file-delivery-xml`.
 4. **Deletes** the upload from `transfer-server` once all of it has been delivered.
 
 Each of these steps is also published to the ENS topic `protocol`, which `setup-infrastructure.sh`
-creates. Subscribe a queue to it to follow every upload from arrival to removal.
+creates. The [protocol-printer application](#the-protocol-printer-application) reads it.
 
 Rebuild the binary with `../applications/cpp/build-alpine.sh`, which writes it here, and run
 `setup-infrastructure.sh` again to deploy it. The workers are Alpine, so a binary built on Debian or
@@ -106,6 +121,90 @@ ec eqs receive-messages --queue file-delivery-pdf
 
 How it works in detail, its settings and the grants it needs are in
 [its README](../applications/cpp/README.md).
+
+## The protocol-printer application
+
+`apps/protocol-printer` is the Rust example from [`examples/applications/rust`](../applications/rust),
+written against euclid-rdk. It prints every message published to the `protocol` topic, one line
+each, exactly as `file-delivery` published it. You can follow each upload from arrival to removal
+without reading `file-delivery`'s own log:
+
+```text
+{"timestamp":"2026-11-15T14:02:11.482Z","application":"file-delivery","step":"picked-up",...}
+{"timestamp":"2026-11-15T14:02:11.613Z","application":"file-delivery","step":"downloaded",...}
+{"timestamp":"2026-11-15T14:02:11.870Z","application":"file-delivery","step":"delivered",...}
+```
+
+A topic isn't read directly; its messages go to the queues subscribed to it. So:
+
+1. **`setup-infrastructure.sh`** creates the `protocol` topic and the queue `protocol-printer-queue`,
+   uploads the binary to the `apps` bucket, and deploys it with the `RUST` runtime. It runs one
+   instance, limited to that queue.
+2. **On startup**, the application subscribes its queue to the topic, unless it already is.
+3. **From then on** it waits for messages on the queue, prints each one to stdout, and deletes it
+   once it's printed.
+
+Only messages published after the subscription exists are delivered. Steps `file-delivery` took
+before the printer first started don't appear.
+
+**Watch it.** An application's stdout goes into the log of the worker that runs it, and the workers
+log to their container's output. The lines don't carry the application's name, so match the protocol
+messages themselves:
+
+```bash
+docker compose logs -f wrk-1 wrk-2 | grep '"step"'
+```
+
+Each line appears unchanged. euclid reads JSON lines from an application as structured log
+records, but a line without a `message` field, like these, is kept whole as the message.
+
+**Run it on your machine instead.** It works outside euclid too, with a login of its own and a
+separate queue, so it doesn't take messages from the deployed one. Its stdout is then just the
+messages, ready for `jq`:
+
+```bash
+docker compose cp euclid:/usr/local/euclid/certs/euclid_cert.crt /tmp/gateway.crt
+EUCLID_USER=admin EUCLID_PASSWORD=admin EUCLID_NAMESPACE=development \
+EUCLID_CA_CERT_PATH=/tmp/gateway.crt ../applications/rust/target/release/protocol-printer | jq .
+```
+
+Build that one with `cargo build --release` in `../applications/rust`. Rebuild the deployed binary
+with `../applications/rust/build-alpine.sh`, which writes it here, and run `setup-infrastructure.sh`
+again. `cleanup-infrastructure.sh` removes the application, its role, its queue, and every
+subscription on the topic, including one a local run left behind.
+
+How it gets its credentials, why it renews them, and its settings are in
+[its README](../applications/rust/README.md).
+
+## The xml-splitter application
+
+`apps/xml-splitter.pyz` is the Python example from
+[`examples/applications/python`](../applications/python), written against euclid-pdk. It's a
+zipapp: the script and euclid-pdk in one file, which the workers' `python3` runs with nothing
+installed.
+
+It reads `file-delivery-xml`, where `file-delivery` announces every XML file it delivers. It splits
+each CD catalogue into one small XML document per CD, and sends each one as a message of its own to
+the queue `splitting-output`. The CD's title, its position in the catalogue, a file name for it, and
+the catalogue it came from travel as message attributes.
+
+`setup-infrastructure.sh` creates `splitting-output` and deploys the splitter with the `PYTHON`
+runtime, one instance, limited to the `file-delivery` bucket and its two queues. It also grants a
+role for what the built-in one lacks: sending in batches, and downloading files over 5 MiB.
+
+**Try it** with the sample catalogue, which holds three CDs:
+
+```bash
+sftp -P 2222 ftpuser1@localhost       # put ../applications/python/sample/cd-catalog.xml into incoming/
+ec eqs receive-messages --queue splitting-output
+```
+
+`receive-messages` takes the messages it shows, so they're gone from the queue for whatever else
+would read them. They come back once their visibility timeout runs out.
+
+Rebuild it with `../applications/python/build-pyz.sh`, which writes it here, and run
+`setup-infrastructure.sh` again. Its README explains why documents with a DTD are refused, and what
+"at least once" means for a reader of `splitting-output`.
 
 ## Worker credentials and options
 

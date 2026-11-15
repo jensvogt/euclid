@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     using std::chrono::system_clock;
 
@@ -122,50 +125,8 @@ namespace Euclid::Dto::ESM {
         static Bucket fromJson(const std::string &json) {
             return boost::json::value_to<Bucket>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend Bucket tag_invoke(boost::json::value_to_tag<Bucket>, boost::json::value const &v) {
-            Bucket r;
-            r.owner = Core::GetStringValue(v, "owner");
-            r.name = Core::GetStringValue(v, "name");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.size = Core::GetLongValue(v, "size");
-            r.objects = Core::GetLongValue(v, "objects");
-            r.directories = Core::GetLongValue(v, "directories");
-            r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
-            r.encrypted = Core::GetBoolValue(v, "encrypted");
-            r.encryptionKeyErn = Core::GetStringValue(v, "encryptionKeyErn");
-            r.internal = Core::GetBoolValue(v, "internal");
-            r.priority = Core::GetStringValue(v, "priority");
-            r.stopped = Core::GetBoolValue(v, "stopped");
-            r.versioning = Core::GetBoolValue(v, "versioning");
-            r.maxVersions = Core::GetLongValue(v, "maxVersions");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Bucket const &obj) {
-            jv = {
-                    {"owner", obj.owner},
-                    {"name", obj.name},
-                    {"ern", obj.ern},
-                    {"size", obj.size},
-                    {"objects", obj.objects},
-                    {"directories", obj.directories},
-                    {"tags", boost::json::value_from(obj.tags)},
-                    {"encrypted", obj.encrypted},
-                    {"encryptionKeyErn", obj.encryptionKeyErn},
-                    {"internal", obj.internal},
-                    {"priority", obj.priority},
-                    {"stopped", obj.stopped},
-                    {"versioning", obj.versioning},
-                    {"maxVersions", obj.maxVersions},
-                    {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
-                    {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(Bucket, (), (owner, name, ern, size, objects, directories, tags, encrypted, encryptionKeyErn, internal, priority, stopped, versioning, maxVersions, created, modified))
 
 }// namespace Euclid::Dto::ESM

@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief The bucket with encryption switched off, and what is still encrypted inside it.
@@ -61,28 +64,8 @@ namespace Euclid::Dto::ESM {
         std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend DisableEncryptionResponse tag_invoke(boost::json::value_to_tag<DisableEncryptionResponse>, boost::json::value const &v) {
-            DisableEncryptionResponse r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.name = Core::GetStringValue(v, "name");
-            r.previousKeyErn = Core::GetStringValue(v, "previousKeyErn");
-            r.previousKeyId = Core::GetStringValue(v, "previousKeyId");
-            r.encryptedObjects = Core::GetLongValue(v, "encryptedObjects");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DisableEncryptionResponse const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"name", obj.name},
-                    {"previousKeyErn", obj.previousKeyErn},
-                    {"previousKeyId", obj.previousKeyId},
-                    {"encryptedObjects", obj.encryptedObjects},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(DisableEncryptionResponse, (BaseDto), (ern, name, previousKeyErn, previousKeyId, encryptedObjects))
 
 }// namespace Euclid::Dto::ESM

@@ -11,11 +11,18 @@
 // C++ includes
 #include <string>
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eqs/model/Queue.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One queue, as list-queues describes each of its own.
@@ -32,26 +39,17 @@ namespace Euclid::Dto::EQS {
         Queue queue;
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"queue"};
+
+        /**
          * @brief Serializes this response to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetQueueResponse tag_invoke(boost::json::value_to_tag<GetQueueResponse>, boost::json::value const &v) {
-            GetQueueResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.queue = boost::json::value_to<Queue>(v.at("queue"));
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetQueueResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"queue", boost::json::value_from(obj.queue)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetQueueResponse, (BaseDto), (queue))
 }// namespace Euclid::Dto::EQS

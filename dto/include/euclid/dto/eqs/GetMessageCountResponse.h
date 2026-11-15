@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct GetMessageCountResponse : BaseDto {
 
@@ -47,30 +50,8 @@ namespace Euclid::Dto::EQS {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetMessageCountResponse tag_invoke(boost::json::value_to_tag<GetMessageCountResponse>, boost::json::value const &v) {
-            GetMessageCountResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.ern = Core::GetStringValue(v, "ern");
-            r.available = Core::GetLongValue(v, "available");
-            r.delayed = Core::GetLongValue(v, "delayed");
-            r.invisible = Core::GetLongValue(v, "invisible");
-            r.total = Core::GetLongValue(v, "total");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetMessageCountResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"ern", obj.ern},
-                    {"available", obj.available},
-                    {"delayed", obj.delayed},
-                    {"invisible", obj.invisible},
-                    {"total", obj.total},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetMessageCountResponse, (BaseDto), (ern, available, delayed, invisible, total))
 
 }

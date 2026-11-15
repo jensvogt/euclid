@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct GetMessageMetadataResponse : BaseDto {
 
@@ -77,42 +80,8 @@ namespace Euclid::Dto::EQS {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetMessageMetadataResponse tag_invoke(boost::json::value_to_tag<GetMessageMetadataResponse>, boost::json::value const &v) {
-            GetMessageMetadataResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.messageId = Core::GetStringValue(v, "messageId");
-            r.queueErn = Core::GetStringValue(v, "queueErn");
-            r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
-            r.status = Core::GetStringValue(v, "status");
-            r.priority = Core::GetStringValue(v, "priority");
-            r.size = Core::GetLongValue(v, "size");
-            r.receivedCount = Core::GetLongValue(v, "receivedCount");
-            r.visibilityTimeout = Core::GetLongValue(v, "visibilityTimeout");
-            r.contentType = Core::GetStringValue(v, "contentType");
-            r.created = Core::GetStringValue(v, "created");
-            r.modified = Core::GetStringValue(v, "modified");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetMessageMetadataResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"messageId", obj.messageId},
-                    {"queueErn", obj.queueErn},
-                    {"receiptHandle", obj.receiptHandle},
-                    {"status", obj.status},
-                    {"priority", obj.priority},
-                    {"size", obj.size},
-                    {"receivedCount", obj.receivedCount},
-                    {"visibilityTimeout", obj.visibilityTimeout},
-                    {"contentType", obj.contentType},
-                    {"created", obj.created},
-                    {"modified", obj.modified},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetMessageMetadataResponse, (BaseDto), (messageId, queueErn, receiptHandle, status, priority, size, receivedCount, visibilityTimeout, contentType, created, modified))
 
 }

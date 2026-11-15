@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct CreateDownloadResponse : BaseDto {
 
@@ -52,30 +55,7 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend CreateDownloadResponse tag_invoke(boost::json::value_to_tag<CreateDownloadResponse>, boost::json::value const &v) {
-            CreateDownloadResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.downloadId = Core::GetStringValue(v, "downloadId");
-            r.bucketErn = Core::GetStringValue(v, "bucketErn");
-            r.key = Core::GetStringValue(v, "key");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.size = Core::GetLongValue(v, "size");
-            r.contentType = Core::GetStringValue(v, "contentType");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateDownloadResponse const &obj) {
-            jv = {
-                    {"downloadId", obj.downloadId},
-                    {"bucketErn", obj.bucketErn},
-                    {"key", obj.key},
-                    {"ern", obj.ern},
-                    {"size", obj.size},
-                    {"contentType", obj.contentType},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateDownloadResponse, (BaseDto), (downloadId, bucketErn, key, ern, size, contentType))
 }// namespace Euclid::Dto::ESM

@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct CreateUploadResponse : BaseDto {
 
@@ -37,24 +40,7 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend CreateUploadResponse tag_invoke(boost::json::value_to_tag<CreateUploadResponse>, boost::json::value const &v) {
-            CreateUploadResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.uploadId = Core::GetStringValue(v, "uploadId");
-            r.bucketErn = Core::GetStringValue(v, "bucketErn");
-            r.key = Core::GetStringValue(v, "key");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateUploadResponse const &obj) {
-            jv = {
-                    {"uploadId", obj.uploadId},
-                    {"bucketErn", obj.bucketErn},
-                    {"key", obj.key},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateUploadResponse, (BaseDto), (uploadId, bucketErn, key))
 }// namespace Euclid::Dto::ESM

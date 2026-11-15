@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct GetQueueErnRequest {
 
@@ -26,20 +29,8 @@ namespace Euclid::Dto::EQS {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetQueueErnRequest tag_invoke(boost::json::value_to_tag<GetQueueErnRequest>, boost::json::value const &v) {
-            GetQueueErnRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetQueueErnRequest const &obj) {
-            jv = {
-                    {"name", obj.name},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetQueueErnRequest, (), (name))
 
 }

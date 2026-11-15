@@ -14,8 +14,11 @@
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/esm/model/Object.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct ListObjectsResponse : BaseDto {
 
@@ -65,14 +68,8 @@ namespace Euclid::Dto::ESM {
             }
             return r;
         }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListObjectsResponse const &obj) {
-            jv = {
-                    {"objects", boost::json::value_from(obj.objects)},
-                    {"total", obj.total},
-                    {"commonPrefixes", boost::json::value_from(obj.commonPrefixes)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListObjectsResponse, (BaseDto), (objects, total, commonPrefixes))
 
 }// namespace Euclid::Dto::ESM
