@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct SetMessageVisibilityRequest {
 
@@ -39,22 +42,8 @@ namespace Euclid::Dto::EQS {
         static SetMessageVisibilityRequest fromJson(const std::string &json) {
             return boost::json::value_to<SetMessageVisibilityRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SetMessageVisibilityRequest tag_invoke(boost::json::value_to_tag<SetMessageVisibilityRequest>, boost::json::value const &v) {
-            SetMessageVisibilityRequest r;
-            r.messageId = Core::GetStringValue(v, "messageId");
-            r.visibility = Core::GetLongValue(v, "visibility");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetMessageVisibilityRequest const &obj) {
-            jv = {
-                    {"messageId", obj.messageId},
-                    {"visibility", obj.visibility},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SetMessageVisibilityRequest, (), (messageId, visibility))
 
 }

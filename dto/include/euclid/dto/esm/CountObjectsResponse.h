@@ -7,8 +7,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief How many objects a bucket holds under a prefix, counted at the moment of asking.
@@ -42,27 +45,8 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend CountObjectsResponse tag_invoke(boost::json::value_to_tag<CountObjectsResponse>, boost::json::value const &v) {
-            CountObjectsResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.ern = Core::GetStringValue(v, "ern");
-            r.prefix = Core::GetStringValue(v, "prefix");
-            r.includeDirectories = Core::GetBoolValue(v, "includeDirectories");
-            r.count = Core::GetLongValue(v, "count");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CountObjectsResponse const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"prefix", obj.prefix},
-                    {"includeDirectories", obj.includeDirectories},
-                    {"count", obj.count},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CountObjectsResponse, (BaseDto), (ern, prefix, includeDirectories, count))
 
 }// namespace Euclid::Dto::ESM

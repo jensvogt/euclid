@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     using std::chrono::system_clock;
 
@@ -82,38 +85,8 @@ namespace Euclid::Dto::ENS {
         static Message fromJson(const std::string &json) {
             return boost::json::value_to<Message>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend Message tag_invoke(boost::json::value_to_tag<Message>, boost::json::value const &v) {
-            Message r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.topicErn = Core::GetStringValue(v, "topicErn");
-            r.messageId = Core::GetStringValue(v, "messageId");
-            r.status = Core::GetStringValue(v, "status");
-            r.body = Core::GetStringValue(v, "body");
-            r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
-            r.contentType = Core::GetStringValue(v, "contentType");
-            r.lastReceived = Core::GetDatetimeValue(v, "lastReceived");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Message const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"topicErn", obj.topicErn},
-                    {"messageId", obj.messageId},
-                    {"status", obj.status},
-                    {"body", obj.body},
-                    {"attributes", boost::json::value_from(obj.attributes)},
-                    {"contentType", obj.contentType},
-                    {"lastReceived", Core::DateTimeUtils::ToISO8601(obj.lastReceived)},
-                    {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
-                    {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
-            };
-        }
     };
 
-}// namespace Euclid::Dto::EQS
+    BOOST_DESCRIBE_STRUCT(Message, (), (ern, topicErn, messageId, status, body, attributes, contentType, lastReceived, created, modified))
+
+}// namespace Euclid::Dto::ENS

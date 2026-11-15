@@ -6,8 +6,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Asks how many objects a bucket holds, counted rather than looked up.
@@ -52,24 +55,8 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend CountObjectsRequest tag_invoke(boost::json::value_to_tag<CountObjectsRequest>, boost::json::value const &v) {
-            CountObjectsRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.prefix = Core::GetStringValue(v, "prefix");
-            r.includeDirectories = Core::GetBoolValue(v, "includeDirectories");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CountObjectsRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"prefix", obj.prefix},
-                    {"includeDirectories", obj.includeDirectories},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CountObjectsRequest, (), (ern, prefix, includeDirectories))
 
 }// namespace Euclid::Dto::ESM

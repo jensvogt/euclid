@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct SendMessageResponse : BaseDto {
 
@@ -27,22 +30,8 @@ namespace Euclid::Dto::EQS {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend SendMessageResponse tag_invoke(boost::json::value_to_tag<SendMessageResponse>, boost::json::value const &v) {
-            SendMessageResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.messageId = Core::GetStringValue(v, "messageId");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SendMessageResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"messageId", obj.messageId},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SendMessageResponse, (BaseDto), (messageId))
 
 }

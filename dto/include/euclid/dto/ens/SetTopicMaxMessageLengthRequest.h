@@ -16,8 +16,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Sets the largest message a topic accepts.
@@ -57,22 +60,8 @@ namespace Euclid::Dto::ENS {
         [[nodiscard]] static SetTopicMaxMessageLengthRequest fromJson(const std::string &json) {
             return boost::json::value_to<SetTopicMaxMessageLengthRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SetTopicMaxMessageLengthRequest tag_invoke(boost::json::value_to_tag<SetTopicMaxMessageLengthRequest>, boost::json::value const &v) {
-            SetTopicMaxMessageLengthRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetTopicMaxMessageLengthRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"maxMessageLength", obj.maxMessageLength},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SetTopicMaxMessageLengthRequest, (), (ern, maxMessageLength))
 
 }

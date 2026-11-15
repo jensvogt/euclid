@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Names a bucket and the name it should have instead.
@@ -49,22 +52,8 @@ namespace Euclid::Dto::ESM {
         static RenameBucketRequest fromJson(const std::string &json) {
             return boost::json::value_to<RenameBucketRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend RenameBucketRequest tag_invoke(boost::json::value_to_tag<RenameBucketRequest>, boost::json::value const &v) {
-            RenameBucketRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.newName = Core::GetStringValue(v, "newName");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, RenameBucketRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"newName", obj.newName},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(RenameBucketRequest, (), (ern, newName))
 
 }// namespace Euclid::Dto::ESM

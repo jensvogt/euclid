@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     using std::chrono::system_clock;
 
@@ -109,48 +112,8 @@ namespace Euclid::Dto::EQS {
         static Message fromJson(const std::string &json) {
             return boost::json::value_to<Message>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend Message tag_invoke(boost::json::value_to_tag<Message>, boost::json::value const &v) {
-            Message r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.queueErn = Core::GetStringValue(v, "queueErn");
-            r.messageId = Core::GetStringValue(v, "messageId");
-            r.status = Core::GetStringValue(v, "status");
-            r.priority = Core::GetStringValue(v, "priority");
-            r.body = Core::GetStringValue(v, "body");
-            r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
-            r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
-            r.systemAttributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "systemAttributes");
-            r.size = Core::GetLongValue(v, "size");
-            r.receivedCount = Core::GetLongValue(v, "receivedCount");
-            r.contentType = Core::GetStringValue(v, "contentType");
-            r.lastReceived = Core::GetDatetimeValue(v, "lastReceived");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Message const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"queueErn", obj.queueErn},
-                    {"messageId", obj.messageId},
-                    {"status", obj.status},
-                    {"priority", obj.priority},
-                    {"body", obj.body},
-                    {"receiptHandle", obj.receiptHandle},
-                    {"size", boost::json::value_from(obj.size)},
-                    {"receivedCount", boost::json::value_from(obj.receivedCount)},
-                    {"contentType", boost::json::value_from(obj.contentType)},
-                    {"attributes", boost::json::value_from(obj.attributes)},
-                    {"systemAttributes", boost::json::value_from(obj.systemAttributes)},
-                    {"lastReceived", Core::DateTimeUtils::ToISO8601(obj.lastReceived)},
-                    {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
-                    {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(Message, (), (ern, queueErn, messageId, status, priority, body, receiptHandle, attributes, systemAttributes, lastReceived, size, receivedCount, contentType, created, modified))
 
 }// namespace Euclid::Dto::EQS

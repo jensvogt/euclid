@@ -15,8 +15,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct SendMessageRequest {
 
@@ -73,16 +76,8 @@ namespace Euclid::Dto::EQS {
             if (r.priority.empty()) r.priority = "MEDIUM";
             return r;
         }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SendMessageRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"body", obj.body},
-                    {"attributes", boost::json::value_from(obj.attributes)},
-                    {"systemAttributes", boost::json::value_from(obj.systemAttributes)},
-                    {"priority", obj.priority},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SendMessageRequest, (), (ern, body, attributes, systemAttributes, priority))
 
 }

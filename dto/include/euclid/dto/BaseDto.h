@@ -8,6 +8,9 @@
 
 #pragma once
 
+// Boost includes
+#include <boost/describe.hpp>
+
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 
@@ -57,6 +60,10 @@ namespace Euclid::Dto {
             };
         }
     };
+
+    // Described as well, though its JSON stays hand-written: boost::json looks at the bases of a
+    // described DTO (DescribedJson.h) and refuses one whose base is not described too.
+    BOOST_DESCRIBE_STRUCT(BaseDto, (), (region, accountId, user))
 
     /**
      * @brief Reads the "metadata" sub-object of a DTO's JSON representation, if present.

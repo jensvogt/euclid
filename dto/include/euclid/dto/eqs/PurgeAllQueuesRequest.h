@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct PurgeAllQueuesRequest {
 
@@ -45,23 +48,7 @@ namespace Euclid::Dto::EQS {
         static PurgeAllQueuesRequest fromJson(const std::string &json) {
             return boost::json::value_to<PurgeAllQueuesRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend PurgeAllQueuesRequest tag_invoke(boost::json::value_to_tag<PurgeAllQueuesRequest>, boost::json::value const &v) {
-            PurgeAllQueuesRequest r;
-            r.region = Core::GetStringValue(v, "region");
-            r.accountId = Core::GetStringValue(v, "accountId");
-            r.nameSpace = Core::GetStringValue(v, "nameSpace");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, PurgeAllQueuesRequest const &obj) {
-            jv = {
-                    {"region", obj.region},
-                    {"accountId", obj.accountId},
-                    {"nameSpace", obj.nameSpace},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(PurgeAllQueuesRequest, (), (region, accountId, nameSpace))
 }

@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct GetObjectCountRequest {
 
@@ -31,22 +34,8 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetObjectCountRequest tag_invoke(boost::json::value_to_tag<GetObjectCountRequest>, boost::json::value const &v) {
-            GetObjectCountRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.prefix = Core::GetStringValue(v, "prefix");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetObjectCountRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"prefix", obj.prefix},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetObjectCountRequest, (), (ern, prefix))
 
 }

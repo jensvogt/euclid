@@ -16,8 +16,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Sets how long a message sent to a queue is held back before it can be received.
@@ -53,22 +56,8 @@ namespace Euclid::Dto::EQS {
         static SetQueueDelayRequest fromJson(const std::string &json) {
             return boost::json::value_to<SetQueueDelayRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SetQueueDelayRequest tag_invoke(boost::json::value_to_tag<SetQueueDelayRequest>, boost::json::value const &v) {
-            SetQueueDelayRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.delay = Core::GetLongValue(v, "delay");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetQueueDelayRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"delay", obj.delay},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SetQueueDelayRequest, (), (ern, delay))
 
 }

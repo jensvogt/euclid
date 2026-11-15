@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct DeleteObjectRequest {
 
@@ -40,21 +43,7 @@ namespace Euclid::Dto::ESM {
         static DeleteObjectRequest fromJson(const std::string &json) {
             return boost::json::value_to<DeleteObjectRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend DeleteObjectRequest tag_invoke(boost::json::value_to_tag<DeleteObjectRequest>, boost::json::value const &v) {
-            DeleteObjectRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.versionId = Core::GetStringValue(v, "versionId");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteObjectRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"versionId", obj.versionId},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(DeleteObjectRequest, (), (ern, versionId))
 }// namespace Euclid::Dto::ESM

@@ -13,8 +13,11 @@
 
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief What an abandoned upload was, and what became of the object it was writing.
@@ -59,28 +62,7 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend AbortUploadResponse tag_invoke(boost::json::value_to_tag<AbortUploadResponse>, boost::json::value const &v) {
-            AbortUploadResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.uploadId = Core::GetStringValue(v, "uploadId");
-            r.bucketErn = Core::GetStringValue(v, "bucketErn");
-            r.key = Core::GetStringValue(v, "key");
-            r.parts = Core::GetLongValue(v, "parts");
-            r.objectRemoved = Core::GetBoolValue(v, "objectRemoved");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, AbortUploadResponse const &obj) {
-            jv = {
-                    {"uploadId", obj.uploadId},
-                    {"bucketErn", obj.bucketErn},
-                    {"key", obj.key},
-                    {"parts", obj.parts},
-                    {"objectRemoved", obj.objectRemoved},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(AbortUploadResponse, (BaseDto), (uploadId, bucketErn, key, parts, objectRemoved))
 }// namespace Euclid::Dto::ESM

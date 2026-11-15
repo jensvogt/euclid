@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     struct GetMessageCountResponse {
 
@@ -41,26 +44,8 @@ namespace Euclid::Dto::ENS {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetMessageCountResponse tag_invoke(boost::json::value_to_tag<GetMessageCountResponse>, boost::json::value const &v) {
-            GetMessageCountResponse r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.available = Core::GetLongValue(v, "available");
-            r.send = Core::GetLongValue(v, "send");
-            r.resend = Core::GetLongValue(v, "resend");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetMessageCountResponse const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"available", obj.available},
-                    {"send", obj.send},
-                    {"resend", obj.resend},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetMessageCountResponse, (), (ern, available, send, resend))
 
 }

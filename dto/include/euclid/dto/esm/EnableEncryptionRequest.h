@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Names the bucket whose objects should be encrypted at rest, and optionally the key.
@@ -49,22 +52,8 @@ namespace Euclid::Dto::ESM {
         static EnableEncryptionRequest fromJson(const std::string &json) {
             return boost::json::value_to<EnableEncryptionRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend EnableEncryptionRequest tag_invoke(boost::json::value_to_tag<EnableEncryptionRequest>, boost::json::value const &v) {
-            EnableEncryptionRequest r;
-            r.bucketErn = Core::GetStringValue(v, "bucketErn");
-            r.keyId = Core::GetStringValue(v, "keyId");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, EnableEncryptionRequest const &obj) {
-            jv = {
-                    {"bucketErn", obj.bucketErn},
-                    {"keyId", obj.keyId},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(EnableEncryptionRequest, (), (bucketErn, keyId))
 
 }// namespace Euclid::Dto::ESM

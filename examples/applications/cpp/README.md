@@ -216,9 +216,10 @@ cover these four things:
 - **Removing delivered uploads** (`esm:list-objects` to check the upload is unchanged,
   `esm:delete-object` to delete it). Without these, files are delivered but stay in
   `transfer-server`, and every notification is retried until it's given up on.
-- **Publishing the protocol** (`ens:get-topic-ern`, `ens:publish-message`). The built-in role holds
-  both, but only for the buckets and queues named at creation, and `create-application` has no
-  option to name a topic. Without them, the work goes on and nothing is published.
+- **Publishing the protocol** (`ens:get-topic-ern`, `ens:publish-message`). Strictly, the built-in
+  role already covers this: ENS checks only that a role holds the action, not which topic it names.
+  But `create-application` has no option to name a topic, so this grant is what keeps the
+  application allowed once ENS does check the topic.
 
 Three extra roles. The first is granted on both buckets:
 

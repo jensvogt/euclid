@@ -8,10 +8,17 @@
 
 #pragma once
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     using std::chrono::system_clock;
 
@@ -113,6 +120,12 @@ namespace Euclid::Dto::EQS {
         system_clock::time_point modified;
 
         /**
+         * @brief The members that keep their initial value when the JSON leaves them out, rather than
+         * becoming zero, as the other members do.
+         */
+        static constexpr std::array<std::string_view, 3> kJsonDefaults{"visibility", "maxMessageLength", "maxReceiveCount"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -126,54 +139,8 @@ namespace Euclid::Dto::EQS {
         static Queue fromJson(const std::string &json) {
             return boost::json::value_to<Queue>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend Queue tag_invoke(boost::json::value_to_tag<Queue>, boost::json::value const &v) {
-            Queue r;
-            r.name = Core::GetStringValue(v, "name");
-            r.owner = Core::GetStringValue(v, "owner");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
-            r.size = Core::GetLongValue(v, "size", 0);
-            r.delay = Core::GetLongValue(v, "delay", 0);
-            r.available = Core::GetLongValue(v, "available", 0);
-            r.delayed = Core::GetLongValue(v, "delayed", 0);
-            r.invisible = Core::GetLongValue(v, "invisible", 0);
-            r.visibility = Core::GetLongValue(v, "visibility", 30);
-            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
-            r.maxReceiveCount = Core::GetLongValue(v, "maxReceiveCount", 3);
-            r.deadLetterQueueArn = Core::GetStringValue(v, "deadLetterQueueArn");
-            r.priority = Core::GetStringValue(v, "priority");
-            r.status = Core::GetStringValue(v, "status");
-            r.internal = Core::GetBoolValue(v, "internal");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Queue const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"owner", obj.owner},
-                    {"ern", obj.ern},
-                    {"tags", boost::json::value_from(obj.tags)},
-                    {"size", obj.size},
-                    {"delay", obj.delay},
-                    {"available", obj.available},
-                    {"delayed", obj.delayed},
-                    {"invisible", obj.invisible},
-                    {"visibility", obj.visibility},
-                    {"maxMessageLength", obj.maxMessageLength},
-                    {"maxReceiveCount", obj.maxReceiveCount},
-                    {"deadLetterQueueArn", obj.deadLetterQueueArn},
-                    {"priority", obj.priority},
-                    {"status", obj.status},
-                    {"internal", obj.internal},
-                    {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
-                    {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(Queue, (), (name, owner, ern, tags, delay, size, available, delayed, invisible, visibility, maxMessageLength, maxReceiveCount, deadLetterQueueArn, priority, status, internal, created, modified))
 
 }// namespace Euclid::Dto::EQS

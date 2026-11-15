@@ -6,8 +6,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Replaces the body of a message already published to a topic.
@@ -53,22 +56,8 @@ namespace Euclid::Dto::ENS {
         static UpdateMessageBodyRequest fromJson(const std::string &json) {
             return boost::json::value_to<UpdateMessageBodyRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend UpdateMessageBodyRequest tag_invoke(boost::json::value_to_tag<UpdateMessageBodyRequest>, boost::json::value const &v) {
-            UpdateMessageBodyRequest r;
-            r.messageId = Core::GetStringValue(v, "messageId");
-            r.body = Core::GetStringValue(v, "body");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, UpdateMessageBodyRequest const &obj) {
-            jv = {
-                    {"messageId", obj.messageId},
-                    {"body", obj.body},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(UpdateMessageBodyRequest, (), (messageId, body))
 
 }// namespace Euclid::Dto::ENS

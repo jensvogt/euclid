@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief The bucket's encryption as it now stands, and how many objects it does not cover.
@@ -67,32 +70,8 @@ namespace Euclid::Dto::ESM {
         std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend EnableEncryptionResponse tag_invoke(boost::json::value_to_tag<EnableEncryptionResponse>, boost::json::value const &v) {
-            EnableEncryptionResponse r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.name = Core::GetStringValue(v, "name");
-            r.keyErn = Core::GetStringValue(v, "keyErn");
-            r.keyId = Core::GetStringValue(v, "keyId");
-            r.algorithm = Core::GetStringValue(v, "algorithm");
-            r.keyCreated = Core::GetBoolValue(v, "keyCreated");
-            r.existingObjects = Core::GetLongValue(v, "existingObjects");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, EnableEncryptionResponse const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"name", obj.name},
-                    {"keyErn", obj.keyErn},
-                    {"keyId", obj.keyId},
-                    {"algorithm", obj.algorithm},
-                    {"keyCreated", obj.keyCreated},
-                    {"existingObjects", obj.existingObjects},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(EnableEncryptionResponse, (BaseDto), (ern, name, keyErn, keyId, algorithm, keyCreated, existingObjects))
 
 }// namespace Euclid::Dto::ESM

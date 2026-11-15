@@ -16,8 +16,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Sets how many times a message may be received before it is moved to the queue's dead
@@ -55,22 +58,8 @@ namespace Euclid::Dto::EQS {
         static SetQueueMaxRetriesRequest fromJson(const std::string &json) {
             return boost::json::value_to<SetQueueMaxRetriesRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SetQueueMaxRetriesRequest tag_invoke(boost::json::value_to_tag<SetQueueMaxRetriesRequest>, boost::json::value const &v) {
-            SetQueueMaxRetriesRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.maxRetries = Core::GetLongValue(v, "maxRetries");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetQueueMaxRetriesRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"maxRetries", obj.maxRetries},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SetQueueMaxRetriesRequest, (), (ern, maxRetries))
 
 }

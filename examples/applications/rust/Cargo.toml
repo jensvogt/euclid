@@ -1,0 +1,30 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+# A standalone crate, on purpose: this is what an application's own repository looks like, so it
+# is not part of euclid's build and takes euclid-rdk from crates.io like anybody else's project.
+#
+#     cargo build --release
+#
+# For the Alpine workers of examples/docker, build it with build-alpine.sh instead.
+
+[package]
+name = "protocol-printer"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Prints every message published to the ENS topic 'protocol' to stdout"
+license = "MPL-2.0"
+publish = false
+
+[dependencies]
+# native-tls (the default) rather than rustls-tls: a development euclid's gateway certificate is
+# self-signed, and rustls refuses a self-signed certificate as its own trust anchor.
+euclid-rdk = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+
+[profile.release]
+strip = true

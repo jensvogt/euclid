@@ -8,10 +8,17 @@
 
 #pragma once
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ENS {
+
+    using Json::tag_invoke;
 
     using std::chrono::system_clock;
 
@@ -99,6 +106,12 @@ namespace Euclid::Dto::ENS {
         system_clock::time_point modified;
 
         /**
+         * @brief The members that keep their initial value when the JSON leaves them out, rather than
+         * becoming zero, as the other members do.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonDefaults{"maxMessageLength"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -112,46 +125,8 @@ namespace Euclid::Dto::ENS {
         static Topic fromJson(const std::string &json) {
             return boost::json::value_to<Topic>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend Topic tag_invoke(boost::json::value_to_tag<Topic>, boost::json::value const &v) {
-            Topic r;
-            r.name = Core::GetStringValue(v, "name");
-            r.owner = Core::GetStringValue(v, "owner");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
-            r.size = Core::GetLongValue(v, "size", 0);
-            r.messages = Core::GetLongValue(v, "messages", 0);
-            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
-            r.send = Core::GetLongValue(v, "send", 0);
-            r.resend = Core::GetLongValue(v, "resend", 0);
-            r.status = Core::GetStringValue(v, "status");
-            r.retentionPeriod = Core::GetLongValue(v, "retentionPeriod", 0);
-            r.deleteAfterDelivery = Core::GetBoolValue(v, "deleteAfterDelivery");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Topic const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"owner", obj.owner},
-                    {"ern", obj.ern},
-                    {"tags", boost::json::value_from(obj.tags)},
-                    {"size", obj.size},
-                    {"messages", obj.messages},
-                    {"maxMessageLength", obj.maxMessageLength},
-                    {"send", obj.send},
-                    {"resend", obj.resend},
-                    {"status", obj.status},
-                    {"retentionPeriod", obj.retentionPeriod},
-                    {"deleteAfterDelivery", obj.deleteAfterDelivery},
-                    {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
-                    {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
-            };
-        }
     };
 
-}// namespace Euclid::Dto::EQS
+    BOOST_DESCRIBE_STRUCT(Topic, (), (name, owner, ern, tags, size, messages, maxMessageLength, send, resend, status, retentionPeriod, deleteAfterDelivery, created, modified))
+
+}// namespace Euclid::Dto::ENS

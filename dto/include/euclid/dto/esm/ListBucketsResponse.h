@@ -12,11 +12,18 @@
 #include <string>
 #include <vector>
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/esm/model/Bucket.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct ListBucketsResponse : BaseDto {
 
@@ -31,28 +38,18 @@ namespace Euclid::Dto::ESM {
         long total{};
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"buckets"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListBucketsResponse tag_invoke(boost::json::value_to_tag<ListBucketsResponse>, boost::json::value const &v) {
-            ListBucketsResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.buckets = boost::json::value_to<std::vector<Bucket> >(v.at("buckets"));
-            r.total = Core::GetLongValue(v, "total");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListBucketsResponse const &obj) {
-            jv = {
-                    {"buckets", boost::json::value_from(obj.buckets)},
-                    {"total", obj.total},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListBucketsResponse, (BaseDto), (buckets, total))
 
 }// namespace Euclid::Dto::ESM

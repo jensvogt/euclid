@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct ListObjectsRequest {
 
@@ -86,36 +89,8 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListObjectsRequest tag_invoke(boost::json::value_to_tag<ListObjectsRequest>, boost::json::value const &v) {
-            ListObjectsRequest r;
-            r.bucketErn = Core::GetStringValue(v, "bucketErn");
-            r.prefix = Core::GetStringValue(v, "prefix");
-            r.matchType = Core::GetStringValue(v, "matchType");
-            r.pageSize = Core::GetLongValue(v, "pageSize");
-            r.pageIndex = Core::GetLongValue(v, "pageIndex");
-            r.sortColumn = Core::GetStringValue(v, "sortColumn");
-            r.sortDirection = Core::GetStringValue(v, "sortDirection");
-            r.delimiter = Core::GetStringValue(v, "delimiter");
-            r.includeDirectories = Core::GetBoolValue(v, "includeDirectories");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListObjectsRequest const &obj) {
-            jv = {
-                    {"bucketErn", obj.bucketErn},
-                    {"prefix", obj.prefix},
-                    {"matchType", obj.matchType},
-                    {"pageSize", obj.pageSize},
-                    {"pageIndex", obj.pageIndex},
-                    {"sortColumn", obj.sortColumn},
-                    {"sortDirection", obj.sortDirection},
-                    {"includeDirectories", obj.includeDirectories},
-                    {"delimiter", obj.delimiter},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListObjectsRequest, (), (bucketErn, prefix, matchType, pageSize, pageIndex, sortColumn, sortDirection, includeDirectories, delimiter))
 
 }// namespace Euclid::Dto::ESM

@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EQS {
+
+    using Json::tag_invoke;
 
     struct GetQueueMetadataResponse {
 
@@ -61,34 +64,8 @@ namespace Euclid::Dto::EQS {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetQueueMetadataResponse tag_invoke(boost::json::value_to_tag<GetQueueMetadataResponse>, boost::json::value const &v) {
-            GetQueueMetadataResponse r;
-            r.region = Core::GetStringValue(v, "region");
-            r.accountId = Core::GetStringValue(v, "accountId");
-            r.owner = Core::GetStringValue(v, "owner");
-            r.nameSpace = Core::GetStringValue(v, "nameSpace");
-            r.name = Core::GetStringValue(v, "name");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.size = Core::GetLongValue(v, "size");
-            r.messages = Core::GetLongValue(v, "messages");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetQueueMetadataResponse const &obj) {
-            jv = {
-                    {"region", obj.region},
-                    {"accountId", obj.accountId},
-                    {"owner", obj.owner},
-                    {"nameSpace", obj.nameSpace},
-                    {"name", obj.name},
-                    {"ern", obj.ern},
-                    {"size", obj.size},
-                    {"messages", obj.messages},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetQueueMetadataResponse, (), (region, accountId, owner, nameSpace, name, ern, size, messages))
 
 }

@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESM {
+
+    using Json::tag_invoke;
 
     struct ListSubscriptionsRequest {
 
@@ -26,20 +29,8 @@ namespace Euclid::Dto::ESM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListSubscriptionsRequest tag_invoke(boost::json::value_to_tag<ListSubscriptionsRequest>, boost::json::value const &v) {
-            ListSubscriptionsRequest r;
-            r.bucketErn = Core::GetStringValue(v, "bucketErn");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListSubscriptionsRequest const &obj) {
-            jv = {
-                    {"bucketErn", obj.bucketErn},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListSubscriptionsRequest, (), (bucketErn))
 
 }
