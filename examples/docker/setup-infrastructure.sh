@@ -23,17 +23,38 @@ export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 
 cd "$(dirname "$0")"
 
+# Compose v2 as a docker plugin ("docker compose") where it is installed, else the standalone
+# "docker-compose" - which is all some distributions ship (Ubuntu's docker.io has no plugin unless
+# docker-compose-v2 is installed too). Checked up front: the wait below hides docker's errors, so a
+# missing compose would otherwise just wait forever.
+if docker compose version >/dev/null 2>&1; then
+    compose() { docker compose "$@"; }
+elif command -v docker-compose >/dev/null 2>&1; then
+    compose() { docker-compose "$@"; }
+else
+    echo "Neither 'docker compose' nor 'docker-compose' is available - install Docker Compose." >&2
+    exit 1
+fi
+
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin}"
 FTP_PASSWORD="${FTP_PASSWORD:-change-this-ftp-password}"
 ACCOUNT="000000000000"          # euclid.account-ids in euclid.json
 REGION="eu-central-1"           # euclid.region in euclid.json
 USERS=("ftpuser1" "ftpuser2")
 GROUP="ftp-users"
-BUCKETS=("transfer-server" "file-delivery")
-QUEUES=("file-delivery-pdf" "file-delivery-image" "file-delivery-xml" "file-delivery-json")
+BUCKETS=("transfer-server" "file-delivery" "apps")
+QUEUES=("file-delivery-queue" "file-delivery-pdf" "file-delivery-image" "file-delivery-xml" "file-delivery-json" "file-delivery-misc")
+
+# The file-delivery application (examples/applications/cpp), deployed from apps/: its binary is
+# uploaded to the "apps" bucket and run by the workers. It subscribes file-delivery-queue to the
+# transfer-server bucket itself.
+APP_ID="file-delivery"
+APP_FILE="apps/file-delivery"
+APP_BUCKET="apps"
+APP_VERSION="1.0.0"
 
 # Manager connection
-manager() { docker compose exec -T euclid euclid-cli --ca-cert /usr/local/euclid/certs/euclid_cert.crt "$@"; }
+manager() { compose exec -T euclid euclid-cli --ca-cert /usr/local/euclid/certs/euclid_cert.crt "$@"; }
 
 # Runs a manager command, reporting either what it did or that it had been done already. A failure
 # is most often the latter, but its message is shown too, so a real one does not pass unnoticed.
@@ -48,7 +69,14 @@ step() {
 }
 
 echo "Waiting for the manager..."
-until [ "$(docker compose ps --format '{{.Health}}' euclid 2>/dev/null)" = "healthy" ]; do sleep 2; done
+deadline=$((SECONDS + 300))
+until [ "$(compose ps --format '{{.Health}}' euclid 2>/dev/null)" = "healthy" ]; do
+    if [ "$SECONDS" -ge "$deadline" ]; then
+        echo "The manager is not healthy after 5 minutes - is the stack up? (compose ps; compose logs euclid)" >&2
+        exit 1
+    fi
+    sleep 2
+done
 
 # Every command below needs administrator privileges.
 manager eam login --user admin --password "$ADMIN_PASSWORD" --account 000000000000 --namespace development >/dev/null
@@ -87,16 +115,76 @@ for server in "ftp-server FTP 2121 --pasv-min 6000 --pasv-max 6010" "sftp-server
     # shellcheck disable=SC2086 # options is split into its flags on purpose
     step "created" "already exists" \
         ets create-server --server-id "$id" --protocol "$protocol" --port "$port" \
-            --bucket "transfer-bucket" --groups "$GROUP" ${options:-} --directories incoming,outgoing
+            --bucket "transfer-server" --groups "$GROUP" ${options:-} --directories incoming,outgoing
     step "started" "could not be started" ets start-server --server-id "$id"
 done
 
-# Create the EQS queues, each queue is feed be thy file-delivery application, which classifies the
-# incoming files according to their magic bytes using libmagic.so
+# The EQS queues: file-delivery-queue receives the transfer bucket's upload events, and the
+# file-delivery application announces each file it delivers on the queue of its kind -
+# file-delivery-pdf, -image, -xml or -json - which it tells by the file's magic bytes (libmagic) -
+# and every other file on file-delivery-misc.
 for queue in "${QUEUES[@]}"; do
   echo "== queue $queue"
   step "created" "already exists" eqs create-queue --name "$queue"
 done
+
+# The file-delivery application. If the prebuild binary is missing, built it first (examples/applications/cpp/README.md).
+echo "== application $APP_ID"
+if [ ! -f "$APP_FILE" ]; then
+    echo "   skipped: no $APP_FILE - build examples/applications/cpp and copy the binary there"
+else
+    # The workers are Alpine, which has no glibc: a binary linked against it (built on Debian or
+    # Ubuntu without -DFILE_DELIVERY_FULLY_STATIC=ON on Alpine) is deployed but cannot start there.
+    if command -v file >/dev/null 2>&1 && file "$APP_FILE" | grep -q 'ld-linux'; then
+        echo "   warning: $APP_FILE needs glibc and will not start on the Alpine workers - build it fully static on Alpine"
+    fi
+
+    # Uploaded on every run, so running this again deploys a rebuilt binary. euclid-cli runs inside
+    # the manager's container, so the file is copied in first.
+    compose cp "$APP_FILE" "euclid:/tmp/$APP_ID" >/dev/null
+    step "uploaded to $APP_BUCKET" "could not be uploaded" \
+        esm upload-file --bucket "$APP_BUCKET" --key "$APP_ID" --file "/tmp/$APP_ID"
+    compose exec -T euclid rm -f "/tmp/$APP_ID"
+
+    # Its own principal, app-file-delivery, narrowed to the two buckets and the queues: the one it
+    # reads, and the ones it announces delivered files on.
+    step "created" "already exists" \
+        eap create-application --application-id "$APP_ID" --runtime BINARY \
+            --bucket "$APP_BUCKET" --artifact "$APP_ID" --version "$APP_VERSION" \
+            --min-instances 1 --max-instances 4 \
+            --buckets transfer-server,file-delivery --queues "$(IFS=,; echo "${QUEUES[*]}")"
+
+    # The built-in "application" role, which create-application grants, covers neither looking a
+    # bucket up by name nor transfers in parts (files over 5 MiB): a role of its own for both, on
+    # the two buckets only.
+    step "role $APP_ID created" "role $APP_ID already exists" \
+        eam create-role --name "$APP_ID" \
+            --permission esm:get-bucket-ern \
+            --permission esm:create-download --permission esm:download-part --permission esm:complete-download \
+            --permission esm:create-upload --permission esm:upload-part --permission esm:complete-upload \
+            --description "Look up and move large files between the transfer and delivery buckets"
+    step "granted the $APP_ID role" "already holds the $APP_ID role" \
+        eam grant-role --role "$APP_ID" \
+            --principal "ern:eam:$REGION:$ACCOUNT:user:app-$APP_ID" \
+            --namespace development \
+            --resource "ern:esm:$REGION:$ACCOUNT:development:bucket:transfer-server*" \
+                       "ern:esm:$REGION:$ACCOUNT:development:bucket:file-delivery*"
+
+    # And removing an upload from the transfer bucket once it is delivered: listing it, to check
+    # it is still the upload that was delivered, and deleting it. A role of its own, granted on
+    # transfer-server alone, so the application can never delete a file it has delivered.
+    step "role $APP_ID-cleanup created" "role $APP_ID-cleanup already exists" \
+        eam create-role --name "$APP_ID-cleanup" \
+            --permission esm:list-objects --permission esm:delete-object \
+            --description "Remove delivered uploads from the transfer bucket"
+    step "granted the $APP_ID-cleanup role" "already holds the $APP_ID-cleanup role" \
+        eam grant-role --role "$APP_ID-cleanup" \
+            --principal "ern:eam:$REGION:$ACCOUNT:user:app-$APP_ID" \
+            --namespace development \
+            --resource "ern:esm:$REGION:$ACCOUNT:development:bucket:transfer-server*"
+
+    step "started" "could not be started" eap start-application --application-id "$APP_ID"
+fi
 
 echo
 echo "Done. Log in as ${USERS[0]} with the password in FTP_PASSWORD:"

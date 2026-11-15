@@ -37,7 +37,7 @@ services:
         chmod 0400 /data/configdb/replica-set.key
         exec docker-entrypoint.sh "$$@"
       - --
-    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--keyFile", "/data/configdb/replica-set.key"]
+    command: [ "mongod", "--replSet", "rs0", "--bind_ip_all", "--keyFile", "/data/configdb/replica-set.key" ]
     # Published for tools on the docker host (mongosh, Compass) - on 127.0.0.1 only, so the database
     # is not open to the network. The set's member is named "mongodb:27017", which the host cannot
     # resolve, so connect with directConnection=true rather than letting the driver discover the set:
@@ -76,10 +76,8 @@ services:
     ports:
       - "5566:5566"   # gateway, API and web UI
       - "2121:2121"   # FTP
-      # FTP passive data ports: the range setup-infrastructure.sh gives the FTP server. Its PASV
-      # replies name euclid.modules.ets.advertised-address in euclid.json, not the container's IP.
-      - "6000-6010:6000-6010"
       - "2222:2222"   # SFTP
+      - "6000-6010:6000-6010" # FTP passive mode data ports
       - "8080:8080"   # API gateway (EAG), development
       - "8081:8081"   # API gateway (EAG), integration
       - "8082:8082"   # API gateway (EAG), production
@@ -98,7 +96,7 @@ services:
       - manager-data:/usr/local/euclid/data
     healthcheck:
       # Any HTTP answer from the gateway: it is up, and the certificate the workers need exists.
-      test: ["CMD", "curl", "-sk", "-o", "/dev/null", "https://localhost:5566/"]
+      test: [ "CMD", "curl", "-sk", "-o", "/dev/null", "https://localhost:5566/" ]
       interval: 5s
       timeout: 5s
       retries: 60
