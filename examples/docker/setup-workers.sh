@@ -10,6 +10,12 @@
 #   ADMIN_PASSWORD   the administrator's password (the bootstrap one is "admin")
 #   NODE_PASSWORD    the password the node principals are registered with
 set -euo pipefail
+
+# Git Bash rewrites every argument that looks like a Unix path into a Windows one before docker.exe
+# sees it - /usr/local/euclid/... becomes C:/Program Files/Git/usr/local/euclid/... - but these
+# paths are inside the containers. Turned off; elsewhere the variables mean nothing.
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+
 cd "$(dirname "$0")"
 
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin}"

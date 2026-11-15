@@ -88,6 +88,18 @@ namespace Euclid::FTP {
         void cmdCwd(const std::string &arg);
         void cmdCdup();
         void cmdPasv();
+
+        /**
+         * @brief EPSV (RFC 2428): passive mode whose reply names only the port. The client
+         * connects to the address it already reached the control port at, so this works behind
+         * NAT and docker port publishing without euclid.modules.ets.advertised-address.
+         *
+         * @par
+         * "EPSV" and "EPSV 1" open an IPv4 listener; "EPSV 2" is refused with 522, since the
+         * listeners are IPv4 only; "EPSV ALL" makes EPSV the only data command for the rest of
+         * the session, which is what a NAT-traversing client asks for.
+         */
+        void cmdEpsv(const std::string &arg);
         void cmdPort(const std::string &arg);
         void cmdMkd(const std::string &arg);
         void cmdRmd(const std::string &arg);
@@ -134,6 +146,13 @@ namespace Euclid::FTP {
          * std::nullopt if neither was set up, or the connection attempt fails.
          */
         [[nodiscard]] std::optional<boost::asio::ip::tcp::socket> openDataConnection();
+
+        /**
+         * @brief Listens on the first free port of the configured passive range, for PASV and
+         * EPSV alike, replacing any data connection set up before. Sends "425" and returns
+         * false if every port in the range is taken.
+         */
+        [[nodiscard]] bool openPassiveListener();
 
         /**
          * @brief Maps a virtual FTP path to the bucket key it addresses: the same path without
@@ -191,6 +210,11 @@ namespace Euclid::FTP {
 
         std::optional<boost::asio::ip::tcp::acceptor> _pasvAcceptor;
         std::optional<std::pair<std::string, unsigned short> > _portTarget;
+
+        /**
+         * @brief Set by "EPSV ALL": PASV and PORT are refused from then on (RFC 2428 §4).
+         */
+        bool _epsvAll{false};
     };
 
 }// namespace Euclid::FTP

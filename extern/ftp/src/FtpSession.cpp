@@ -41,6 +41,21 @@ namespace Euclid::FTP {
             return s;
         }
 
+        /**
+         * Drops the ls-style options some clients put in front of a LIST or NLST path - FileZilla
+         * sends "LIST -a" to any server whose SYST says UNIX - so they are not read as a directory
+         * named "-a", which does not exist and lists as empty. Every leading word starting with
+         * "-" is an option, as vsftpd and ProFTPD read it; the rest, spaces included, is the path.
+         */
+        std::string StripListOptions(const std::string &arg) {
+            std::string rest = Trim(arg);
+            while (rest.starts_with('-')) {
+                const auto space = rest.find(' ');
+                rest = space == std::string::npos ? std::string{} : Trim(rest.substr(space + 1));
+            }
+            return rest;
+        }
+
         std::pair<std::string, std::string> SplitVerbArg(const std::string &line) {
             const auto pos = line.find(' ');
             if (pos == std::string::npos) return {line, {}};
@@ -162,6 +177,7 @@ namespace Euclid::FTP {
         if (verb == "CWD" || verb == "XCWD") return cmdCwd(arg);
         if (verb == "CDUP" || verb == "XCUP") return cmdCdup();
         if (verb == "PASV") return cmdPasv();
+        if (verb == "EPSV") return cmdEpsv(arg);
         if (verb == "PORT") return cmdPort(arg);
         if (verb == "MKD" || verb == "XMKD") return cmdMkd(arg);
         if (verb == "RMD" || verb == "XRMD") return cmdRmd(arg);
@@ -231,6 +247,7 @@ namespace Euclid::FTP {
     void FtpSession::cmdFeat() {
         sendReply("211-Features:");
         sendReply(" PASV");
+        sendReply(" EPSV");
         sendReply(" SIZE");
         sendReply(" MDTM");
         sendReply("211 End");
@@ -355,28 +372,59 @@ namespace Euclid::FTP {
         }
     }
 
-    void FtpSession::cmdPasv() {
+    bool FtpSession::openPassiveListener() {
         _portTarget.reset();
         _pasvAcceptor.reset();
 
-        for (unsigned short port = _config.pasvMin; port <= _config.pasvMax; ++port) {
+        // Compared as int: with pasvMax at 65535 an unsigned short counter would wrap to 0
+        // instead of ending the loop.
+        for (int port = _config.pasvMin; port <= _config.pasvMax; ++port) {
             boost::system::error_code ec;
             tcp::acceptor acceptor(_control.get_executor());
-            const tcp::endpoint endpoint(tcp::v4(), port);
+            const tcp::endpoint endpoint(tcp::v4(), static_cast<unsigned short>(port));
             std::ignore=acceptor.open(endpoint.protocol(), ec);
             if (!ec) std::ignore=acceptor.set_option(tcp::acceptor::reuse_address(true), ec);
             if (!ec) std::ignore=acceptor.bind(endpoint, ec);
             if (!ec) std::ignore=acceptor.listen(1, ec);
             if (!ec) {
                 _pasvAcceptor = std::move(acceptor);
-                break;
+                return true;
             }
         }
 
-        if (!_pasvAcceptor) {
-            sendReply(425, "Cannot open passive data connection - no free port in configured range");
+        sendReply(425, "Cannot open passive data connection - no free port in configured range");
+        return false;
+    }
+
+    void FtpSession::cmdEpsv(const std::string &arg) {
+        const std::string protocol = ToUpper(Trim(arg));
+
+        if (protocol == "ALL") {
+            _epsvAll = true;
+            sendReply(200, "EPSV ALL command successful");
             return;
         }
+        if (protocol == "2") {
+            sendReply(522, "Network protocol not supported, use (1)");
+            return;
+        }
+        if (!protocol.empty() && protocol != "1") {
+            sendReply(501, "Syntax error in EPSV command");
+            return;
+        }
+
+        if (!openPassiveListener()) return;
+
+        const unsigned short port = _pasvAcceptor->local_endpoint().port();
+        sendReply(229, "Entering Extended Passive Mode (|||" + std::to_string(port) + "|)");
+    }
+
+    void FtpSession::cmdPasv() {
+        if (_epsvAll) {
+            sendReply(503, "PASV not allowed after EPSV ALL");
+            return;
+        }
+        if (!openPassiveListener()) return;
 
         boost::system::error_code ec;
         const std::string address = _config.advertisedAddress.empty() ? _control.local_endpoint(ec).address().to_string() : _config.advertisedAddress;
@@ -397,6 +445,10 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdPort(const std::string &arg) {
+        if (_epsvAll) {
+            sendReply(503, "PORT not allowed after EPSV ALL");
+            return;
+        }
         _pasvAcceptor.reset();
         _portTarget.reset();
 
@@ -451,7 +503,7 @@ namespace Euclid::FTP {
             return socket;
         }
 
-        sendReply(425, "Use PASV or PORT first");
+        sendReply(425, "Use PASV, EPSV or PORT first");
         return std::nullopt;
     }
 
@@ -460,7 +512,7 @@ namespace Euclid::FTP {
         // refused is a client left waiting on a socket nobody is going to write to.
         if (!permitted("list-directory")) return;
 
-        const auto [virtualPath, physicalPath] = resolve(arg);
+        const auto [virtualPath, physicalPath] = resolve(StripListOptions(arg));
         std::error_code fsEc;
         if (!_storage && !std::filesystem::exists(physicalPath, fsEc)) {
             sendReply(450, "No such file or directory");

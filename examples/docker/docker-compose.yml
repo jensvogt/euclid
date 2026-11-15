@@ -15,8 +15,7 @@ services:
 
   # A single-node replica set rather than a standalone: only a replica set has an oplog, and euclid
   # tails it (change streams) to deliver EQS receives and EventBus events the moment they happen. On
-  # a standalone it falls back to polling and says so at every start ("this MongoDB deployment is a
-  # standalone and has no oplog to tail").
+  # a standalone it falls back to polling and says so at every start.
   mongodb:
     image: mongo:7
     restart: unless-stopped
@@ -39,6 +38,12 @@ services:
         exec docker-entrypoint.sh "$$@"
       - --
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--keyFile", "/data/configdb/replica-set.key"]
+    # Published for tools on the docker host (mongosh, Compass) - on 127.0.0.1 only, so the database
+    # is not open to the network. The set's member is named "mongodb:27017", which the host cannot
+    # resolve, so connect with directConnection=true rather than letting the driver discover the set:
+    #   mongodb://root:euclid-example-password@localhost:27017/?authSource=admin&directConnection=true
+    ports:
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongodb-data:/data/db
       - mongodb-config:/data/configdb
@@ -71,6 +76,10 @@ services:
     ports:
       - "5566:5566"   # gateway, API and web UI
       - "2121:2121"   # FTP
+      # FTP passive data ports: the range setup-infrastructure.sh gives the FTP server. Its PASV
+      # replies name euclid.modules.ets.advertised-address in euclid.json, not the container's IP.
+      - "6000-6010:6000-6010"
+      - "2222:2222"   # SFTP
       - "8080:8080"   # API gateway (EAG), development
       - "8081:8081"   # API gateway (EAG), integration
       - "8082:8082"   # API gateway (EAG), production
@@ -80,9 +89,9 @@ services:
       - ./euclid.json:/usr/local/euclid/etc/euclid.json:ro
       # The gateway certificate, on a volume of its own so the workers can mount it to trust the
       # gateway - and its key on another, which no worker mounts. Neither in etc/, which holds
-      # euclid.json and with it the signing secret no worker may ever see (docs/worker-nodes.md
-      # §3.2), and whose other files belong to the image and must change with it on an upgrade.
-      # Both kept across restarts, so the certificate the workers trust stays the gateway's.
+      # euclid.json and with it the signing secret no worker may ever, and whose other files
+      # belong to the image and must change with it on an upgrade. Both kept across restarts,
+      # so the certificate the workers trust stays the gateway's.
       - gateway-certificate:/usr/local/euclid/certs
       - gateway-key:/usr/local/euclid/keys
       # ESM's objects, backups, and the rest of the manager's data.

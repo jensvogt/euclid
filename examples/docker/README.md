@@ -44,6 +44,11 @@ the workers always use the same one.
   oplog, which euclid tails to deliver EQS receives and EventBus events immediately - on a
   standalone it polls, and warns about it at every start. The compose file makes the key file a
   replica set with authentication needs, and its health check initiates the set on the first start.
+  It is published on `127.0.0.1:27017` for tools on the docker host. Connect with
+  `mongodb://root:euclid-example-password@localhost:27017/?authSource=admin&directConnection=true`.
+  `directConnection=true` is needed because the set's only member is named `mongodb:27017`, a name
+  the host cannot resolve: without it the driver connects, reads that name from the set, and then
+  times out trying to reach it.
 - **`euclid.json`** replaces the image's configuration. It is the image's own, with these changes:
   `euclid.database.backend` is `mongodb` (and the in-memory EMD module off), `euclid.mongodb` points
   at the `mongodb` service and names the replica set, and the gateway's certificate and key live in
@@ -59,6 +64,16 @@ the workers always use the same one.
 - **The applications' ports** need no publishing: the gateway reaches them over the compose network,
   at the address each worker registers with. Reach an application from outside through the API
   gateway, ports 8080-8082.
+
+- **FTP and SFTP** come from `./setup-infrastructure.sh`, run once after `setup-workers.sh`: an
+  FTP server on port 2121 and an SFTP server on 2222 in front of the `transfer-server` bucket, for
+  the members of `ftp-users`. `./cleanup-infrastructure.sh` removes all of it again, the uploaded
+  files included. FTP's passive data connections use ports 6000-6010, published by the
+  compose file. The FTP server tells clients to open them at
+  `euclid.modules.ets.advertised-address` in `euclid.json`, `127.0.0.1` here. That reaches the
+  server only from the docker host itself. Clients on other machines need the host's own address
+  there. Left empty, the server would name the container's IP, which no client outside the compose
+  network can reach.
 
 Workers can also be given their credentials through the environment instead of a login, and take
 every `euclid-wrk` option as an environment variable - see

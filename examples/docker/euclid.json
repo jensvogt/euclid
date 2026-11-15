@@ -316,6 +316,7 @@
         "inline-max": 67108864,
         "part-size": 8388608,
         "host-key": "/usr/local/euclid/etc/ssh_host_key",
+        "advertised-address": "127.0.0.1",
         "ftp-executable": "/usr/local/euclid/bin/euclid-ftp",
         "sftp-executable": "/usr/local/euclid/bin/euclid-sftp"
       },
