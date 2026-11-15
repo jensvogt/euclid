@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.38](https://github.com/jensvogt/euclid/compare/2.1.37...v2.1.38) (2026-11-15)
+
+
+### Bug Fixes
+
+* FTP show hidden files ([8f3b04f](https://github.com/jensvogt/euclid/commit/8f3b04f1913be125f6342126df3f8b4962c0c30a))
+
 ## [2.1.37](https://github.com/jensvogt/euclid/compare/2.1.36...v2.1.37) (2026-11-14)
 
 
