@@ -91,6 +91,9 @@ runs it on the workers (1 to 4 instances). It processes what FTP and SFTP client
    for everything else.
 4. **Deletes** the upload from `transfer-server` once all of it has been delivered.
 
+Each of these steps is also published to the ENS topic `protocol`, which `setup-infrastructure.sh`
+creates. Subscribe a queue to it to follow every upload from arrival to removal.
+
 Rebuild the binary with `../applications/cpp/build-alpine.sh`, which writes it here, and run
 `setup-infrastructure.sh` again to deploy it. The workers are Alpine, so a binary built on Debian or
 Ubuntu won't start there. To watch it work:

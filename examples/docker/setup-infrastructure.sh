@@ -43,6 +43,7 @@ REGION="eu-central-1"           # euclid.region in euclid.json
 USERS=("ftpuser1" "ftpuser2")
 GROUP="ftp-users"
 BUCKETS=("transfer-server" "file-delivery" "apps")
+TOPICS=("protocol")
 QUEUES=("file-delivery-queue" "file-delivery-pdf" "file-delivery-image" "file-delivery-xml" "file-delivery-json" "file-delivery-misc")
 
 # The file-delivery application (examples/applications/cpp), deployed from apps/: its binary is
@@ -128,6 +129,14 @@ for queue in "${QUEUES[@]}"; do
   step "created" "already exists" eqs create-queue --name "$queue"
 done
 
+# The ENS topics: "protocol" receives one message for every step the file-delivery application
+# takes - picked up, downloaded, unpacked, delivered, announced, removed, failed. Subscribe a queue
+# to it to follow the uploads (ens subscribe).
+for topic in "${TOPICS[@]}"; do
+  echo "== topic $topic"
+  step "created" "already exists" ens create-topic --name "$topic"
+done
+
 # The file-delivery application. If the prebuild binary is missing, built it first (examples/applications/cpp/README.md).
 echo "== application $APP_ID"
 if [ ! -f "$APP_FILE" ]; then
@@ -182,6 +191,19 @@ else
             --principal "ern:eam:$REGION:$ACCOUNT:user:app-$APP_ID" \
             --namespace development \
             --resource "ern:esm:$REGION:$ACCOUNT:development:bucket:transfer-server*"
+
+    # And publishing its protocol. --buckets and --queues narrowed the application to those
+    # resources, and create-application has no option to name a topic, so a role of its own,
+    # granted on the protocol topic alone.
+    step "role $APP_ID-protocol created" "role $APP_ID-protocol already exists" \
+        eam create-role --name "$APP_ID-protocol" \
+            --permission ens:get-topic-ern --permission ens:publish-message \
+            --description "Publish the file-delivery protocol"
+    step "granted the $APP_ID-protocol role" "already holds the $APP_ID-protocol role" \
+        eam grant-role --role "$APP_ID-protocol" \
+            --principal "ern:eam:$REGION:$ACCOUNT:user:app-$APP_ID" \
+            --namespace development \
+            --resource "ern:ens:$REGION:$ACCOUNT:development:topic:protocol"
 
     step "started" "could not be started" eap start-application --application-id "$APP_ID"
 fi

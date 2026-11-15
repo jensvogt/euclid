@@ -45,6 +45,7 @@ USERS=("ftpuser1" "ftpuser2")
 GROUP="ftp-users"
 BUCKETS=("transfer-server" "file-delivery" "apps")
 SERVERS=("ftp-server" "sftp-server")
+TOPICS=("protocol")
 QUEUES=("file-delivery-pdf" "file-delivery-image" "file-delivery-xml" "file-delivery-json" "file-delivery-misc")
 APP_ID="file-delivery"
 # Created by the application itself on its first start, not by setup-infrastructure.sh.
@@ -72,7 +73,7 @@ step() {
 
 if [ "${1:-}" != "-y" ]; then
     echo "This deletes the application $APP_ID, the transfer servers ${SERVERS[*]},"
-    echo "the buckets ${BUCKETS[*]} with every file in them, the queues,"
+    echo "the buckets ${BUCKETS[*]} with every file in them, the queues, the topics ${TOPICS[*]},"
     echo "the users ${USERS[*]} and the user group $GROUP."
     read -rp "Continue? [y/N] " answer
     case "$answer" in
@@ -100,13 +101,13 @@ manager eam login --user admin --password "$ADMIN_PASSWORD" --account "$ACCOUNT"
 echo "== application $APP_ID"
 step "stopped" "not running" eap stop-application --application-id "$APP_ID"
 appPrincipal="ern:eam:$REGION:$ACCOUNT:user:app-$APP_ID"
-for role in "$APP_ID" "$APP_ID-cleanup"; do
+for role in "$APP_ID" "$APP_ID-cleanup" "$APP_ID-protocol"; do
     for grant in $(grant_ids "$appPrincipal" "$role"); do
         step "$role role revoked ($grant)" "could not revoke grant $grant" eam revoke-role --grant-id "$grant"
     done
 done
 step "deleted" "already gone" eap delete-application --application-id "$APP_ID"
-for role in "$APP_ID" "$APP_ID-cleanup"; do
+for role in "$APP_ID" "$APP_ID-cleanup" "$APP_ID-protocol"; do
     step "role $role deleted" "role $role already gone" eam delete-role --name "$role"
 done
 
@@ -132,6 +133,12 @@ done
 for bucket in "${BUCKETS[@]}"; do
   echo "== bucket $bucket"
   step "deleted" "already gone" esm delete-bucket --bucket "$bucket"
+done
+
+# Deletes the topics, with every message they still hold.
+for topic in "${TOPICS[@]}"; do
+  echo "== topic $topic"
+  step "deleted" "already gone" ens delete-topic --topic "$topic"
 done
 
 # Deletes the created queues, includes all messages existing in the queue
