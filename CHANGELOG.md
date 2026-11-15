@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/jensvogt/euclid/compare/2.2.0...v2.3.0) (2026-11-15)
+
+
+### Features
+
+* python examples, new JSON handling for EQS, ENS and ESM ([9e349fe](https://github.com/jensvogt/euclid/commit/9e349fe33ae7196a435006bbbe6ff1330cefecf7))
+
 ## [2.2.0](https://github.com/jensvogt/euclid/compare/2.1.39...v2.2.0) (2026-11-15)
 
 
