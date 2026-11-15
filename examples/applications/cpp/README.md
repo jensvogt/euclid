@@ -51,6 +51,40 @@ it was sent to, and `mimeType` still says what the file is. The notification is 
 It is the only example here that is **compiled**, so it is also the one that shows the `BINARY`
 runtime: there's no interpreter, and the artifact is the executable.
 
+## Protocol
+
+Every step is also published to the ENS topic **`protocol`**, one message per step. Subscribe a
+queue to it (`ens subscribe`) to follow each upload from arrival to removal without reading the
+application's log:
+
+| Step | When | Details |
+|---|---|---|
+| `started` / `stopped` | an instance starts or stops | `version` / `handled` |
+| `picked-up` | an upload in `incoming` is taken on | `size`, `md5Sum`, `owner` |
+| `ignored` | an upload outside `incoming` | `reason` |
+| `downloaded` | the upload is on the instance's disk | `size` |
+| `gone` | the upload is no longer there (a repeat, or deleted by the client) | `reason` |
+| `unpacked` | a ZIP is unpacked | `files` |
+| `delivered` | one file is in `file-delivery` | `bucket`, `key`, `size`, `md5Sum`, `mimeType` |
+| `announced` / `not-announced` | its notification is sent, or there is no queue for it | `key`, `category`, `queue`, `message` |
+| `removed` / `not-removed` | the upload is deleted from `transfer-server`, or left there | `reason` |
+| `completed` | the upload notification is done with | |
+| `failed` / `given-up` | an attempt failed and will be retried, or the fifth one failed | `error`, `retry` |
+
+Each message also carries `timestamp`, `application`, `instance`, and, except for `started` and
+`stopped`, the upload notification's id (`notification`), the `attempt`, and the upload as `source`.
+`notification` ties the steps of one upload together, across retries and instances:
+
+```json
+{"timestamp": "2026-11-15T14:02:11.482Z", "application": "file-delivery", "instance": "file-delivery-1",
+ "step": "delivered", "notification": "6f1c...", "attempt": 1,
+ "source": {"bucket": "transfer-server", "key": "ftpuser1/incoming/report.pdf"},
+ "bucket": "file-delivery", "key": "ftpuser1/report.pdf", "size": 48213, "md5Sum": "...", "mimeType": "application/pdf"}
+```
+
+The protocol is a record, not part of the work. A message that can't be published is logged once
+and dropped, and never fails a delivery. If the topic doesn't exist at startup, nothing is published.
+
 ## How it works
 
 1. **On startup** it looks up both buckets and creates its queue, `file-delivery-queue`, if it
@@ -91,10 +125,12 @@ Set through `--environment` on `create-application`. Everything has a default th
 | `INCOMING_DIR` | `incoming` | the directory in each home whose files are delivered |
 | `MAX_EXTRACTED_BYTES` | `4294967296` | the most one ZIP may unpack to |
 | `CLASSIFIED_QUEUE_PREFIX` | `<application id>-` | the start of the queue names files are announced on: `<prefix>pdf`, `<prefix>image`, `<prefix>xml`, `<prefix>json`, `<prefix>misc` |
+| `PROTOCOL_TOPIC` | `protocol` | the ENS topic every step is published to; set but empty publishes nothing |
 | `MAGIC` | libmagic's compiled-in path | where libmagic's database (`magic.mgc`) is, on a host that keeps it somewhere else |
 
 Both buckets have to exist before it starts. Creating buckets is left to the installation, and
-`setup-infrastructure.sh` creates both. The same goes for the five classification queues. A
+`setup-infrastructure.sh` creates both. The same goes for the five classification queues and the
+`protocol` topic. A
 missing one is logged at startup, and files of that kind go to `file-delivery-misc`. If
 `file-delivery-misc` is missing too, those files are delivered without being announced: delivery
 never depends on classification.
@@ -168,9 +204,9 @@ euclid-cli esm list-objects --bucket file-delivery
 ## Grants
 
 `create-application` gives the application a technical principal of its own, `app-file-delivery`,
-and puts it in the built-in `application` role. That role covers the queue, the subscription, load
+and puts it in the built-in `application` role, limited to the buckets and queues it names. That role covers the queue, the subscription, load
 reporting, sending to queues, and single-request transfers (`get-object`, `put-object`). It doesn't
-cover these three things:
+cover these four things:
 
 - **Looking up a bucket by name** (`esm:get-bucket-ern`), which the application does once at
   startup.
@@ -180,8 +216,11 @@ cover these three things:
 - **Removing delivered uploads** (`esm:list-objects` to check the upload is unchanged,
   `esm:delete-object` to delete it). Without these, files are delivered but stay in
   `transfer-server`, and every notification is retried until it's given up on.
+- **Publishing the protocol** (`ens:get-topic-ern`, `ens:publish-message`). The built-in role holds
+  both, but only for the buckets and queues named at creation, and `create-application` has no
+  option to name a topic. Without them, the work goes on and nothing is published.
 
-Two extra roles. The first is granted on both buckets:
+Three extra roles. The first is granted on both buckets:
 
 ```bash
 euclid-cli eam create-role --name file-delivery \
@@ -211,9 +250,22 @@ euclid-cli eam grant-role --role file-delivery-cleanup \
     --resource 'ern:esm:eu-central-1:000000000000:development:bucket:transfer-server*'
 ```
 
+The third is granted on the `protocol` topic only:
+
+```bash
+euclid-cli eam create-role --name file-delivery-protocol \
+    --permission ens:get-topic-ern --permission ens:publish-message \
+    --description "Publish the file-delivery protocol"
+
+euclid-cli eam grant-role --role file-delivery-protocol \
+    --principal ern:eam:eu-central-1:000000000000:user:app-file-delivery \
+    --namespace development \
+    --resource 'ern:ens:eu-central-1:000000000000:development:topic:protocol'
+```
+
 Strictly, the application only needs the download actions on `transfer-server` and the upload
 actions on `file-delivery`. Splitting the first role in two is the tighter version of the same
-grant. `setup-infrastructure.sh` creates and grants both roles.
+grant. `setup-infrastructure.sh` creates and grants all three roles.
 
 ## Things worth knowing
 

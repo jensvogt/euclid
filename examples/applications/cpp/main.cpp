@@ -22,6 +22,10 @@
 // own, or a file libmagic cannot classify - is announced on file-delivery-misc, so every delivered
 // file is announced somewhere.
 //
+// Every step of that - picked up, downloaded, unpacked, delivered, announced, removed, failed - is
+// also published to the ENS topic "protocol", one message per step, so whoever subscribes to it
+// can follow each upload from arrival to removal without reading this application's log.
+//
 // Still a queue consumer underneath, like every application: take a message, do the work, delete
 // it. The bucket subscription is what turns uploads into messages - nothing polls the bucket.
 //
@@ -38,6 +42,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -46,6 +51,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -130,8 +136,11 @@ namespace {
         std::uintmax_t maxExtractedBytes;
 
         // What the queues a delivered file is announced on start with: <prefix>pdf, <prefix>image,
-        // <prefix>xml, <prefix>json.
+        // <prefix>xml, <prefix>json, <prefix>misc.
         std::string classifiedQueuePrefix;
+
+        // The ENS topic every step is published to; empty publishes nothing.
+        std::string protocolTopic;
     };
 
     Config loadConfig() {
@@ -144,6 +153,9 @@ namespace {
         config.incomingDir = env("INCOMING_DIR", "incoming");
         config.maxExtractedBytes = envBytes("MAX_EXTRACTED_BYTES", 4ULL * 1024 * 1024 * 1024);
         config.classifiedQueuePrefix = env("CLASSIFIED_QUEUE_PREFIX", config.applicationId + "-");
+        // Read raw rather than through env(): set and empty means "no protocol", not "the default".
+        const char *topic = std::getenv("PROTOCOL_TOPIC");
+        config.protocolTopic = topic != nullptr ? topic : "protocol";
         return config;
     }
 
@@ -453,6 +465,65 @@ namespace {
         return kMisc;
     }
 
+    // -- the protocol ---------------------------------------------------------------------------
+
+    // Publishes each step of the work to the protocol topic: one JSON message per step, carrying
+    // when, which instance, which upload notification and which attempt, so the messages of one
+    // upload can be put back together - and the step's own details.
+    //
+    // A protocol message is a record, not part of the work: one that cannot be published is
+    // logged and dropped, and never fails a delivery. Without a topic - none configured, or not
+    // found at startup - nothing is published.
+    class Protocol {
+    public:
+
+        Protocol(const ENS::Ens &ens, std::string topicErn, const Config &config)
+            : _ens(ens), _topicErn(std::move(topicErn)), _config(config) {}
+
+        // Starts the record of one upload notification: every step from here on carries its id,
+        // the attempt (how often it has been received) and the upload's key.
+        void begin(std::string notificationId, const long attempt, std::string sourceKey) {
+            _notificationId = std::move(notificationId);
+            _attempt = attempt;
+            _sourceKey = std::move(sourceKey);
+        }
+
+        void record(const std::string_view step, boost::json::object details = {}) const {
+            if (_topicErn.empty()) return;
+
+            boost::json::object message{
+                    {"timestamp", std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now()))},
+                    {"application", _config.applicationId},
+                    {"instance", _config.instanceId},
+                    {"step", step}};
+            if (!_notificationId.empty()) {
+                message["notification"] = _notificationId;
+                message["attempt"] = _attempt;
+                message["source"] = boost::json::object{{"bucket", _config.sourceBucket}, {"key", _sourceKey}};
+            }
+            for (auto &[name, value]: details) message[name] = std::move(value);
+
+            try {
+                std::ignore = _ens.PublishMessage(_topicErn, boost::json::serialize(message));
+                _failing = false;
+            } catch (const std::exception &ex) {
+                // Said once when publishing starts failing, not on every step after it.
+                if (!_failing) std::cerr << "protocol message not published, step: " << step << ": " << ex.what() << std::endl;
+                _failing = true;
+            }
+        }
+
+    private:
+
+        const ENS::Ens &_ens;
+        std::string _topicErn;
+        const Config &_config;
+        std::string _notificationId;
+        long _attempt{0};
+        std::string _sourceKey;
+        mutable bool _failing{false};
+    };
+
     // -- delivering -----------------------------------------------------------------------------
 
     struct Buckets {
@@ -472,6 +543,7 @@ namespace {
         // Nothing when libmagic's database could not be loaded: every file is then announced on
         // kMisc, rather than not delivered at all.
         std::unique_ptr<Magic> magic;
+        Protocol &protocol;
     };
 
     // Delivers one file, then announces it on the queue of its kind, or on kMisc. Announced only once it is
@@ -489,6 +561,11 @@ namespace {
         const auto stored = context.esm.UploadFile(context.buckets.targetErn, key, file.string());
         std::cout << "  delivered " << key << " (" << stored.size << " bytes"
                   << (mimeType.empty() ? std::string{} : ", " + mimeType) << ")" << std::endl;
+        context.protocol.record("delivered", {{"bucket", context.config.targetBucket},
+                                              {"key", key},
+                                              {"size", stored.size},
+                                              {"md5Sum", stored.md5Sum},
+                                              {"mimeType", mimeType}});
 
         // The kind's own queue, else kMisc's. With neither there, the file is delivered and not
         // announced: the queues are the installation's to create.
@@ -497,7 +574,10 @@ namespace {
         if (queue == context.classifiedQueues.end()) {
             category = kMisc;
             queue = context.classifiedQueues.find(category);
-            if (queue == context.classifiedQueues.end()) return;
+            if (queue == context.classifiedQueues.end()) {
+                context.protocol.record("not-announced", {{"key", key}, {"mimeType", mimeType}, {"reason", "no queue for it"}});
+                return;
+            }
         }
 
         // "category" names the queue it was announced on; "mimeType" still says what the file is,
@@ -516,6 +596,10 @@ namespace {
         const auto messageId = context.eqs.SendMessage(queue->second, boost::json::serialize(notification));
         std::cout << "  announced " << key << " as " << category << " on " << context.config.classifiedQueuePrefix << category
                   << ", message: " << messageId << std::endl;
+        context.protocol.record("announced", {{"key", key},
+                                              {"category", category},
+                                              {"queue", context.config.classifiedQueuePrefix + category},
+                                              {"message", messageId}});
     }
 
     // -- removing the upload --------------------------------------------------------------------
@@ -544,6 +628,7 @@ namespace {
         const auto current = currentObject(context.esm, context.buckets.sourceErn, event.key);
         if (!current.has_value()) {
             std::cout << "  " << event.key << " is no longer in " << context.config.sourceBucket << std::endl;
+            context.protocol.record("not-removed", {{"reason", "no longer there"}});
             return;
         }
         const bool unchanged = !event.md5Sum.empty() && !current->md5Sum.empty()
@@ -551,10 +636,12 @@ namespace {
                                    : current->size == event.size;
         if (!unchanged) {
             std::cout << "  " << event.key << " was replaced while it was delivered; left for its own notification" << std::endl;
+            context.protocol.record("not-removed", {{"reason", "replaced while it was delivered"}});
             return;
         }
         context.esm.DeleteObject(current->ern);
         std::cout << "  removed " << event.key << " from " << context.config.sourceBucket << std::endl;
+        context.protocol.record("removed");
     }
 
     // -- one notification -----------------------------------------------------------------------
@@ -573,10 +660,12 @@ namespace {
         const auto route = routeOf(event.key, config.incomingDir);
         if (!route.has_value()) {
             std::cout << "ignored " << event.key << ": not in an '" << config.incomingDir << "' directory" << std::endl;
+            context.protocol.record("ignored", {{"reason", "not in an '" + config.incomingDir + "' directory"}});
             return;
         }
 
         std::cout << "picked up " << event.key << " (" << event.size << " bytes)" << std::endl;
+        context.protocol.record("picked-up", {{"size", event.size}, {"md5Sum", event.md5Sum}, {"owner", route->owner}});
 
         const TempDir temp(config.instanceId);
         const fs::path download = temp.path() / "download";
@@ -588,8 +677,10 @@ namespace {
             // before it could be picked up. Either way there is nothing left to deliver.
             if (ex.Status() != 404) throw;
             std::cout << "  " << event.key << " is no longer there - delivered and removed already, or deleted" << std::endl;
+            context.protocol.record("gone", {{"reason", "delivered and removed already, or deleted"}});
             return;
         }
+        context.protocol.record("downloaded", {{"size", static_cast<std::uint64_t>(fs::file_size(download))}});
 
         if (!isZip(event.key)) {
             deliver(context, event.key, childKey(route->owner, route->relative), download);
@@ -606,9 +697,11 @@ namespace {
         if (files.empty()) {
             // Nothing to deliver is not a failure: the archive has been dealt with.
             std::cout << "  " << event.key << " holds no files" << std::endl;
+            context.protocol.record("unpacked", {{"files", 0}});
             removeUpload(context, event);
             return;
         }
+        context.protocol.record("unpacked", {{"files", files.size()}});
         for (const auto &file: files) {
             // Stopping halfway is fine: the notification stays in the queue, and whoever takes it
             // next unpacks the archive again and writes the files already delivered once more.
@@ -691,18 +784,32 @@ int main() {
             << ", from: " << config.sourceBucket << "/*/" << config.incomingDir
             << ", to: " << config.targetBucket
             << ", queue: " << config.queueName
-            << ", announced on: " << config.classifiedQueuePrefix << "{pdf,image,xml,json,misc}" << std::endl;
+            << ", announced on: " << config.classifiedQueuePrefix << "{pdf,image,xml,json,misc}"
+            << ", protocol: " << (config.protocolTopic.empty() ? "(none)" : config.protocolTopic) << std::endl;
 
     auto session = openSession();
     if (!session.has_value()) return 1;
 
-    // All three hold a reference to the session, which has to outlive them - the reason token
+    // All four hold a reference to the session, which has to outlive them - the reason token
     // rotation goes through the session's provider rather than by rebuilding anything.
     const EQS::Eqs eqs(*session);
     const ESM::Esm esm(*session);
     const EAP::Eap eap(*session);
+    const ENS::Ens ens(*session);
 
-    Context context{.esm = esm, .eqs = eqs, .config = config, .buckets = {}, .classifiedQueues = {}, .magic = nullptr};
+    // Looked up, not created: like the buckets and queues, the topic is the installation's. Without
+    // it the work goes on unrecorded.
+    std::string protocolErn;
+    if (!config.protocolTopic.empty()) {
+        try {
+            protocolErn = ens.GetTopicErn(config.protocolTopic);
+        } catch (const std::exception &ex) {
+            std::cerr << "no protocol topic " << config.protocolTopic << ", steps are not published: " << ex.what() << std::endl;
+        }
+    }
+    Protocol protocol(ens, protocolErn, config);
+
+    Context context{.esm = esm, .eqs = eqs, .config = config, .buckets = {}, .classifiedQueues = {}, .magic = nullptr, .protocol = protocol};
 
     try {
         context.magic = std::make_unique<Magic>();
@@ -723,6 +830,7 @@ int main() {
         return 1;
     }
     context.classifiedQueues = findClassifiedQueues(eqs, config.classifiedQueuePrefix);
+    protocol.record("started", {{"version", env("EUCLID_APPLICATION_VERSION", "(unset)")}});
 
     long delivered = 0;
     // Whether this principal may count its own queue - asked once, and left alone if refused.
@@ -738,18 +846,26 @@ int main() {
 
             for (const auto &message: batch.items) {
                 try {
-                    handle(context, ESM::ParseBucketEvent(message.body));
+                    // Begun before parsing, so a notification that cannot be parsed is still
+                    // recorded as failing under its own id rather than the previous one's.
+                    protocol.begin(message.messageId, message.receivedCount, {});
+                    const auto event = ESM::ParseBucketEvent(message.body);
+                    protocol.begin(message.messageId, message.receivedCount, event.key);
+                    handle(context, event);
+                    protocol.record("completed");
                     ++delivered;
                 } catch (const std::exception &ex) {
                     if (message.receivedCount < kMaxAttempts) {
                         // Not deleted, so it comes back once its visibility timeout runs out.
                         std::cerr << "delivery failed, attempt " << message.receivedCount << " of " << kMaxAttempts
                                 << ", will retry: " << ex.what() << std::endl;
+                        protocol.record("failed", {{"error", ex.what()}, {"retry", true}});
                         if (!g_running.load()) break;
                         continue;
                     }
                     std::cerr << "delivery failed " << message.receivedCount << " times, giving up on message "
                             << message.messageId << ": " << ex.what() << std::endl;
+                    protocol.record("given-up", {{"error", ex.what()}, {"retry", false}});
                 }
 
                 // Deleted only now: after the work succeeded, or after giving up on it. A
@@ -780,5 +896,7 @@ int main() {
     }
 
     std::cout << "file-delivery stopping, notifications handled: " << delivered << std::endl;
+    protocol.begin({}, 0, {});
+    protocol.record("stopped", {{"handled", delivered}});
     return 0;
 }
