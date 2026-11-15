@@ -18,16 +18,36 @@ export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 
 cd "$(dirname "$0")"
 
+# Compose v2 as a docker plugin ("docker compose") where it is installed, else the standalone
+# "docker-compose" - which is all some distributions ship (Ubuntu's docker.io has no plugin unless
+# docker-compose-v2 is installed too). Checked up front: the wait below hides docker's errors, so a
+# missing compose would otherwise just wait forever.
+if docker compose version >/dev/null 2>&1; then
+    compose() { docker compose "$@"; }
+elif command -v docker-compose >/dev/null 2>&1; then
+    compose() { docker-compose "$@"; }
+else
+    echo "Neither 'docker compose' nor 'docker-compose' is available - install Docker Compose." >&2
+    exit 1
+fi
+
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin}"
 NODE_PASSWORD="${NODE_PASSWORD:-change-this-node-password}"
 ACCOUNT="000000000000"          # euclid.account-ids in euclid.json
 REGION="eu-central-1"           # euclid.region in euclid.json
 WORKERS=(wrk-1 wrk-2)
 
-manager() { docker compose exec -T euclid euclid-cli --ca-cert /usr/local/euclid/certs/euclid_cert.crt "$@"; }
+manager() { compose exec -T euclid euclid-cli --ca-cert /usr/local/euclid/certs/euclid_cert.crt "$@"; }
 
 echo "Waiting for the manager..."
-until [ "$(docker compose ps --format '{{.Health}}' euclid 2>/dev/null)" = "healthy" ]; do sleep 2; done
+deadline=$((SECONDS + 300))
+until [ "$(compose ps --format '{{.Health}}' euclid 2>/dev/null)" = "healthy" ]; do
+    if [ "$SECONDS" -ge "$deadline" ]; then
+        echo "The manager is not healthy after 5 minutes - is the stack up? (compose ps; compose logs euclid)" >&2
+        exit 1
+    fi
+    sleep 2
+done
 
 manager eam login --user admin --password "$ADMIN_PASSWORD" >/dev/null
 
@@ -44,10 +64,10 @@ for node in "${WORKERS[@]}"; do
 
     # Logged in from its own container: the login writes a session token and a long-lived access key
     # to /usr/local/euclid-wrk/.euclid/credentials, and the worker signs with the key from then on.
-    if docker compose exec -T "$node" test -s /usr/local/euclid-wrk/.euclid/credentials; then
+    if compose exec -T "$node" test -s /usr/local/euclid-wrk/.euclid/credentials; then
         echo "   already logged in"
     else
-        docker compose exec -T "$node" euclid-cli --endpoint https://euclid:5566 --ca-cert /certs/euclid_cert.crt \
+        compose exec -T "$node" euclid-cli --endpoint https://euclid:5566 --ca-cert /certs/euclid_cert.crt \
             eam login --user "$node" --password "$NODE_PASSWORD" >/dev/null
         echo "   logged in"
     fi

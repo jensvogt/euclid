@@ -75,6 +75,37 @@ the workers always use the same one.
   there. Left empty, the server would name the container's IP, which no client outside the compose
   network can reach.
 
+## The file-delivery application
+
+`apps/file-delivery` is the C++ example from [`examples/applications/cpp`](../applications/cpp),
+built as one fully static binary. `setup-infrastructure.sh` uploads it to the `apps` bucket and
+runs it on the workers (1 to 4 instances). It processes what FTP and SFTP clients upload:
+
+1. **Picks up** every file uploaded to a user's `incoming` directory in `transfer-server`, through
+   `file-delivery-queue`, which is subscribed to the bucket's upload events.
+2. **Delivers** it to the `file-delivery` bucket under the same user:
+   `ftpuser1/incoming/report.pdf` becomes `ftpuser1/report.pdf`. A ZIP is unpacked, and each file in
+   it is delivered on its own.
+3. **Announces** each delivered file on a queue for its kind, which libmagic determines from the
+   content, not the name: `file-delivery-pdf`, `-image`, `-xml`, `-json`, and `file-delivery-misc`
+   for everything else.
+4. **Deletes** the upload from `transfer-server` once all of it has been delivered.
+
+Rebuild the binary with `../applications/cpp/build-alpine.sh`, which writes it here, and run
+`setup-infrastructure.sh` again to deploy it. The workers are Alpine, so a binary built on Debian or
+Ubuntu won't start there. To watch it work:
+
+```bash
+sftp -P 2222 ftpuser1@localhost       # put report.pdf into incoming/
+ec esm list-objects --bucket file-delivery
+ec eqs receive-messages --queue file-delivery-pdf
+```
+
+How it works in detail, its settings and the grants it needs are in
+[its README](../applications/cpp/README.md).
+
+## Worker credentials and options
+
 Workers can also be given their credentials through the environment instead of a login, and take
 every `euclid-wrk` option as an environment variable - see
 [docker/wrk/entrypoint.sh](../../docker/wrk/entrypoint.sh).

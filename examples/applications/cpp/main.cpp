@@ -12,6 +12,15 @@
 // "file-delivery" bucket under the same user: ftpuser1/report.csv. A ZIP archive is not copied but
 // unpacked into a temporary directory, and each file in it delivered on its own:
 // ftpuser1/incoming/batch.zip holding a.csv and b/c.csv becomes ftpuser1/a.csv and ftpuser1/b/c.csv.
+// Once everything is delivered, the upload is deleted from the transfer bucket - unless it has been
+// replaced in the meantime, in which case the replacement's own notification delivers it.
+//
+// Every delivered file is then classified by its content - libmagic reads its magic bytes, not its
+// name - and a notification naming it is sent to the queue of its kind: file-delivery-pdf,
+// file-delivery-image, file-delivery-xml or file-delivery-json. Whatever reads those queues knows
+// what it is getting without looking at the file. Everything else - a kind with no queue of its
+// own, or a file libmagic cannot classify - is announced on file-delivery-misc, so every delivered
+// file is announced somewhere.
 //
 // Still a queue consumer underneath, like every application: take a message, do the work, delete
 // it. The bucket subscription is what turns uploads into messages - nothing polls the bucket.
@@ -32,6 +41,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -42,6 +52,12 @@
 // libarchive includes
 #include <archive.h>
 #include <archive_entry.h>
+
+// libmagic includes
+#include <magic.h>
+
+// Boost includes - already a dependency of euclid-cdk
+#include <boost/json.hpp>
 
 // Euclid includes
 #include <euclid/cdk/Euclid.h>
@@ -112,6 +128,10 @@ namespace {
         // The most one archive may unpack to. A ZIP of a few kilobytes can expand to terabytes,
         // and every byte of it lands on this host's disk before it is delivered.
         std::uintmax_t maxExtractedBytes;
+
+        // What the queues a delivered file is announced on start with: <prefix>pdf, <prefix>image,
+        // <prefix>xml, <prefix>json.
+        std::string classifiedQueuePrefix;
     };
 
     Config loadConfig() {
@@ -123,6 +143,7 @@ namespace {
         config.queueName = env("DELIVERY_QUEUE", config.applicationId + "-queue");
         config.incomingDir = env("INCOMING_DIR", "incoming");
         config.maxExtractedBytes = envBytes("MAX_EXTRACTED_BYTES", 4ULL * 1024 * 1024 * 1024);
+        config.classifiedQueuePrefix = env("CLASSIFIED_QUEUE_PREFIX", config.applicationId + "-");
         return config;
     }
 
@@ -271,6 +292,7 @@ namespace {
     // instances sharing a host never share one.
     class TempDir {
     public:
+
         explicit TempDir(const std::string &instanceId) {
             static std::atomic<long> counter{0};
             _path = fs::temp_directory_path() / ("file-delivery-" + instanceId + "-" + std::to_string(counter++));
@@ -284,11 +306,13 @@ namespace {
         }
 
         TempDir(const TempDir &) = delete;
+
         TempDir &operator=(const TempDir &) = delete;
 
         [[nodiscard]] const fs::path &path() const { return _path; }
 
     private:
+
         fs::path _path;
     };
 
@@ -372,6 +396,63 @@ namespace {
         return files;
     }
 
+    // -- classifying ----------------------------------------------------------------------------
+
+    // The kinds of file that have a queue of their own.
+    constexpr std::array kCategories{"pdf", "image", "xml", "json"};
+
+    // The queue for every file that is none of kCategories, cannot be classified, or is of a kind
+    // whose own queue is missing.
+    constexpr auto kMisc = "misc";
+
+    // A file's MIME type from its content, through libmagic. Reads the first bytes of the file and
+    // matches them against libmagic's database, so "report.txt" holding a PDF is a PDF. One cookie
+    // per process: a magic_t is not safe to share between threads, and everything here runs on
+    // the main thread.
+    class Magic {
+    public:
+
+        Magic() : _cookie(magic_open(MAGIC_MIME_TYPE | MAGIC_ERROR)) {
+            if (_cookie == nullptr) throw std::runtime_error("cannot allocate a libmagic cookie");
+            // nullptr is libmagic's default database - or the one the MAGIC environment variable
+            // names. A static binary has the path the build host's libmagic used compiled in; on a
+            // host that keeps it elsewhere, MAGIC says where.
+            if (magic_load(_cookie, nullptr) != 0) {
+                const std::string error = magic_error(_cookie) != nullptr ? magic_error(_cookie) : "unknown error";
+                magic_close(_cookie);
+                throw std::runtime_error("cannot load the libmagic database: " + error + " (set MAGIC to its path)");
+            }
+        }
+
+        ~Magic() { magic_close(_cookie); }
+
+        Magic(const Magic &) = delete;
+
+        Magic &operator=(const Magic &) = delete;
+
+        // Empty when libmagic cannot say - which is not a reason to fail the delivery.
+        [[nodiscard]] std::string mimeTypeOf(const fs::path &file) const {
+            const char *type = magic_file(_cookie, file.string().c_str());
+            return type != nullptr ? type : std::string{};
+        }
+
+    private:
+
+        magic_t _cookie;
+    };
+
+    // Which of kCategories a MIME type belongs to, or kMisc. Suffixes count as their family -
+    // "application/ld+json" is JSON, "application/atom+xml" XML - but an image is an image first,
+    // so an SVG ("image/svg+xml") is announced as an image, not as XML. An empty type - libmagic
+    // could not say, or is not loaded - is kMisc too.
+    std::string categoryOf(const std::string &mimeType) {
+        if (mimeType == "application/pdf") return "pdf";
+        if (mimeType.starts_with("image/")) return "image";
+        if (mimeType == "application/xml" || mimeType == "text/xml" || mimeType.ends_with("+xml")) return "xml";
+        if (mimeType == "application/json" || mimeType == "text/json" || mimeType.ends_with("+json")) return "json";
+        return kMisc;
+    }
+
     // -- delivering -----------------------------------------------------------------------------
 
     struct Buckets {
@@ -379,18 +460,111 @@ namespace {
         std::string targetErn;
     };
 
-    void deliver(const ESM::Esm &esm, const std::string &targetErn, const std::string &key, const fs::path &file) {
+    // Everything handle() needs besides the notification.
+    struct Context {
+        const ESM::Esm &esm;
+        const EQS::Eqs &eqs;
+        const Config &config;
+        Buckets buckets;
+        // The queue ERN of each category, kMisc included; a category whose queue was not there at
+        // startup has none, and its files go to kMisc.
+        std::map<std::string, std::string> classifiedQueues;
+        // Nothing when libmagic's database could not be loaded: every file is then announced on
+        // kMisc, rather than not delivered at all.
+        std::unique_ptr<Magic> magic;
+    };
+
+    // Delivers one file, then announces it on the queue of its kind, or on kMisc. Announced only once it is
+    // delivered, so whatever reads the notification finds the file there. A send that fails throws
+    // like a failed delivery: the notification comes back, the file is delivered again and
+    // announced again - at least once, never not at all.
+    void deliver(const Context &context, const std::string &sourceKey, const std::string &key, const fs::path &file) {
+
+        // Classified from the local copy, before it is uploaded - there is no reading it back.
+        const auto mimeType = context.magic ? context.magic->mimeTypeOf(file) : std::string{};
+
         // Overwrites whatever is there under that key, which is what makes a notification handled
         // twice - after a crash, or by two instances - harmless: the second delivery writes the same
         // bytes again.
-        const auto stored = esm.UploadFile(targetErn, key, file.string());
-        std::cout << "  delivered " << key << " (" << stored.size << " bytes)" << std::endl;
+        const auto stored = context.esm.UploadFile(context.buckets.targetErn, key, file.string());
+        std::cout << "  delivered " << key << " (" << stored.size << " bytes"
+                  << (mimeType.empty() ? std::string{} : ", " + mimeType) << ")" << std::endl;
+
+        // The kind's own queue, else kMisc's. With neither there, the file is delivered and not
+        // announced: the queues are the installation's to create.
+        auto category = categoryOf(mimeType);
+        auto queue = context.classifiedQueues.find(category);
+        if (queue == context.classifiedQueues.end()) {
+            category = kMisc;
+            queue = context.classifiedQueues.find(category);
+            if (queue == context.classifiedQueues.end()) return;
+        }
+
+        // "category" names the queue it was announced on; "mimeType" still says what the file is,
+        // so a reader of kMisc can tell a CSV from a kind whose own queue was missing.
+        const boost::json::object notification{
+                {"category", category},
+                {"mimeType", mimeType},
+                {"bucket", context.config.targetBucket},
+                {"bucketErn", context.buckets.targetErn},
+                {"key", key},
+                {"ern", stored.ern},
+                {"size", stored.size},
+                {"md5Sum", stored.md5Sum},
+                // Where it came from: for a file out of an archive, the archive.
+                {"source", boost::json::object{{"bucket", context.config.sourceBucket}, {"key", sourceKey}}}};
+        const auto messageId = context.eqs.SendMessage(queue->second, boost::json::serialize(notification));
+        std::cout << "  announced " << key << " as " << category << " on " << context.config.classifiedQueuePrefix << category
+                  << ", message: " << messageId << std::endl;
     }
+
+    // -- removing the upload --------------------------------------------------------------------
+
+    // The upload as it is now, or nothing if it is gone. Listed by prefix, which matches longer
+    // keys too ("report.csv" also finds "report.csv.bak"), so the exact key is picked out.
+    std::optional<ESM::Object> currentObject(const ESM::Esm &esm, const std::string &bucketErn, const std::string &key) {
+        for (long pageIndex = 0;; ++pageIndex) {
+            const auto page = esm.ListObjects(bucketErn, {.prefix = key, .pageSize = 100, .pageIndex = pageIndex});
+            for (const auto &object: page.items) {
+                if (object.key == key) return object;
+            }
+            if (page.items.size() < 100) return std::nullopt;
+        }
+    }
+
+    // Deletes the upload from the transfer bucket, once everything in it has been delivered.
+    //
+    // Not blindly: a client can upload the same name again while the first upload is still being
+    // delivered. Deleting by key would then delete the replacement - never delivered, and its own
+    // notification would find nothing. So it is deleted only while it is still the upload this
+    // notification was about: the same checksum (or, when the event carries none, the same size).
+    // A replacement is left for its own notification, which delivers it and deletes it in turn. What
+    // is left is the moment between that check and the delete.
+    void removeUpload(const Context &context, const ESM::BucketEvent &event) {
+        const auto current = currentObject(context.esm, context.buckets.sourceErn, event.key);
+        if (!current.has_value()) {
+            std::cout << "  " << event.key << " is no longer in " << context.config.sourceBucket << std::endl;
+            return;
+        }
+        const bool unchanged = !event.md5Sum.empty() && !current->md5Sum.empty()
+                                   ? current->md5Sum == event.md5Sum
+                                   : current->size == event.size;
+        if (!unchanged) {
+            std::cout << "  " << event.key << " was replaced while it was delivered; left for its own notification" << std::endl;
+            return;
+        }
+        context.esm.DeleteObject(current->ern);
+        std::cout << "  removed " << event.key << " from " << context.config.sourceBucket << std::endl;
+    }
+
+    // -- one notification -----------------------------------------------------------------------
 
     // One notification. Throws if the file could not be delivered, which leaves the notification
     // in the queue to be tried again; returns normally both when it was delivered and when there
     // was nothing to deliver, and either way the notification is then done with.
-    void handle(const ESM::Esm &esm, const Buckets &buckets, const Config &config, const ESM::BucketEvent &event) {
+    void handle(const Context &context, const ESM::BucketEvent &event) {
+
+        const auto &config = context.config;
 
         // Deletions, and anything this subscription would not normally deliver.
         if (event.eventType != ESM::ObjectCreated && event.eventType != ESM::ObjectUpdated) return;
@@ -404,12 +578,22 @@ namespace {
 
         std::cout << "picked up " << event.key << " (" << event.size << " bytes)" << std::endl;
 
-        TempDir temp(config.instanceId);
+        const TempDir temp(config.instanceId);
         const fs::path download = temp.path() / "download";
-        esm.DownloadFile(buckets.sourceErn, event.key, download.string());
+        try {
+            context.esm.DownloadFile(context.buckets.sourceErn, event.key, download.string());
+        } catch (const ServiceError &ex) {
+            // Gone already: this notification is a repeat - its upload was delivered and removed,
+            // and only deleting the notification itself failed - or the client deleted the file
+            // before it could be picked up. Either way there is nothing left to deliver.
+            if (ex.Status() != 404) throw;
+            std::cout << "  " << event.key << " is no longer there - delivered and removed already, or deleted" << std::endl;
+            return;
+        }
 
         if (!isZip(event.key)) {
-            deliver(esm, buckets.targetErn, childKey(route->owner, route->relative), download);
+            deliver(context, event.key, childKey(route->owner, route->relative), download);
+            removeUpload(context, event);
             return;
         }
 
@@ -420,16 +604,22 @@ namespace {
 
         const auto files = extractZip(download, temp.path() / "unpacked", config.maxExtractedBytes);
         if (files.empty()) {
+            // Nothing to deliver is not a failure: the archive has been dealt with.
             std::cout << "  " << event.key << " holds no files" << std::endl;
+            removeUpload(context, event);
             return;
         }
         for (const auto &file: files) {
             // Stopping halfway is fine: the notification stays in the queue, and whoever takes it
             // next unpacks the archive again and writes the files already delivered once more.
             if (!g_running.load()) throw std::runtime_error("stopping before the archive was fully delivered");
-            deliver(esm, buckets.targetErn, childKey(base, file.name), file.file);
+            deliver(context, event.key, childKey(base, file.name), file.file);
         }
         std::cout << "  unpacked " << event.key << ": " << files.size() << " file(s)" << std::endl;
+
+        // Only now, with every file of it delivered: an archive removed halfway would leave the
+        // rest of its files with nothing to deliver them from.
+        removeUpload(context, event);
     }
 
     // -- startup --------------------------------------------------------------------------------
@@ -440,6 +630,30 @@ namespace {
         if (eqs.ExistsQueue(name)) return eqs.GetQueueErn(name);
         std::cout << "creating queue " << name << std::endl;
         return eqs.CreateQueue(name).ern;
+    }
+
+    // The queues delivered files are announced on, by category. Looked up, not created: like the
+    // buckets they are the installation's (setup-infrastructure.sh), and one that is missing is
+    // named once here and its files sent to kMisc, rather than keeping the files of every other
+    // kind from being delivered.
+    std::map<std::string, std::string> findClassifiedQueues(const EQS::Eqs &eqs, const std::string &prefix) {
+        std::map<std::string, std::string> queues;
+        std::vector<std::string> categories(kCategories.begin(), kCategories.end());
+        categories.emplace_back(kMisc);
+        for (const auto &category: categories) {
+            const auto name = prefix + category;
+            try {
+                if (eqs.ExistsQueue(name)) {
+                    queues[category] = eqs.GetQueueErn(name);
+                    continue;
+                }
+                std::cerr << "no queue " << name << ": " << (category == kMisc ? "unclassified files are delivered but not announced"
+                                                                                : category + " files are announced on " + prefix + kMisc) << std::endl;
+            } catch (const std::exception &ex) {
+                std::cerr << "cannot look up queue " << name << ": " << ex.what() << std::endl;
+            }
+        }
+        return queues;
     }
 
     // Subscribes the queue to the source bucket's created and updated events, unless it already is.
@@ -471,12 +685,13 @@ int main() {
     // Logged first: stdout and stderr land in euclid's log under this application's channel, so
     // the version printed here answers "what is actually running?" from the log alone.
     std::cout << "file-delivery starting"
-              << ", application: " << config.applicationId
-              << ", version: " << env("EUCLID_APPLICATION_VERSION", "(unset)")
-              << ", instance: " << config.instanceId
-              << ", from: " << config.sourceBucket << "/*/" << config.incomingDir
-              << ", to: " << config.targetBucket
-              << ", queue: " << config.queueName << std::endl;
+            << ", application: " << config.applicationId
+            << ", version: " << env("EUCLID_APPLICATION_VERSION", "(unset)")
+            << ", instance: " << config.instanceId
+            << ", from: " << config.sourceBucket << "/*/" << config.incomingDir
+            << ", to: " << config.targetBucket
+            << ", queue: " << config.queueName
+            << ", announced on: " << config.classifiedQueuePrefix << "{pdf,image,xml,json,misc}" << std::endl;
 
     auto session = openSession();
     if (!session.has_value()) return 1;
@@ -487,19 +702,27 @@ int main() {
     const ESM::Esm esm(*session);
     const EAP::Eap eap(*session);
 
+    Context context{.esm = esm, .eqs = eqs, .config = config, .buckets = {}, .classifiedQueues = {}, .magic = nullptr};
+
+    try {
+        context.magic = std::make_unique<Magic>();
+    } catch (const std::exception &ex) {
+        std::cerr << ex.what() << " - every file is announced on " << config.classifiedQueuePrefix << kMisc << std::endl;
+    }
+
     // Both buckets have to exist already: creating buckets is the installation's business
     // (examples/docker/setup-infrastructure.sh), not something an application should be able to do.
-    Buckets buckets;
     std::string queueErn;
     try {
-        buckets.sourceErn = esm.GetBucketErn(config.sourceBucket);
-        buckets.targetErn = esm.GetBucketErn(config.targetBucket);
+        context.buckets.sourceErn = esm.GetBucketErn(config.sourceBucket);
+        context.buckets.targetErn = esm.GetBucketErn(config.targetBucket);
         queueErn = ensureQueue(eqs, config.queueName);
-        ensureSubscription(esm, buckets.sourceErn, queueErn);
+        ensureSubscription(esm, context.buckets.sourceErn, queueErn);
     } catch (const std::exception &ex) {
         std::cerr << "cannot set up: " << ex.what() << std::endl;
         return 1;
     }
+    context.classifiedQueues = findClassifiedQueues(eqs, config.classifiedQueuePrefix);
 
     long delivered = 0;
     // Whether this principal may count its own queue - asked once, and left alone if refused.
@@ -515,18 +738,18 @@ int main() {
 
             for (const auto &message: batch.items) {
                 try {
-                    handle(esm, buckets, config, ESM::ParseBucketEvent(message.body));
+                    handle(context, ESM::ParseBucketEvent(message.body));
                     ++delivered;
                 } catch (const std::exception &ex) {
                     if (message.receivedCount < kMaxAttempts) {
                         // Not deleted, so it comes back once its visibility timeout runs out.
                         std::cerr << "delivery failed, attempt " << message.receivedCount << " of " << kMaxAttempts
-                                  << ", will retry: " << ex.what() << std::endl;
+                                << ", will retry: " << ex.what() << std::endl;
                         if (!g_running.load()) break;
                         continue;
                     }
                     std::cerr << "delivery failed " << message.receivedCount << " times, giving up on message "
-                              << message.messageId << ": " << ex.what() << std::endl;
+                            << message.messageId << ": " << ex.what() << std::endl;
                 }
 
                 // Deleted only now: after the work succeeded, or after giving up on it. A
