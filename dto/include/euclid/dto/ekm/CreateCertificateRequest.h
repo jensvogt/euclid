@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Generates and stores a self-signed certificate.
@@ -76,6 +79,9 @@ namespace Euclid::Dto::EKM {
 
     private:
 
+        // Only the reader stays hand-written: a validDays or keyBits that comes in at zero or less
+        // has always been replaced by the default instead of being used as given, which the generic
+        // reader has no rule for. Writing is the generic one.
         friend CreateCertificateRequest tag_invoke(boost::json::value_to_tag<CreateCertificateRequest>, boost::json::value const &v) {
             CreateCertificateRequest r;
             r.name = Core::GetStringValue(v, "name");
@@ -91,20 +97,8 @@ namespace Euclid::Dto::EKM {
             if (r.keyBits <= 0) r.keyBits = 2048;
             return r;
         }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateCertificateRequest const &obj) {
-            boost::json::array names;
-            for (const auto &name: obj.subjectAltNames) names.emplace_back(name);
-
-            jv = {
-                    {"name", obj.name},
-                    {"description", obj.description},
-                    {"commonName", obj.commonName},
-                    {"subjectAltNames", names},
-                    {"validDays", obj.validDays},
-                    {"keyBits", obj.keyBits},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateCertificateRequest, (), (name, description, commonName, subjectAltNames, validDays, keyBits))
 
 }// namespace Euclid::Dto::EKM

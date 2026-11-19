@@ -6,8 +6,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     struct AddKeyTagRequest {
 
@@ -39,23 +42,7 @@ namespace Euclid::Dto::EKM {
         [[nodiscard]] static AddKeyTagRequest fromJson(const std::string &json) {
             return boost::json::value_to<AddKeyTagRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend AddKeyTagRequest tag_invoke(boost::json::value_to_tag<AddKeyTagRequest>, boost::json::value const &v) {
-            AddKeyTagRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.key = Core::GetStringValue(v, "key");
-            r.value = Core::GetStringValue(v, "value");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, AddKeyTagRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"key", obj.key},
-                    {"value", obj.value},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(AddKeyTagRequest, (), (ern, key, value))
 }

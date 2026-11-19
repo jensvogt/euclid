@@ -10,10 +10,14 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESS {
 
-    struct DeleteSecretResponse {
+    using Json::tag_invoke;
+
+    struct DeleteSecretResponse : BaseDto {
 
         /**
          * @brief Euclid resource name of the secret that was deleted
@@ -38,22 +42,8 @@ namespace Euclid::Dto::ESS {
         [[nodiscard]] static DeleteSecretResponse fromJson(const std::string &json) {
             return boost::json::value_to<DeleteSecretResponse>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend DeleteSecretResponse tag_invoke(boost::json::value_to_tag<DeleteSecretResponse>, boost::json::value const &v) {
-            DeleteSecretResponse r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.name = Core::GetStringValue(v, "name");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteSecretResponse const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"name", obj.name},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(DeleteSecretResponse, (BaseDto), (ern, name))
 
 }// namespace Euclid::Dto::ESS

@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     struct ListKeysRequest {
 
@@ -52,30 +55,8 @@ namespace Euclid::Dto::EKM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListKeysRequest tag_invoke(boost::json::value_to_tag<ListKeysRequest>, boost::json::value const &v) {
-            ListKeysRequest r;
-            r.prefix = Core::GetStringValue(v, "prefix");
-            r.matchType = Core::GetStringValue(v, "matchType");
-            r.pageSize = Core::GetLongValue(v, "pageSize");
-            r.pageIndex = Core::GetLongValue(v, "pageIndex");
-            r.sortColumn = Core::GetStringValue(v, "sortColumn");
-            r.sortDirection = Core::GetStringValue(v, "sortDirection");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListKeysRequest const &obj) {
-            jv = {
-                    {"prefix", obj.prefix},
-                    {"matchType", obj.matchType},
-                    {"pageSize", obj.pageSize},
-                    {"pageIndex", obj.pageIndex},
-                    {"sortColumn", obj.sortColumn},
-                    {"sortDirection", obj.sortDirection},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListKeysRequest, (), (prefix, matchType, pageSize, pageIndex, sortColumn, sortDirection))
 
 }

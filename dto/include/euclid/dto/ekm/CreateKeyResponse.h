@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     struct CreateKeyResponse : BaseDto {
 
@@ -59,31 +62,7 @@ namespace Euclid::Dto::EKM {
         [[nodiscard]] static CreateKeyResponse fromJson(const std::string &json) {
             return boost::json::value_to<CreateKeyResponse>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend CreateKeyResponse tag_invoke(boost::json::value_to_tag<CreateKeyResponse>, boost::json::value const &v) {
-            CreateKeyResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.ern = Core::GetStringValue(v, "ern");
-            r.name = Core::GetStringValue(v, "name");
-            r.description = Core::GetStringValue(v, "description");
-            r.algorithm = Core::GetStringValue(v, "algorithm");
-            r.length = Core::GetLongValue(v, "length");
-            r.status = Core::GetStringValue(v, "status");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateKeyResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"ern", obj.ern},
-                    {"name", obj.name},
-                    {"description", obj.description},
-                    {"algorithm", obj.algorithm},
-                    {"length", obj.length},
-                    {"status", obj.status},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateKeyResponse, (BaseDto), (ern, name, description, algorithm, length, status))
 }

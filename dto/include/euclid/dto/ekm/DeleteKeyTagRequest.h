@@ -6,8 +6,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     struct DeleteKeyTagRequest {
 
@@ -34,21 +37,7 @@ namespace Euclid::Dto::EKM {
         [[nodiscard]] static DeleteKeyTagRequest fromJson(const std::string &json) {
             return boost::json::value_to<DeleteKeyTagRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend DeleteKeyTagRequest tag_invoke(boost::json::value_to_tag<DeleteKeyTagRequest>, boost::json::value const &v) {
-            DeleteKeyTagRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.key = Core::GetStringValue(v, "key");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteKeyTagRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"key", obj.key},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(DeleteKeyTagRequest, (), (ern, key))
 }

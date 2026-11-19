@@ -18,8 +18,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKV {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Lists the account's tables.
@@ -63,31 +66,7 @@ namespace Euclid::Dto::EKV {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListTablesRequest tag_invoke(boost::json::value_to_tag<ListTablesRequest>, boost::json::value const &v) {
-            ListTablesRequest r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.prefix = Core::GetStringValue(v, "prefix");
-            r.matchType = Core::GetStringValue(v, "matchType");
-            r.pageSize = Core::GetLongValue(v, "pageSize");
-            r.pageIndex = Core::GetLongValue(v, "pageIndex");
-            r.sortColumn = Core::GetStringValue(v, "sortColumn");
-            r.sortDirection = Core::GetStringValue(v, "sortDirection");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListTablesRequest const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"prefix", obj.prefix},
-                    {"matchType", obj.matchType},
-                    {"pageSize", obj.pageSize},
-                    {"pageIndex", obj.pageIndex},
-                    {"sortColumn", obj.sortColumn},
-                    {"sortDirection", obj.sortDirection},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListTablesRequest, (BaseDto), (prefix, matchType, pageSize, pageIndex, sortColumn, sortDirection))
 }

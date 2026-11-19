@@ -18,8 +18,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKV {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Reads a table's items without regard to their key.
@@ -91,43 +94,9 @@ namespace Euclid::Dto::EKV {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ScanRequest tag_invoke(boost::json::value_to_tag<ScanRequest>, boost::json::value const &v) {
-            ScanRequest r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.table = Core::GetStringValue(v, "table");
-            r.pageSize = Core::GetLongValue(v, "pageSize");
-            r.pageIndex = Core::GetLongValue(v, "pageIndex");
-            r.sortColumn = Core::GetStringValue(v, "sortColumn");
-            r.sortDirection = Core::GetStringValue(v, "sortDirection");
-            r.modifiedFrom = Core::GetStringValue(v, "modifiedFrom");
-            r.modifiedTo = Core::GetStringValue(v, "modifiedTo");
-            r.attributeName = Core::GetStringValue(v, "attributeName");
-            r.attributeOperator = Core::GetStringValue(v, "attributeOperator");
-            if (v.is_object()) {
-                if (const auto *value = v.as_object().if_contains("attributeValue")) r.attributeValue = *value;
-                if (const auto *upper = v.as_object().if_contains("attributeUpper")) r.attributeUpper = *upper;
-            }
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ScanRequest const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"table", obj.table},
-                    {"pageSize", obj.pageSize},
-                    {"pageIndex", obj.pageIndex},
-                    {"sortColumn", obj.sortColumn},
-                    {"sortDirection", obj.sortDirection},
-                    {"modifiedFrom", obj.modifiedFrom},
-                    {"modifiedTo", obj.modifiedTo},
-                    {"attributeName", obj.attributeName},
-                    {"attributeOperator", obj.attributeOperator},
-                    {"attributeValue", obj.attributeValue},
-                    {"attributeUpper", obj.attributeUpper},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ScanRequest, (BaseDto), (table, pageSize, pageIndex, sortColumn, sortDirection,
+                                                    modifiedFrom, modifiedTo, attributeName, attributeOperator,
+                                                    attributeValue, attributeUpper))
 }

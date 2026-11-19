@@ -8,11 +8,18 @@
 
 #pragma once
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 #include <euclid/dto/ekm/model/Certificate.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One certificate, as answered by create-certificate, import-certificate and
@@ -31,27 +38,18 @@ namespace Euclid::Dto::EKM {
         Certificate certificate;
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"certificate"};
+
+        /**
          * @brief Serializes this response to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend CertificateResponse tag_invoke(boost::json::value_to_tag<CertificateResponse>, boost::json::value const &v) {
-            CertificateResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.certificate = boost::json::value_to<Certificate>(v.at("certificate"));
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CertificateResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"certificate", boost::json::value_from(obj.certificate)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CertificateResponse, (BaseDto), (certificate))
 
 }// namespace Euclid::Dto::EKM

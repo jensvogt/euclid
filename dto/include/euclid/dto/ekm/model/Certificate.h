@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     using std::chrono::system_clock;
 
@@ -119,51 +122,9 @@ namespace Euclid::Dto::EKM {
         static Certificate fromJson(const std::string &json) {
             return boost::json::value_to<Certificate>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend Certificate tag_invoke(boost::json::value_to_tag<Certificate>, boost::json::value const &v) {
-            Certificate r;
-            r.name = Core::GetStringValue(v, "name");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.description = Core::GetStringValue(v, "description");
-            r.certificate = Core::GetStringValue(v, "certificate");
-            r.subject = Core::GetStringValue(v, "subject");
-            r.issuer = Core::GetStringValue(v, "issuer");
-            r.serialNumber = Core::GetStringValue(v, "serialNumber");
-            r.fingerprint = Core::GetStringValue(v, "fingerprint");
-            r.generated = Core::GetBoolValue(v, "generated");
-            r.notBefore = Core::GetDatetimeValue(v, "notBefore");
-            r.notAfter = Core::GetDatetimeValue(v, "notAfter");
-            r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            r.subjectAltNames = Core::GetStringArrayValue(v, "subjectAltNames");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Certificate const &obj) {
-            boost::json::array names;
-            for (const auto &name: obj.subjectAltNames) names.emplace_back(name);
-
-            jv = {
-                    {"name", obj.name},
-                    {"ern", obj.ern},
-                    {"description", obj.description},
-                    {"certificate", obj.certificate},
-                    {"subject", obj.subject},
-                    {"issuer", obj.issuer},
-                    {"serialNumber", obj.serialNumber},
-                    {"fingerprint", obj.fingerprint},
-                    {"subjectAltNames", names},
-                    {"generated", obj.generated},
-                    {"notBefore", Core::DateTimeUtils::ToISO8601(obj.notBefore)},
-                    {"notAfter", Core::DateTimeUtils::ToISO8601(obj.notAfter)},
-                    {"tags", boost::json::value_from(obj.tags)},
-                    {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
-                    {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(Certificate, (), (name, ern, description, certificate, subject, issuer, serialNumber, fingerprint,
+                                           subjectAltNames, generated, notBefore, notAfter, tags, created, modified))
 
 }// namespace Euclid::Dto::EKM

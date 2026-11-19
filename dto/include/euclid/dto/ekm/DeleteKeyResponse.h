@@ -11,8 +11,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     struct DeleteKeyResponse : BaseDto {
 
@@ -49,27 +52,7 @@ namespace Euclid::Dto::EKM {
         [[nodiscard]] static DeleteKeyResponse fromJson(const std::string &json) {
             return boost::json::value_to<DeleteKeyResponse>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend DeleteKeyResponse tag_invoke(boost::json::value_to_tag<DeleteKeyResponse>, boost::json::value const &v) {
-            DeleteKeyResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.ern = Core::GetStringValue(v, "ern");
-            r.name = Core::GetStringValue(v, "name");
-            r.deletionDate = Core::GetStringValue(v, "deletionDate");
-            r.status = Core::GetStringValue(v, "status");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteKeyResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"ern", obj.ern},
-                    {"name", obj.name},
-                    {"deletionDate", obj.deletionDate},
-                    {"status", obj.status},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(DeleteKeyResponse, (BaseDto), (ern, name, deletionDate, status))
 }

@@ -12,11 +12,18 @@
 #include <string>
 #include <vector>
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 #include <euclid/dto/ekm/model/Key.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     struct ListKeysResponse : BaseDto {
 
@@ -31,29 +38,18 @@ namespace Euclid::Dto::EKM {
         long total{};
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"keys"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListKeysResponse tag_invoke(boost::json::value_to_tag<ListKeysResponse>, boost::json::value const &v) {
-            ListKeysResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.keys = boost::json::value_to<std::vector<Key> >(v.at("keys"));
-            r.total = Core::GetLongValue(v, "total");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListKeysResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"keys", boost::json::value_from(obj.keys)},
-                    {"total", obj.total},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListKeysResponse, (BaseDto), (keys, total))
 
 }

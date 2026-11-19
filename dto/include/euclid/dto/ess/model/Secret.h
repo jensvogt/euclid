@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESS {
+
+    using Json::tag_invoke;
 
     using std::chrono::system_clock;
 
@@ -88,36 +91,8 @@ namespace Euclid::Dto::ESS {
         static Secret fromJson(const std::string &json) {
             return boost::json::value_to<Secret>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend Secret tag_invoke(boost::json::value_to_tag<Secret>, boost::json::value const &v) {
-            Secret r;
-            r.name = Core::GetStringValue(v, "name");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.description = Core::GetStringValue(v, "description");
-            r.encryptionKeyErn = Core::GetStringValue(v, "encryptionKeyErn");
-            r.version = Core::GetLongValue(v, "version");
-            r.rotated = Core::GetDatetimeValue(v, "rotated");
-            r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Secret const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"ern", obj.ern},
-                    {"description", obj.description},
-                    {"encryptionKeyErn", obj.encryptionKeyErn},
-                    {"version", obj.version},
-                    {"rotated", Core::DateTimeUtils::ToISO8601(obj.rotated)},
-                    {"tags", boost::json::value_from(obj.tags)},
-                    {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
-                    {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(Secret, (), (name, ern, description, encryptionKeyErn, version, rotated, tags, created, modified))
 
 }// namespace Euclid::Dto::ESS

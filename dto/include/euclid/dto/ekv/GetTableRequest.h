@@ -18,8 +18,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKV {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Asks what a table looks like.
@@ -37,21 +40,7 @@ namespace Euclid::Dto::EKV {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetTableRequest tag_invoke(boost::json::value_to_tag<GetTableRequest>, boost::json::value const &v) {
-            GetTableRequest r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.name = Core::GetStringValue(v, "name");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetTableRequest const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"name", obj.name},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetTableRequest, (BaseDto), (name))
 }

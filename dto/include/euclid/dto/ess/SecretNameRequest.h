@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Names one secret, for the actions that need nothing else: get-secret and
@@ -37,18 +40,8 @@ namespace Euclid::Dto::ESS {
         [[nodiscard]] static SecretNameRequest fromJson(const std::string &json) {
             return boost::json::value_to<SecretNameRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SecretNameRequest tag_invoke(boost::json::value_to_tag<SecretNameRequest>, boost::json::value const &v) {
-            SecretNameRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SecretNameRequest const &obj) {
-            jv = {{"name", obj.name}};
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SecretNameRequest, (), (name))
 
 }// namespace Euclid::Dto::ESS

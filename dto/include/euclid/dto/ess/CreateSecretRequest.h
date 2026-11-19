@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::ESS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Stores a new secret.
@@ -56,26 +59,8 @@ namespace Euclid::Dto::ESS {
         [[nodiscard]] static CreateSecretRequest fromJson(const std::string &json) {
             return boost::json::value_to<CreateSecretRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend CreateSecretRequest tag_invoke(boost::json::value_to_tag<CreateSecretRequest>, boost::json::value const &v) {
-            CreateSecretRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            r.description = Core::GetStringValue(v, "description");
-            r.value = Core::GetStringValue(v, "value");
-            r.keyErn = Core::GetStringValue(v, "keyErn");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateSecretRequest const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"description", obj.description},
-                    {"value", obj.value},
-                    {"keyErn", obj.keyErn},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateSecretRequest, (), (name, description, value, keyErn))
 
 }// namespace Euclid::Dto::ESS

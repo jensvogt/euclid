@@ -64,6 +64,12 @@ namespace Euclid::Dto::ESS {
 
     private:
 
+        // Both directions stay hand-written, because of hasValue and hasDescription: they record
+        // whether "value" and "description" were in the JSON at all, which is what tells a rotation
+        // from a change of description and an absent field from an empty one, and the writer has to
+        // leave out whatever they say was not given. Neither direction of the generic conversion has
+        // a rule for a member that is derived from another member's presence, so this DTO keeps
+        // naming its own fields.
         friend UpdateSecretRequest tag_invoke(boost::json::value_to_tag<UpdateSecretRequest>, boost::json::value const &v) {
             UpdateSecretRequest r;
             r.name = Core::GetStringValue(v, "name");

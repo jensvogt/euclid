@@ -12,11 +12,18 @@
 #include <string>
 #include <vector>
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 #include <euclid/dto/ekm/model/Certificate.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     struct ListCertificatesResponse : BaseDto {
 
@@ -31,29 +38,18 @@ namespace Euclid::Dto::EKM {
         long total{};
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"certificates"};
+
+        /**
          * @brief Serializes this response to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListCertificatesResponse tag_invoke(boost::json::value_to_tag<ListCertificatesResponse>, boost::json::value const &v) {
-            ListCertificatesResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.certificates = boost::json::value_to<std::vector<Certificate> >(v.at("certificates"));
-            r.total = Core::GetLongValue(v, "total");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListCertificatesResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"certificates", boost::json::value_from(obj.certificates)},
-                    {"total", obj.total},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListCertificatesResponse, (BaseDto), (certificates, total))
 
 }// namespace Euclid::Dto::EKM

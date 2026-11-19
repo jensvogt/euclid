@@ -8,11 +8,18 @@
 
 #pragma once
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 #include <euclid/dto/ess/model/Secret.h>
 
 namespace Euclid::Dto::ESS {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One secret's metadata, as answered by create-secret and update-secret.
@@ -29,24 +36,18 @@ namespace Euclid::Dto::ESS {
         Secret secret;
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"secret"};
+
+        /**
          * @brief Serializes this response to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend SecretResponse tag_invoke(boost::json::value_to_tag<SecretResponse>, boost::json::value const &v) {
-            SecretResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.secret = boost::json::value_to<Secret>(v.at("secret"));
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SecretResponse const &obj) {
-            jv = {{"secret", boost::json::value_from(obj.secret)}};
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SecretResponse, (BaseDto), (secret))
 
 }// namespace Euclid::Dto::ESS

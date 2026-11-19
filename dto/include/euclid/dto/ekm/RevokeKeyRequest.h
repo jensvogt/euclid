@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     struct RevokeKeyRequest {
 
@@ -33,19 +36,7 @@ namespace Euclid::Dto::EKM {
         [[nodiscard]] static RevokeKeyRequest fromJson(const std::string &json) {
             return boost::json::value_to<RevokeKeyRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend RevokeKeyRequest tag_invoke(boost::json::value_to_tag<RevokeKeyRequest>, boost::json::value const &v) {
-            RevokeKeyRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, RevokeKeyRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(RevokeKeyRequest, (), (ern))
 }

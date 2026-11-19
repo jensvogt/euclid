@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     using std::chrono::system_clock;
 
@@ -86,23 +89,11 @@ namespace Euclid::Dto::EKM {
 
     private:
 
-        friend Key tag_invoke(boost::json::value_to_tag<Key>, boost::json::value const &v) {
-            Key r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.name = Core::GetStringValue(v, "name");
-            r.description = Core::GetStringValue(v, "description");
-            r.algorithm = Core::GetStringValue(v, "algorithm");
-            // Written by the serializer below but never read back until now, so a Key that went
-            // through JSON came out with a length of zero.
-            r.length = Core::GetLongValue(v, "length");
-            r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
-            r.status = Core::GetStringValue(v, "status");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            r.deletionDate = Core::GetStringValue(v, "deletionDate");
-            return r;
-        }
-
+        // Only the writer stays hand-written, and only for one field: a key that is not scheduled
+        // for deletion has always gone out without a "deletionDate" at all rather than with an
+        // empty one, which the generic writer cannot express. Reading is the generic one, so the
+        // members the old reader had to name by hand - including "length", which it once forgot -
+        // are read because the struct lists them.
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Key const &obj) {
             jv = {
                     {"ern", obj.ern},
@@ -120,5 +111,7 @@ namespace Euclid::Dto::EKM {
             }
         }
     };
+
+    BOOST_DESCRIBE_STRUCT(Key, (), (name, ern, description, algorithm, tags, length, deletionDate, status, created, modified))
 
 }// namespace Euclid::Dto::EKM

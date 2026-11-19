@@ -154,6 +154,16 @@ namespace Euclid::ESS {
         return EssServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason, .unknownSubject = auth.unknownSubject});
     }
 
+    // Fills in the caller identity every response DTO inherits from BaseDto and serialises as a
+    // nested "metadata" object. Resolved from the authenticated user rather than from anything the
+    // request said it was. The request ID that correlates this response with its request travels
+    // as the "x-euclid-request-id" header instead (set centrally in HttpActionServer::JsonResponse).
+    static void applyMetadata(Dto::BaseDto &response, const Database::Entity::EAM::User &user) {
+        response.user = user.userId;
+        response.accountId = user.accountId;
+        response.region = user.region;
+    }
+
     // Whether this caller was given this secret, checked once a handler knows which one the
     // request is about. Nothing changes for a caller with no resource grants at all, which is
     // every human; this is for the technical principal an application runs as, deployed with the
@@ -250,6 +260,7 @@ namespace Euclid::ESS {
                 "ess");
 
         Dto::ESS::SecretResponse response;
+        applyMetadata(response, *auth.user);
         response.secret = Dto::ESS::EssMapper::toDto(stored);
         return EssServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -298,6 +309,7 @@ namespace Euclid::ESS {
         log_info << "ESS secret read, name: " << secret->name << ", user: " << auth.user->userId << ", version: " << secret->version;
 
         Dto::ESS::GetSecretResponse response;
+        applyMetadata(response, *auth.user);
         response.secret = Dto::ESS::EssMapper::toDto(*secret);
         response.value = std::move(value);
         return EssServer::JsonResponse(req, status::ok, response.toJson());
@@ -332,6 +344,7 @@ namespace Euclid::ESS {
         });
 
         Dto::ESS::ListSecretsResponse response;
+        applyMetadata(response, *auth.user);
         response.secrets = Dto::ESS::EssMapper::toDto(secrets);
         response.total = repository->countSecrets(auth.user->accountId, ns, request.prefix, matchType);
 
@@ -435,6 +448,7 @@ namespace Euclid::ESS {
         }
 
         Dto::ESS::SecretResponse response;
+        applyMetadata(response, *auth.user);
         response.secret = Dto::ESS::EssMapper::toDto(stored);
         return EssServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -477,6 +491,7 @@ namespace Euclid::ESS {
                 "ess");
 
         Dto::ESS::DeleteSecretResponse response;
+        applyMetadata(response, *auth.user);
         response.ern = secret->ern;
         response.name = secret->name;
         return EssServer::JsonResponse(req, status::ok, response.toJson());
@@ -520,6 +535,7 @@ namespace Euclid::ESS {
         const auto stored = repository->upsertSecret(*secret);
 
         Dto::ESS::SecretResponse response;
+        applyMetadata(response, *auth.user);
         response.secret = Dto::ESS::EssMapper::toDto(stored);
         return EssServer::JsonResponse(req, status::ok, response.toJson());
     }

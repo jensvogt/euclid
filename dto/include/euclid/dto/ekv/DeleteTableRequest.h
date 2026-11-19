@@ -18,8 +18,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKV {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Deletes a table and everything in it.
@@ -37,21 +40,7 @@ namespace Euclid::Dto::EKV {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend DeleteTableRequest tag_invoke(boost::json::value_to_tag<DeleteTableRequest>, boost::json::value const &v) {
-            DeleteTableRequest r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.name = Core::GetStringValue(v, "name");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteTableRequest const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"name", obj.name},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(DeleteTableRequest, (BaseDto), (name))
 }

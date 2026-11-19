@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Stores a certificate somebody else issued, together with its private key.
@@ -54,26 +57,8 @@ namespace Euclid::Dto::EKM {
         [[nodiscard]] static ImportCertificateRequest fromJson(const std::string &json) {
             return boost::json::value_to<ImportCertificateRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend ImportCertificateRequest tag_invoke(boost::json::value_to_tag<ImportCertificateRequest>, boost::json::value const &v) {
-            ImportCertificateRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            r.description = Core::GetStringValue(v, "description");
-            r.certificate = Core::GetStringValue(v, "certificate");
-            r.privateKey = Core::GetStringValue(v, "privateKey");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ImportCertificateRequest const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"description", obj.description},
-                    {"certificate", obj.certificate},
-                    {"privateKey", obj.privateKey},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ImportCertificateRequest, (), (name, description, certificate, privateKey))
 
 }// namespace Euclid::Dto::EKM

@@ -13,8 +13,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Asks for one key, by ERN or by name.
@@ -45,21 +48,7 @@ namespace Euclid::Dto::EKM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetKeyRequest tag_invoke(boost::json::value_to_tag<GetKeyRequest>, boost::json::value const &v) {
-            GetKeyRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.name = Core::GetStringValue(v, "name");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetKeyRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"name", obj.name},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetKeyRequest, (), (ern, name))
 }// namespace Euclid::Dto::EKM

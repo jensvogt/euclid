@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Names the key whose description should be replaced, and what to replace it with.
@@ -46,21 +49,7 @@ namespace Euclid::Dto::EKM {
         [[nodiscard]] static SetKeyDescriptionRequest fromJson(const std::string &json) {
             return boost::json::value_to<SetKeyDescriptionRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend SetKeyDescriptionRequest tag_invoke(boost::json::value_to_tag<SetKeyDescriptionRequest>, boost::json::value const &v) {
-            SetKeyDescriptionRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
-            r.description = Core::GetStringValue(v, "description");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetKeyDescriptionRequest const &obj) {
-            jv = {
-                    {"ern", obj.ern},
-                    {"description", obj.description},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SetKeyDescriptionRequest, (), (ern, description))
 }

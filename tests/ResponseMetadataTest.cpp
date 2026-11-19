@@ -47,6 +47,10 @@
 #include <euclid/dto/esm/PurgeBucketResponse.h>
 #include <euclid/dto/esm/RenameBucketResponse.h>
 #include <euclid/dto/esm/UploadPartResponse.h>
+#include <euclid/dto/ess/DeleteSecretResponse.h>
+#include <euclid/dto/ess/GetSecretResponse.h>
+#include <euclid/dto/ess/ListSecretsResponse.h>
+#include <euclid/dto/ess/SecretResponse.h>
 
 // Every response DTO inherits region/accountId/user from BaseDto, and BaseDto's docstring says they
 // are "serialized as a nested 'metadata' object". Inheriting them is not the same as sending them:
@@ -151,6 +155,20 @@ BOOST_AUTO_TEST_CASE(EveryStorageResponseCarriesTheCallerIdentity) {
     assertCarriesCallerIdentity<PurgeBucketResponse>("PurgeBucketResponse");
     assertCarriesCallerIdentity<RenameBucketResponse>("RenameBucketResponse");
     assertCarriesCallerIdentity<UploadPartResponse>("UploadPartResponse");
+}
+
+BOOST_AUTO_TEST_CASE(EverySecretsResponseCarriesTheCallerIdentity) {
+
+    // ESS is the newest module here and the one that had the least of it: none of its response
+    // writers named "metadata" at all, so the identity was inherited and unread until the generic
+    // writer started emitting the block and the handlers began filling it in. DeleteSecretResponse
+    // derives BaseDto along with this, as every other module's delete response already does.
+    using namespace Euclid::Dto::ESS;
+
+    assertCarriesCallerIdentity<SecretResponse>("SecretResponse");
+    assertCarriesCallerIdentity<GetSecretResponse>("GetSecretResponse");
+    assertCarriesCallerIdentity<ListSecretsResponse>("ListSecretsResponse");
+    assertCarriesCallerIdentity<DeleteSecretResponse>("DeleteSecretResponse");
 }
 
 BOOST_AUTO_TEST_CASE(TheIdentityIsNestedRatherThanMixedInWithTheResponsesOwnFields) {

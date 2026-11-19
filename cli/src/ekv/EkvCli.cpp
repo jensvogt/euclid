@@ -136,10 +136,10 @@ namespace Euclid::CLI {
 
         Dto::EKV::CreateTableRequest request;
         request.name = vm["name"].as<std::string>();
-        request.partitionKeyName = vm["partition-key"].as<std::string>();
+        request.partitionKey = vm["partition-key"].as<std::string>();
         request.partitionKeyType = vm["partition-key-type"].as<std::string>();
         if (vm.contains("sort-key")) {
-            request.sortKeyName = vm["sort-key"].as<std::string>();
+            request.sortKey = vm["sort-key"].as<std::string>();
             request.sortKeyType = vm["sort-key-type"].as<std::string>();
         }
 

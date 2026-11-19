@@ -66,10 +66,10 @@ namespace Euclid::EKV {
         Dto::EKV::TableDescription description;
         description.name = table.name;
         description.ern = table.ern;
-        description.partitionKeyName = table.partitionKey.name;
+        description.partitionKey = table.partitionKey.name;
         description.partitionKeyType = ToString(table.partitionKey.type);
         if (table.sortKey.has_value()) {
-            description.sortKeyName = table.sortKey->name;
+            description.sortKey = table.sortKey->name;
             description.sortKeyType = ToString(table.sortKey->type);
         }
         description.itemCount = itemCount;
@@ -194,14 +194,14 @@ namespace Euclid::EKV {
 
         const auto request = boost::json::value_to<Dto::EKV::CreateTableRequest>(jv);
         if (request.name.empty()) return EkvServer::ErrorResponse(req, status::bad_request, "name is required");
-        if (request.partitionKeyName.empty()) return EkvServer::ErrorResponse(req, status::bad_request, "partitionKey is required");
+        if (request.partitionKey.empty()) return EkvServer::ErrorResponse(req, status::bad_request, "partitionKey is required");
 
-        if (!Value::IsAcceptableAttributeName(request.partitionKeyName) ||
-            (!request.sortKeyName.empty() && !Value::IsAcceptableAttributeName(request.sortKeyName))) {
+        if (!Value::IsAcceptableAttributeName(request.partitionKey) ||
+            (!request.sortKey.empty() && !Value::IsAcceptableAttributeName(request.sortKey))) {
             return EkvServer::ErrorResponse(req, status::bad_request,
                                             "A key attribute may not be empty, start with '$' or contain '.'");
         }
-        if (!request.sortKeyName.empty() && request.sortKeyName == request.partitionKeyName) {
+        if (!request.sortKey.empty() && request.sortKey == request.partitionKey) {
             return EkvServer::ErrorResponse(req, status::bad_request, "The partition key and the sort key have to be different attributes");
         }
 
@@ -210,7 +210,7 @@ namespace Euclid::EKV {
             return EkvServer::ErrorResponse(req, status::bad_request, "partitionKeyType has to be string, number or binary");
         }
         const auto sortType = Database::Entity::EKV::KeyTypeFromString(request.sortKeyType.empty() ? "string" : request.sortKeyType);
-        if (!request.sortKeyName.empty() && !sortType.has_value()) {
+        if (!request.sortKey.empty() && !sortType.has_value()) {
             return EkvServer::ErrorResponse(req, status::bad_request, "sortKeyType has to be string, number or binary");
         }
 
@@ -227,9 +227,9 @@ namespace Euclid::EKV {
         table.region = auth.user->region;
         table.nameSpace = ns;
         table.ern = Core::createEkvTableErn(auth.user->accountId, ns, request.name);
-        table.partitionKey = KeySchema{.name = request.partitionKeyName, .type = *partitionType};
-        if (!request.sortKeyName.empty()) {
-            table.sortKey = KeySchema{.name = request.sortKeyName, .type = *sortType};
+        table.partitionKey = KeySchema{.name = request.partitionKey, .type = *partitionType};
+        if (!request.sortKey.empty()) {
+            table.sortKey = KeySchema{.name = request.sortKey, .type = *sortType};
         }
         table.created = table.modified = std::chrono::system_clock::now();
 

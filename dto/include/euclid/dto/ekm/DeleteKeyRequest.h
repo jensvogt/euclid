@@ -8,10 +8,17 @@
 
 #pragma once
 
+// C++ includes
+#include <array>
+#include <string_view>
+
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EKM {
+
+    using Json::tag_invoke;
 
     struct DeleteKeyRequest {
 
@@ -26,6 +33,13 @@ namespace Euclid::Dto::EKM {
         long pendingWindowInDays = 7;
 
         /**
+         * @brief The members that keep their initial value when the JSON leaves them out, rather than
+         * becoming zero, as the other members do. The delete-key handler refuses a window below a
+         * day, so a request that omits this still gets its seven-day grace period.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonDefaults{"pendingWindowInDays"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -38,21 +52,7 @@ namespace Euclid::Dto::EKM {
         [[nodiscard]] static DeleteKeyRequest fromJson(const std::string &json) {
             return boost::json::value_to<DeleteKeyRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend DeleteKeyRequest tag_invoke(boost::json::value_to_tag<DeleteKeyRequest>, boost::json::value const &v) {
-            DeleteKeyRequest r;
-            r.keyId = Core::GetStringValue(v, "keyId");
-            r.pendingWindowInDays = Core::GetLongValue(v, "pendingWindowInDays", 7);
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteKeyRequest const &obj) {
-            jv = {
-                    {"keyId", obj.keyId},
-                    {"pendingWindowInDays", obj.pendingWindowInDays},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(DeleteKeyRequest, (), (keyId, pendingWindowInDays))
 }
