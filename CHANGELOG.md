@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.2](https://github.com/jensvogt/euclid/compare/2.3.1...v2.3.2) (2026-11-19)
+
+
+### Bug Fixes
+
+* move to newer boost. ([9188069](https://github.com/jensvogt/euclid/commit/9188069ee1ee4c7af76ae1066a3f6de76fbc1d27))
+
 ## [2.3.1](https://github.com/jensvogt/euclid/compare/2.3.0...v2.3.1) (2026-11-19)
 
 
