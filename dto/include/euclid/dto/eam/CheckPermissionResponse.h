@@ -15,8 +15,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Whether a user would be allowed, and why.
@@ -44,26 +47,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend CheckPermissionResponse tag_invoke(boost::json::value_to_tag<CheckPermissionResponse>, boost::json::value const &v) {
-            CheckPermissionResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.allowed = Core::GetBoolValue(v, "allowed");
-            r.reason = Core::GetStringValue(v, "reason");
-            r.role = Core::GetStringValue(v, "role");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CheckPermissionResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"allowed", obj.allowed},
-                    {"reason", obj.reason},
-                    {"role", obj.role},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CheckPermissionResponse, (BaseDto), (allowed, reason, role))
 
 }

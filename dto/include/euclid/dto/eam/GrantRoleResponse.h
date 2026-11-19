@@ -9,15 +9,20 @@
 #pragma once
 
 // C++ includes
+#include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eam/model/Grant.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief The grant that was recorded, with the id revoke-role takes.
@@ -30,27 +35,18 @@ namespace Euclid::Dto::EAM {
         Grant grant;
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"grant"};
+
+        /**
          * @brief Serializes this to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GrantRoleResponse tag_invoke(boost::json::value_to_tag<GrantRoleResponse>, boost::json::value const &v) {
-            GrantRoleResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.grant = boost::json::value_to<Grant>(v.at("grant"));
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GrantRoleResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"grant", boost::json::value_from(obj.grant)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GrantRoleResponse, (BaseDto), (grant))
 
 }

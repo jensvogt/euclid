@@ -16,8 +16,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Asks EAM to start an OIDC login and say where to send the browser.
@@ -48,22 +51,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend OidcAuthorizeRequest tag_invoke(boost::json::value_to_tag<OidcAuthorizeRequest>, boost::json::value const &v) {
-            OidcAuthorizeRequest r;
-            r.redirectUri = Core::GetStringValue(v, "redirectUri");
-            r.returnTo = Core::GetStringValue(v, "returnTo");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, OidcAuthorizeRequest const &obj) {
-            jv = {
-                    {"redirectUri", obj.redirectUri},
-                    {"returnTo", obj.returnTo},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(OidcAuthorizeRequest, (), (redirectUri, returnTo))
 
 }

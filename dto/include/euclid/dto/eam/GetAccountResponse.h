@@ -9,13 +9,18 @@
 #pragma once
 
 // C++ includes
+#include <array>
 #include <string>
+#include <string_view>
 
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eam/model/Account.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One account, as list-accounts describes each of its own.
@@ -32,25 +37,17 @@ namespace Euclid::Dto::EAM {
         Account account;
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"account"};
+
+        /**
          * @brief Serializes this response to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetAccountResponse tag_invoke(boost::json::value_to_tag<GetAccountResponse>, boost::json::value const &v) {
-            GetAccountResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.account = boost::json::value_to<Account>(v.at("account"));
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetAccountResponse const &obj) {
-            jv = {
-                    {"account", boost::json::value_from(obj.account)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetAccountResponse, (BaseDto), (account))
 }// namespace Euclid::Dto::EAM

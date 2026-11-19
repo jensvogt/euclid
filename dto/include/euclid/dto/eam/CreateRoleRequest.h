@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Creates a role in the caller's own account.
@@ -55,24 +58,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] static CreateRoleRequest fromJson(const std::string &json) {
             return boost::json::value_to<CreateRoleRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend CreateRoleRequest tag_invoke(boost::json::value_to_tag<CreateRoleRequest>, boost::json::value const &v) {
-            CreateRoleRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            r.description = Core::GetStringValue(v, "description");
-            r.permissions = Core::GetStringArrayValue(v, "permissions");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateRoleRequest const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"description", obj.description},
-                    {"permissions", boost::json::value_from(obj.permissions)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateRoleRequest, (), (name, description, permissions))
 
 }

@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One role, given to one principal, somewhere.
@@ -39,34 +42,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend Grant tag_invoke(boost::json::value_to_tag<Grant>, boost::json::value const &v) {
-            Grant g;
-            g.grantId = Core::GetStringValue(v, "grantId");
-            g.role = Core::GetStringValue(v, "role");
-            g.principal = Core::GetStringValue(v, "principal");
-            g.accountId = Core::GetStringValue(v, "accountId");
-            for (const auto &ns: Core::GetStringArrayValue(v, "namespaces")) g.namespaces.push_back(ns);
-            for (const auto &resource: Core::GetStringArrayValue(v, "resources")) g.resources.push_back(resource);
-            g.granted = Core::GetStringValue(v, "granted");
-            g.grantedBy = Core::GetStringValue(v, "grantedBy");
-            return g;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Grant const &obj) {
-            jv = {
-                    {"grantId", obj.grantId},
-                    {"role", obj.role},
-                    {"principal", obj.principal},
-                    {"accountId", obj.accountId},
-                    {"namespaces", boost::json::value_from(obj.namespaces)},
-                    {"resources", boost::json::value_from(obj.resources)},
-                    {"granted", obj.granted},
-                    {"grantedBy", obj.grantedBy},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(Grant, (), (grantId, role, principal, accountId, namespaces, resources, granted, grantedBy))
 
 }

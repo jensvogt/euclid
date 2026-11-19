@@ -9,12 +9,17 @@
 #pragma once
 
 // C++ includes
+#include <array>
 #include <string>
+#include <string_view>
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Turns the old per-user grants into role bindings.
@@ -30,6 +35,12 @@ namespace Euclid::Dto::EAM {
          */
         bool dryRun = true;
 
+        /**
+         * @brief The members that keep their initial value when the JSON leaves them out, rather than
+         * becoming zero, as the other members do. A request that leaves it out stays a dry run.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonDefaults{"dryRun"};
+
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
@@ -37,20 +48,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] static MigrateGrantsRequest fromJson(const std::string &json) {
             return boost::json::value_to<MigrateGrantsRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend MigrateGrantsRequest tag_invoke(boost::json::value_to_tag<MigrateGrantsRequest>, boost::json::value const &v) {
-            MigrateGrantsRequest r;
-            r.dryRun = Core::AttributeExists(v, "dryRun") ? Core::GetBoolValue(v, "dryRun") : true;
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, MigrateGrantsRequest const &obj) {
-            jv = {
-                    {"dryRun", obj.dryRun},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(MigrateGrantsRequest, (), (dryRun))
 
 }

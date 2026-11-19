@@ -10,8 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     struct UserGroupAddUserRequest {
 
@@ -31,22 +34,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend UserGroupAddUserRequest tag_invoke(boost::json::value_to_tag<UserGroupAddUserRequest>, boost::json::value const &v) {
-            UserGroupAddUserRequest r;
-            r.userGroup = Core::GetStringValue(v, "userGroup");
-            r.user = Core::GetStringValue(v, "user");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, UserGroupAddUserRequest const &obj) {
-            jv = {
-                    {"userGroup", obj.userGroup},
-                    {"user", obj.user},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(UserGroupAddUserRequest, (), (userGroup, user))
 
 }

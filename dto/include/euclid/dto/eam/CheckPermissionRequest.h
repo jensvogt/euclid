@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Asks whether a user would be allowed to do something.
@@ -88,5 +91,9 @@ namespace Euclid::Dto::EAM {
             };
         }
     };
+
+    // Described as well, though its JSON stays hand-written: the JSON key is "namespace", which no
+    // member can be named, and DescribedJson.h writes every member under its own name.
+    BOOST_DESCRIBE_STRUCT(CheckPermissionRequest, (), (userId, target, action, nameSpace, resourceErn))
 
 }

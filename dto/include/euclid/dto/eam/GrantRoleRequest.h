@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Gives a role to a principal, scoped.
@@ -65,28 +68,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] static GrantRoleRequest fromJson(const std::string &json) {
             return boost::json::value_to<GrantRoleRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend GrantRoleRequest tag_invoke(boost::json::value_to_tag<GrantRoleRequest>, boost::json::value const &v) {
-            GrantRoleRequest r;
-            r.role = Core::GetStringValue(v, "role");
-            r.accountId = Core::GetStringValue(v, "accountId");
-            r.principal = Core::GetStringValue(v, "principal");
-            r.namespaces = Core::GetStringArrayValue(v, "namespaces");
-            r.resources = Core::GetStringArrayValue(v, "resources");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GrantRoleRequest const &obj) {
-            jv = {
-                    {"role", obj.role},
-                    {"accountId", obj.accountId},
-                    {"principal", obj.principal},
-                    {"namespaces", boost::json::value_from(obj.namespaces)},
-                    {"resources", boost::json::value_from(obj.resources)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GrantRoleRequest, (), (role, accountId, principal, namespaces, resources))
 
 }

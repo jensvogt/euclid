@@ -13,8 +13,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Asks for one account, by account ID or by ERN.
@@ -42,21 +45,7 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetAccountRequest tag_invoke(boost::json::value_to_tag<GetAccountRequest>, boost::json::value const &v) {
-            GetAccountRequest r;
-            r.accountId = Core::GetStringValue(v, "accountId");
-            r.ern = Core::GetStringValue(v, "ern");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetAccountRequest const &obj) {
-            jv = {
-                    {"accountId", obj.accountId},
-                    {"ern", obj.ern},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetAccountRequest, (), (accountId, ern))
 }// namespace Euclid::Dto::EAM

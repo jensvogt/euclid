@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Replaces a role's permissions and description.
@@ -54,24 +57,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] static UpdateRoleRequest fromJson(const std::string &json) {
             return boost::json::value_to<UpdateRoleRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend UpdateRoleRequest tag_invoke(boost::json::value_to_tag<UpdateRoleRequest>, boost::json::value const &v) {
-            UpdateRoleRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            r.description = Core::GetStringValue(v, "description");
-            r.permissions = Core::GetStringArrayValue(v, "permissions");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, UpdateRoleRequest const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"description", obj.description},
-                    {"permissions", boost::json::value_from(obj.permissions)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(UpdateRoleRequest, (), (name, description, permissions))
 
 }

@@ -9,15 +9,20 @@
 #pragma once
 
 // C++ includes
+#include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eam/model/AuthorizationGap.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief What shadow mode has recorded, most-seen first.
@@ -41,29 +46,16 @@ namespace Euclid::Dto::EAM {
          */
         std::string mode;
 
+        /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"gaps"};
+
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend AuthorizationGapsResponse tag_invoke(boost::json::value_to_tag<AuthorizationGapsResponse>, boost::json::value const &v) {
-            AuthorizationGapsResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            for (const auto &gap: v.at("gaps").as_array()) r.gaps.push_back(boost::json::value_to<AuthorizationGap>(gap));
-            r.total = Core::GetLongValue(v, "total");
-            r.mode = Core::GetStringValue(v, "mode");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, AuthorizationGapsResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"gaps", boost::json::value_from(obj.gaps)},
-                    {"total", obj.total},
-                    {"mode", obj.mode},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(AuthorizationGapsResponse, (BaseDto), (gaps, total, mode))
 
 }

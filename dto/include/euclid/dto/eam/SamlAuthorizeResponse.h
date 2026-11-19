@@ -16,8 +16,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Where to send the person to authenticate with the SAML identity provider.
@@ -47,22 +50,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend SamlAuthorizeResponse tag_invoke(boost::json::value_to_tag<SamlAuthorizeResponse>, boost::json::value const &v) {
-            SamlAuthorizeResponse r;
-            r.authenticationUrl = Core::GetStringValue(v, "authenticationUrl");
-            r.relayState = Core::GetStringValue(v, "relayState");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SamlAuthorizeResponse const &obj) {
-            jv = {
-                    {"authenticationUrl", obj.authenticationUrl},
-                    {"relayState", obj.relayState},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(SamlAuthorizeResponse, (), (authenticationUrl, relayState))
 
 }

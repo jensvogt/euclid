@@ -6,8 +6,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     struct CreateNamespaceRequest {
 
@@ -32,24 +35,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend CreateNamespaceRequest tag_invoke(boost::json::value_to_tag<CreateNamespaceRequest>, boost::json::value const &v) {
-            CreateNamespaceRequest r;
-            r.accountId = Core::GetStringValue(v, "accountId");
-            r.name = Core::GetStringValue(v, "name");
-            r.description = Core::GetStringValue(v, "description");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateNamespaceRequest const &obj) {
-            jv = {
-                    {"accountId", obj.accountId},
-                    {"name", obj.name},
-                    {"description", obj.description},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateNamespaceRequest, (), (accountId, name, description))
 
 }

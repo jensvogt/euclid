@@ -16,8 +16,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Hands EAM what came back from the provider, to be turned into a euclid session.
@@ -50,22 +53,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend OidcLoginRequest tag_invoke(boost::json::value_to_tag<OidcLoginRequest>, boost::json::value const &v) {
-            OidcLoginRequest r;
-            r.code = Core::GetStringValue(v, "code");
-            r.state = Core::GetStringValue(v, "state");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, OidcLoginRequest const &obj) {
-            jv = {
-                    {"code", obj.code},
-                    {"state", obj.state},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(OidcLoginRequest, (), (code, state))
 
 }

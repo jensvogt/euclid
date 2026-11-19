@@ -17,8 +17,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     struct RegisterRequest {
 
@@ -61,30 +64,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend RegisterRequest tag_invoke(boost::json::value_to_tag<RegisterRequest>, boost::json::value const &v) {
-            RegisterRequest r;
-            r.userId = Core::GetStringValue(v, "userId");
-            r.password = Core::GetStringValue(v, "password");
-            r.email = Core::GetStringValue(v, "email");
-            r.accountId = Core::GetStringValue(v, "accountId");
-            r.region = Core::GetStringValue(v, "region");
-            r.isAdmin = Core::GetBoolValue(v, "isAdmin");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, RegisterRequest const &obj) {
-            jv = {
-                    {"userId", obj.userId},
-                    {"password", obj.password},
-                    {"email", obj.email},
-                    {"accountId", obj.accountId},
-                    {"region", obj.region},
-                    {"isAdmin", obj.isAdmin},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(RegisterRequest, (), (userId, password, email, accountId, region, isAdmin))
 
 }

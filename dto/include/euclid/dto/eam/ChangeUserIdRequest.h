@@ -13,8 +13,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Gives a user a different user ID.
@@ -42,22 +45,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ChangeUserIdRequest tag_invoke(boost::json::value_to_tag<ChangeUserIdRequest>, boost::json::value const &v) {
-            ChangeUserIdRequest r;
-            r.userId = Core::GetStringValue(v, "userId");
-            r.newUserId = Core::GetStringValue(v, "newUserId");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ChangeUserIdRequest const &obj) {
-            jv = {
-                    {"userId", obj.userId},
-                    {"newUserId", obj.newUserId},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ChangeUserIdRequest, (), (userId, newUserId))
 
 }

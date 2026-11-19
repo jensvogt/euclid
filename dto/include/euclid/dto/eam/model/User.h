@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto {
+
+    using Json::tag_invoke;
 
     struct User {
         /**
@@ -58,33 +61,7 @@ namespace Euclid::Dto {
          * @brief Created timestamp
          */
         std::chrono::system_clock::time_point modified;
-
-    private:
-
-        friend User tag_invoke(boost::json::value_to_tag<User>, boost::json::value const &v) {
-            User r;
-            r.userId = Core::GetStringValue(v, "userId");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.password = Core::GetStringValue(v, "password");
-            r.email = Core::GetStringValue(v, "email");
-            r.accountId = Core::GetStringValue(v, "accountId");
-            r.region = Core::GetStringValue(v, "region");
-            r.created = Core::GetDatetimeValue(v, "created");
-            r.modified = Core::GetDatetimeValue(v, "modified");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, User const &obj) {
-            jv = {
-                    {"userId", obj.userId},
-                    {"ern", obj.ern},
-                    {"password", obj.password},
-                    {"email", obj.email},
-                    {"accountId", obj.accountId},
-                    {"region", obj.region},
-                    {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
-                    {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(User, (), (userId, ern, password, email, accountId, region, created, modified))
 }

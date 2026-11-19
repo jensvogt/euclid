@@ -9,12 +9,17 @@
 #pragma once
 
 // C++ includes
+#include <array>
 #include <string>
+#include <string_view>
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Asks what shadow mode has recorded.
@@ -45,6 +50,12 @@ namespace Euclid::Dto::EAM {
          */
         bool clear = false;
 
+        /**
+         * @brief The members that keep their initial value when the JSON leaves them out, rather than
+         * becoming zero, as the other members do.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonDefaults{"pageSize"};
+
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
@@ -52,26 +63,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] static AuthorizationGapsRequest fromJson(const std::string &json) {
             return boost::json::value_to<AuthorizationGapsRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend AuthorizationGapsRequest tag_invoke(boost::json::value_to_tag<AuthorizationGapsRequest>, boost::json::value const &v) {
-            AuthorizationGapsRequest r;
-            r.prefix = Core::GetStringValue(v, "prefix");
-            r.pageSize = Core::GetLongValue(v, "pageSize", 50);
-            r.pageIndex = Core::GetLongValue(v, "pageIndex");
-            r.clear = Core::GetBoolValue(v, "clear");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, AuthorizationGapsRequest const &obj) {
-            jv = {
-                    {"prefix", obj.prefix},
-                    {"pageSize", obj.pageSize},
-                    {"pageIndex", obj.pageIndex},
-                    {"clear", obj.clear},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(AuthorizationGapsRequest, (), (prefix, pageSize, pageIndex, clear))
 
 }

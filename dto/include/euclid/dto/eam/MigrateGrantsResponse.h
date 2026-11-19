@@ -15,8 +15,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief What the migration wrote, or would have written.
@@ -52,28 +55,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend MigrateGrantsResponse tag_invoke(boost::json::value_to_tag<MigrateGrantsResponse>, boost::json::value const &v) {
-            MigrateGrantsResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.dryRun = Core::GetBoolValue(v, "dryRun");
-            for (const auto &grant: Core::GetStringArrayValue(v, "grants")) r.grants.push_back(grant);
-            r.skipped = Core::GetLongValue(v, "skipped");
-            r.unrestricted = Core::GetLongValue(v, "unrestricted");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, MigrateGrantsResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"dryRun", obj.dryRun},
-                    {"grants", boost::json::value_from(obj.grants)},
-                    {"skipped", obj.skipped},
-                    {"unrestricted", obj.unrestricted},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(MigrateGrantsResponse, (BaseDto), (dryRun, grants, skipped, unrestricted))
 
 }

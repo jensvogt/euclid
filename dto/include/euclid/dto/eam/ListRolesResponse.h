@@ -9,15 +9,20 @@
 #pragma once
 
 // C++ includes
+#include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eam/model/Role.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief One page of roles, and how many exist.
@@ -39,29 +44,18 @@ namespace Euclid::Dto::EAM {
         long total{};
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"roles"};
+
+        /**
          * @brief Serializes this to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListRolesResponse tag_invoke(boost::json::value_to_tag<ListRolesResponse>, boost::json::value const &v) {
-            ListRolesResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            for (const auto &role: v.at("roles").as_array()) r.roles.push_back(boost::json::value_to<Role>(role));
-            r.total = Core::GetLongValue(v, "total");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListRolesResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"roles", boost::json::value_from(obj.roles)},
-                    {"total", obj.total},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListRolesResponse, (BaseDto), (roles, total))
 
 }

@@ -13,8 +13,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Access key summary, as returned by list-access-keys.
@@ -38,24 +41,8 @@ namespace Euclid::Dto::EAM {
          * @brief Creation timestamp, ISO8601.
          */
         std::string createdAt;
-
-    private:
-
-        friend AccessKey tag_invoke(boost::json::value_to_tag<AccessKey>, boost::json::value const &v) {
-            AccessKey r;
-            r.accessKeyId = Core::GetStringValue(v, "accessKeyId");
-            r.active = Core::GetBoolValue(v, "active");
-            r.createdAt = Core::GetStringValue(v, "createdAt");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, AccessKey const &obj) {
-            jv = {
-                    {"accessKeyId", obj.accessKeyId},
-                    {"active", obj.active},
-                    {"createdAt", obj.createdAt},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(AccessKey, (), (accessKeyId, active, createdAt))
 
 }

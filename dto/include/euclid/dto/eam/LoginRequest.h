@@ -16,8 +16,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     struct LoginRequest {
 
@@ -42,24 +45,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend LoginRequest tag_invoke(boost::json::value_to_tag<LoginRequest>, boost::json::value const &v) {
-            LoginRequest r;
-            r.userId = Core::GetStringValue(v, "userId");
-            r.password = Core::GetStringValue(v, "password");
-            r.email = Core::GetStringValue(v, "email");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, LoginRequest const &obj) {
-            jv = {
-                    {"userId", obj.userId},
-                    {"password", obj.password},
-                    {"email", obj.email},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(LoginRequest, (), (userId, password, email))
 
 }

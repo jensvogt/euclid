@@ -5,13 +5,18 @@
 #pragma once
 
 // C++ includes
+#include <array>
+#include <string_view>
 #include <vector>
 
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eam/model/Namespace.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     struct ListNamespacesResponse : BaseDto {
 
@@ -26,28 +31,18 @@ namespace Euclid::Dto::EAM {
         long total{};
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"namespaces"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListNamespacesResponse tag_invoke(boost::json::value_to_tag<ListNamespacesResponse>, boost::json::value const &v) {
-            ListNamespacesResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.namespaces = boost::json::value_to<std::vector<Namespace> >(v.at("namespaces"));
-            r.total = Core::GetLongValue(v, "total");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListNamespacesResponse const &obj) {
-            jv = {
-                    {"namespaces", boost::json::value_from(obj.namespaces)},
-                    {"total", obj.total},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListNamespacesResponse, (BaseDto), (namespaces, total))
 
 }

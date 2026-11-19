@@ -7,8 +7,11 @@
 // Euclid include
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eam/model/Namespace.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     struct CreateNamespaceResponse : BaseDto {
 
@@ -35,9 +38,14 @@ namespace Euclid::Dto::EAM {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateNamespaceResponse const &obj) {
             jv = {
+                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"namespace", boost::json::value_from(obj.ns)},
             };
         }
     };
+
+    // Described as well, though its JSON stays hand-written: the JSON key is "namespace", which no
+    // member can be named, and DescribedJson.h writes every member under its own name.
+    BOOST_DESCRIBE_STRUCT(CreateNamespaceResponse, (BaseDto), (ns))
 
 }

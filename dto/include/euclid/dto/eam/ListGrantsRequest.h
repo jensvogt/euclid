@@ -9,13 +9,18 @@
 #pragma once
 
 // C++ includes
+#include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Lists grants, by principal or by role.
@@ -73,6 +78,13 @@ namespace Euclid::Dto::EAM {
         std::string sortDirection{"asc"};
 
         /**
+         * @brief The members that keep their initial value when the JSON leaves them out, rather than
+         * becoming zero, as the other members do. A caller that predates paging sends neither, and
+         * an ordered answer is what makes its pages add up if it later starts asking for them.
+         */
+        static constexpr std::array<std::string_view, 2> kJsonDefaults{"sortColumn", "sortDirection"};
+
+        /**
          * @brief Serializes this to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -85,34 +97,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] static ListGrantsRequest fromJson(const std::string &json) {
             return boost::json::value_to<ListGrantsRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend ListGrantsRequest tag_invoke(boost::json::value_to_tag<ListGrantsRequest>, boost::json::value const &v) {
-            ListGrantsRequest r;
-            r.principal = Core::GetStringValue(v, "principal");
-            r.role = Core::GetStringValue(v, "role");
-            r.accountId = Core::GetStringValue(v, "accountId");
-            r.pageSize = Core::GetLongValue(v, "pageSize");
-            r.pageIndex = Core::GetLongValue(v, "pageIndex");
-            // Defaulted rather than left empty: a caller that predates paging sends neither, and
-            // an ordered answer is what makes its pages add up if it later starts asking for them.
-            r.sortColumn = Core::GetStringValue(v, "sortColumn", "principal");
-            r.sortDirection = Core::GetStringValue(v, "sortDirection", "asc");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListGrantsRequest const &obj) {
-            jv = {
-                    {"principal", obj.principal},
-                    {"role", obj.role},
-                    {"accountId", obj.accountId},
-                    {"pageSize", obj.pageSize},
-                    {"pageIndex", obj.pageIndex},
-                    {"sortColumn", obj.sortColumn},
-                    {"sortDirection", obj.sortDirection},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListGrantsRequest, (), (principal, role, accountId, pageSize, pageIndex, sortColumn, sortDirection))
 
 }

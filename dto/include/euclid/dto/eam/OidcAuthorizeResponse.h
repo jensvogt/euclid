@@ -16,8 +16,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Where to send the person to authenticate, and the state that belongs to that
@@ -48,22 +51,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend OidcAuthorizeResponse tag_invoke(boost::json::value_to_tag<OidcAuthorizeResponse>, boost::json::value const &v) {
-            OidcAuthorizeResponse r;
-            r.authorizationUrl = Core::GetStringValue(v, "authorizationUrl");
-            r.state = Core::GetStringValue(v, "state");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, OidcAuthorizeResponse const &obj) {
-            jv = {
-                    {"authorizationUrl", obj.authorizationUrl},
-                    {"state", obj.state},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(OidcAuthorizeResponse, (), (authorizationUrl, state))
 
 }

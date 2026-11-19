@@ -9,13 +9,18 @@
 #pragma once
 
 // C++ includes
+#include <array>
 #include <string>
+#include <string_view>
 
 // Euclid include
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eam/model/User.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     struct RegisterResponse : BaseDto {
 
@@ -25,27 +30,18 @@ namespace Euclid::Dto::EAM {
         User user;
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"user"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend RegisterResponse tag_invoke(boost::json::value_to_tag<RegisterResponse>, boost::json::value const &v) {
-            RegisterResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.user = boost::json::value_to<User>(v.at("user"));
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, RegisterResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"user", boost::json::value_from(obj.user)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(RegisterResponse, (BaseDto), (user))
 
 }

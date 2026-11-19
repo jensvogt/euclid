@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Reads one role, stored or built-in.
@@ -40,20 +43,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] static GetRoleRequest fromJson(const std::string &json) {
             return boost::json::value_to<GetRoleRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend GetRoleRequest tag_invoke(boost::json::value_to_tag<GetRoleRequest>, boost::json::value const &v) {
-            GetRoleRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetRoleRequest const &obj) {
-            jv = {
-                    {"name", obj.name},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetRoleRequest, (), (name))
 
 }

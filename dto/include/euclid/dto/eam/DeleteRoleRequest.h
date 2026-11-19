@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Deletes a role.
@@ -44,20 +47,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] static DeleteRoleRequest fromJson(const std::string &json) {
             return boost::json::value_to<DeleteRoleRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend DeleteRoleRequest tag_invoke(boost::json::value_to_tag<DeleteRoleRequest>, boost::json::value const &v) {
-            DeleteRoleRequest r;
-            r.name = Core::GetStringValue(v, "name");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteRoleRequest const &obj) {
-            jv = {
-                    {"name", obj.name},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(DeleteRoleRequest, (), (name))
 
 }

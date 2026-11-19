@@ -13,8 +13,11 @@
 
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     struct CreateAccessKeyResponse : BaseDto {
 
@@ -41,26 +44,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend CreateAccessKeyResponse tag_invoke(boost::json::value_to_tag<CreateAccessKeyResponse>, boost::json::value const &v) {
-            CreateAccessKeyResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.accessKeyId = Core::GetStringValue(v, "accessKeyId");
-            r.secretAccessKey = Core::GetStringValue(v, "secretAccessKey");
-            r.createdAt = Core::GetStringValue(v, "createdAt");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateAccessKeyResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"accessKeyId", obj.accessKeyId},
-                    {"secretAccessKey", obj.secretAccessKey},
-                    {"createdAt", obj.createdAt},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(CreateAccessKeyResponse, (BaseDto), (accessKeyId, secretAccessKey, createdAt))
 
 }

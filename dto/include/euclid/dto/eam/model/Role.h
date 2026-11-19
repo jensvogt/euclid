@@ -15,8 +15,11 @@
 // Euclid includes
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief A named set of permissions, belonging to one account.
@@ -40,36 +43,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend Role tag_invoke(boost::json::value_to_tag<Role>, boost::json::value const &v) {
-            Role r;
-            r.name = Core::GetStringValue(v, "name");
-            r.ern = Core::GetStringValue(v, "ern");
-            r.accountId = Core::GetStringValue(v, "accountId");
-            r.region = Core::GetStringValue(v, "region");
-            r.description = Core::GetStringValue(v, "description");
-            for (const auto &permission: Core::GetStringArrayValue(v, "permissions")) r.permissions.push_back(permission);
-            r.builtin = Core::GetBoolValue(v, "builtin");
-            r.created = Core::GetStringValue(v, "created");
-            r.modified = Core::GetStringValue(v, "modified");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Role const &obj) {
-            jv = {
-                    {"name", obj.name},
-                    {"ern", obj.ern},
-                    {"accountId", obj.accountId},
-                    {"region", obj.region},
-                    {"description", obj.description},
-                    {"permissions", boost::json::value_from(obj.permissions)},
-                    {"builtin", obj.builtin},
-                    {"created", obj.created},
-                    {"modified", obj.modified},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(Role, (), (name, ern, accountId, region, description, permissions, builtin, created, modified))
 
 }

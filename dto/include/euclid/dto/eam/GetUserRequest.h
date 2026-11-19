@@ -13,8 +13,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Reads one user, by the id they are known by.
@@ -36,19 +39,7 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend GetUserRequest tag_invoke(boost::json::value_to_tag<GetUserRequest>, boost::json::value const &v) {
-            GetUserRequest r;
-            r.userId = Core::GetStringValue(v, "userId");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetUserRequest const &obj) {
-            jv = {
-                    {"userId", obj.userId},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(GetUserRequest, (), (userId))
 }// namespace Euclid::Dto::EAM

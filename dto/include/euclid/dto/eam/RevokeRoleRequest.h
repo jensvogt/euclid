@@ -14,8 +14,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Removes one grant.
@@ -40,20 +43,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] static RevokeRoleRequest fromJson(const std::string &json) {
             return boost::json::value_to<RevokeRoleRequest>(Core::ParseJsonString(json));
         }
-
-    private:
-
-        friend RevokeRoleRequest tag_invoke(boost::json::value_to_tag<RevokeRoleRequest>, boost::json::value const &v) {
-            RevokeRoleRequest r;
-            r.grantId = Core::GetStringValue(v, "grantId");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, RevokeRoleRequest const &obj) {
-            jv = {
-                    {"grantId", obj.grantId},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(RevokeRoleRequest, (), (grantId))
 
 }

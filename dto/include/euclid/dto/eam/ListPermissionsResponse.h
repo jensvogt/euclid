@@ -15,8 +15,11 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Every permission a role can hold.
@@ -49,26 +52,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListPermissionsResponse tag_invoke(boost::json::value_to_tag<ListPermissionsResponse>, boost::json::value const &v) {
-            ListPermissionsResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            for (const auto &p: Core::GetStringArrayValue(v, "permissions")) r.permissions.push_back(p);
-            for (const auto &m: Core::GetStringArrayValue(v, "modules")) r.modules.push_back(m);
-            for (const auto &m: Core::GetStringArrayValue(v, "unbindableModules")) r.unbindableModules.push_back(m);
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListPermissionsResponse const &obj) {
-            jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"permissions", boost::json::value_from(obj.permissions)},
-                    {"modules", boost::json::value_from(obj.modules)},
-                    {"unbindableModules", boost::json::value_from(obj.unbindableModules)},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListPermissionsResponse, (BaseDto), (permissions, modules, unbindableModules))
 
 }

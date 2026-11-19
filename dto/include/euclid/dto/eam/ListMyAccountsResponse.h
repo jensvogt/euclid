@@ -5,14 +5,19 @@
 #pragma once
 
 // C++ includes
+#include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eam/model/Account.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief The accounts the caller may work in.
@@ -46,30 +51,18 @@ namespace Euclid::Dto::EAM {
         std::string homeAccountId;
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"accounts"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListMyAccountsResponse tag_invoke(boost::json::value_to_tag<ListMyAccountsResponse>, boost::json::value const &v) {
-            ListMyAccountsResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.accounts = boost::json::value_to<std::vector<Account> >(v.at("accounts"));
-            r.total = Core::GetLongValue(v, "total");
-            r.homeAccountId = Core::GetStringValue(v, "homeAccountId");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListMyAccountsResponse const &obj) {
-            jv = {
-                    {"accounts", boost::json::value_from(obj.accounts)},
-                    {"total", obj.total},
-                    {"homeAccountId", obj.homeAccountId},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListMyAccountsResponse, (BaseDto), (accounts, total, homeAccountId))
 
 }

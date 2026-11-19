@@ -13,8 +13,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     /**
      * @brief Gives a user a different email address.
@@ -42,22 +45,8 @@ namespace Euclid::Dto::EAM {
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ChangeEmailRequest tag_invoke(boost::json::value_to_tag<ChangeEmailRequest>, boost::json::value const &v) {
-            ChangeEmailRequest r;
-            r.userId = Core::GetStringValue(v, "userId");
-            r.email = Core::GetStringValue(v, "email");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ChangeEmailRequest const &obj) {
-            jv = {
-                    {"userId", obj.userId},
-                    {"email", obj.email},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ChangeEmailRequest, (), (userId, email))
 
 }

@@ -9,13 +9,18 @@
 #pragma once
 
 // C++ includes
+#include <array>
+#include <string_view>
 #include <vector>
 
 // Euclid includes
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eam/model/User.h>
+#include <euclid/dto/DescribedJson.h>
 
 namespace Euclid::Dto::EAM {
+
+    using Json::tag_invoke;
 
     struct ListUserResponse : BaseDto {
 
@@ -30,28 +35,18 @@ namespace Euclid::Dto::EAM {
         long total{};
 
         /**
+         * @brief The members that must be in the JSON: missing or null, reading throws.
+         */
+        static constexpr std::array<std::string_view, 1> kJsonRequired{"users"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
             return boost::json::serialize(boost::json::value_from(*this));
         }
-
-    private:
-
-        friend ListUserResponse tag_invoke(boost::json::value_to_tag<ListUserResponse>, boost::json::value const &v) {
-            ListUserResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.users = boost::json::value_to<std::vector<User> >(v.at("users"));
-            r.total = Core::GetLongValue(v, "total");
-            return r;
-        }
-
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListUserResponse const &obj) {
-            jv = {
-                    {"users", boost::json::value_from(obj.users)},
-                    {"total", obj.total},
-            };
-        }
     };
+
+    BOOST_DESCRIBE_STRUCT(ListUserResponse, (BaseDto), (users, total))
 
 }
