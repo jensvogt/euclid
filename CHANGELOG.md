@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.4.0](https://github.com/jensvogt/euclid/compare/2.3.2...v2.4.0) (2026-11-20)
+
+
+### Features
+
+* add euclid internal DNS service (EDS) ([b3a3d76](https://github.com/jensvogt/euclid/commit/b3a3d76e9301cdb58b12a4fa835e6dc183b9a9c4))
+* python examples, new JSON handling for EQS, ENS and ESM ([3b62f53](https://github.com/jensvogt/euclid/commit/3b62f53f3f527ef131bfd9f7c6fb691519bb8fea))
+* python examples, new JSON handling for EQS, ENS and ESM ([327a7a8](https://github.com/jensvogt/euclid/commit/327a7a841c5ddd74695a06c0c7d00bb8de33f156))
+* python examples, new JSON handling for EQS, ENS and ESM ([0e82770](https://github.com/jensvogt/euclid/commit/0e82770b35cab9d0df2278c50f95d66e78bfc0d3))
+
+
+### Bug Fixes
+
+* add EDS man pages ([3dddc99](https://github.com/jensvogt/euclid/commit/3dddc992a9fb63deb604d8bb7a45fa42bb4adaa8))
+
 ## [2.3.2](https://github.com/jensvogt/euclid/compare/2.3.1...v2.3.2) (2026-11-19)
 
 
