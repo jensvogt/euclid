@@ -243,10 +243,23 @@ makes each a routing domain: questions for it go to EDS, and nothing is
 appended to short names. Add a zone here when you create one, and
 restart
 .BR systemd-resolved .
-Setting
+.PP
+A global
+.I DNS=
+server with only routing domains may still be sent questions for other
+names \-
+.B resolvectl query example.org
+shows which server answered. Without forwarders EDS refuses them and
+resolved falls back to the next server, so they still resolve but take
+a detour. Setting
 .I forwarders
-to the network's usual resolver makes any other question that reaches
-EDS answered rather than refused.
+to the network's usual resolver makes EDS answer them directly; that
+cannot loop, since the router never asks EDS anything.
+.PP
+Docker containers do not use the host's resolver: they are handed its
+upstream instead, and
+.B \-\-dns
+takes no port. Containers reach EDS only if it is on port 53.
 .SH METRICS
 .TP
 .I eds-query-count
