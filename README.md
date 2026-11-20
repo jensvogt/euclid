@@ -869,8 +869,38 @@ dig @127.0.0.1 -p 1053 image-processing.app.euclid.internal          # every add
 dig @127.0.0.1 -p 1053 _http._tcp.image-processing.app.euclid.internal SRV   # and on which ports
 ```
 
-The service names live in `euclid.internal` and are rebuilt every few seconds from what is running. See
-[docs/eds.md](docs/eds.md) for the names, forwarding, and moving it to port 53.
+The service names live in `euclid.internal` and are rebuilt every few seconds from what is running.
+
+**Using it from the host's normal DNS.** With `systemd-resolved`, a drop-in sends just the EDS domains to port 1053
+and leaves everything else where it was. `~` makes each one a routing domain, so short names don't get a suffix
+appended. List every zone you create here, then restart `systemd-resolved`:
+
+```ini
+# /etc/systemd/resolved.conf.d/euclid.conf
+[Resolve]
+DNS=127.0.0.1:1053
+Domains=~euclid.internal ~corp.example
+```
+
+Check it with `resolvectl query manager.euclid.internal`, or `getent hosts manager.euclid.internal` to see what
+programs see.
+
+**Forwarding other names.** By default EDS refuses names it doesn't hold. Give it an upstream in
+`euclid.modules.eds`:
+
+```json
+"forwarders": ["192.168.178.1"]
+```
+
+Then other names are answered too, for clients in `allow-recursion` (loopback and private ranges by default; keep it
+that way, because an open resolver gets abused as a traffic amplifier). Do this even if you only route your own domains
+to EDS: `systemd-resolved` may still send it ordinary lookups (`resolvectl query example.org` shows which server
+answered), and without a forwarder they are refused before resolved falls back to the next server.
+
+Docker containers don't use the host's resolver; they get the router's address copied in. Docker's `--dns` only takes
+port 53, so containers can reach EDS only if it runs on port 53.
+
+See [docs/eds.md](docs/eds.md) for all the names, the other settings, and moving it to port 53.
 
 ### Running without a database
 

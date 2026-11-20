@@ -59,6 +59,16 @@ jobs:
             vcpkg-v1-${{ runner.os }}-${{ env.IMAGE_VERSION }}-
             vcpkg-v1-${{ runner.os }}-
 
+      # CMake pinned below 4.5. 4.5 turned Boost.Locale 1.92's source_group(TREE ...) - which names
+      # boost/locale.hpp, outside the tree it gives - from a quiet mismatch into a configure error,
+      # and vcpkg builds boost-locale from source whenever the binary cache misses. Put on PATH
+      # first, so vcpkg's port builds and this project's own configure both take it. Lift once
+      # the vcpkg baseline carries a boost-locale that configures under 4.5.
+      - name: Pin CMake
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: "~4.4.0"
+
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:

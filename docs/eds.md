@@ -196,7 +196,19 @@ euclid runs unprivileged, and binding a port below 1024 needs `CAP_NET_BIND_SERV
   Domains=~euclid.internal ~corp.example
   ```
 
-  This sends only those domains to EDS and leaves everything else as it was.
+  The `~` makes each one a routing domain: lookups for it go to EDS, and nothing is appended to short names. List every
+  zone you create here, then restart `systemd-resolved`. Check it with `resolvectl query manager.euclid.internal`, or
+  `getent hosts manager.euclid.internal` to see what programs see.
+
+  Two things to know about this setup:
+
+  - **EDS may still receive ordinary lookups.** A global `DNS=` server with only routing domains may also be used for
+    names outside them. Run `resolvectl query example.org` and look at the `-- link:` line to see which server
+    answered. Without forwarders EDS refuses those names, and resolved falls back to the next server, so lookups still
+    work but take a detour. Setting `forwarders` to the network's usual resolver (e.g. the router) makes EDS answer
+    them directly. That can't loop, because the router never sends queries back to EDS.
+  - **Docker containers don't use it.** A container gets the host's upstream resolver copied in, not 127.0.0.53, and
+    Docker's `--dns` only takes port 53. Containers can reach EDS only if it runs on port 53 (the first option above).
 
 ## How it works
 
