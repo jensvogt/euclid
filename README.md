@@ -40,6 +40,7 @@ LocalStack, not this.
 | **ens** | Notifications: publish/subscribe topics fanning out to queues                                   | SNS              | ✅     |
 | **esm** | Storage: buckets and objects, multipart transfer, encryption at rest                            | S3               | ✅     |
 | **ekv** | Key/value store: tables of JSON items, looked up by key and queried by sort-key range           | DynamoDB         | ✅     |
+| **eds** | Domain name service: DNS zones and records, plus names for every application and node          | Route 53         | ✅     |
 | **ess** | Secrets store: passwords and connection details, encrypted under an EKM key                     | Secrets Manager  | ✅     |
 | **ekm** | Key management: cryptographic keys, encrypt/decrypt, TLS certificates                           | KMS              | ✅     |
 | **eap** | Applications: Java, Python, Node.js, Rust or C++ processes euclid runs, scales and supervises   | ECS / App Runner | ✅     |
@@ -851,6 +852,25 @@ Four things are worth knowing before you model against it:
 
 Not there yet, in the order they are likely to arrive: `update-item` and conditional writes, batch reads and writes,
 secondary indexes, a TTL attribute, and item changes published on the event bus.
+
+### The domain name service
+
+`eds` is a DNS server on UDP and TCP port 1053. It answers from the zones you store in it, gives every application,
+worker node and the manager a name of its own, and forwards everything else to upstream resolvers if you configure some.
+
+```bash
+euclid-cli eds create-zone --name corp.example
+euclid-cli eds put-record --zone corp.example --name api --type A --value 10.1.2.3 --value 10.1.2.4
+euclid-cli eds put-record --zone corp.example --name www --type CNAME --value api.corp.example
+euclid-cli eds get-answer --name www.corp.example
+
+dig @127.0.0.1 -p 1053 www.corp.example
+dig @127.0.0.1 -p 1053 image-processing.app.euclid.internal          # every address it runs at
+dig @127.0.0.1 -p 1053 _http._tcp.image-processing.app.euclid.internal SRV   # and on which ports
+```
+
+The service names live in `euclid.internal` and are rebuilt every few seconds from what is running. See
+[docs/eds.md](docs/eds.md) for the names, forwarding, and moving it to port 53.
 
 ### Running without a database
 

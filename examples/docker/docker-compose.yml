@@ -81,6 +81,8 @@ services:
       - "8080:8080"   # API gateway (EAG), development
       - "8081:8081"   # API gateway (EAG), integration
       - "8082:8082"   # API gateway (EAG), production
+      - "1053:1053/udp" # domain name service (EDS)
+      - "1053:1053/tcp" # domain name service (EDS), for answers too large for UDP
     volumes:
       # The image's configuration replaced by this directory's: MongoDB rather than the in-memory
       # store, and the gateway certificate in a directory of its own.

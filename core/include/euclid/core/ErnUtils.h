@@ -254,6 +254,22 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates the ERN of a DNS zone.
+     *
+     * @par
+     * The zone's name is unique across the installation, but the ERN still carries the account
+     * and namespace that own it - which is what a grant is written against.
+     *
+     * @param accountId account ID
+     * @param nameSpace namespace within accountId the zone belongs to; empty means unscoped
+     * @param name the zone's apex, normalized
+     * @return the ERN
+     */
+    inline std::string createEdsZoneErn(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
+        return createErn("eds", accountId, nameSpace, "zone:" + name);
+    }
+
+    /**
      * @brief Creates a ESM bucket ERN
      *
      * @param accountId account ID

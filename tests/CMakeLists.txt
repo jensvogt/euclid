@@ -960,6 +960,18 @@ target_link_libraries(${ONELOGIN_BINARY} PRIVATE euclidcore Boost::json OpenSSL:
 
 add_test(NAME ${ONELOGIN_BINARY} COMMAND ${ONELOGIN_BINARY})
 
+set(EDS_DNS_BINARY euclid-eds-dns-tests)
+
+add_executable(${EDS_DNS_BINARY} EdsDnsTest.cpp ${CMAKE_SOURCE_DIR}/modules/eds/src/DnsMessage.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eds/src/Resolver.cpp ${CMAKE_SOURCE_DIR}/modules/eds/src/Catalog.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eds/src/DnsListener.cpp)
+set_target_properties(${EDS_DNS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EDS_DNS_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eds/include)
+target_link_libraries(${EDS_DNS_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${EDS_DNS_BINARY} COMMAND ${EDS_DNS_BINARY})
+
 set(EKV_VALUE_BINARY euclid-ekv-value-tests)
 
 add_executable(${EKV_VALUE_BINARY} EkvValueTest.cpp)

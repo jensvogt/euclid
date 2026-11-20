@@ -22,6 +22,7 @@
 #include <euclid/cli/ees/EesCli.h>
 #include <euclid/cli/ekm/EkmCli.h>
 #include <euclid/cli/ekv/EkvCli.h>
+#include <euclid/cli/eds/EdsCli.h>
 #include <euclid/cli/ess/EssCli.h>
 #include <euclid/cli/emm/EmmCli.h>
 #include <euclid/cli/emo/EmoCli.h>
@@ -63,6 +64,7 @@ namespace {
                 {"emm", "Euclid module management (start, stop, restart, auto-scaler)"},
                 {"ets", "Euclid transfer server (FTP/SFTP endpoints onto ESM buckets)"},
                 {"ekv", "Euclid key/value store (tables, items)"},
+                {"eds", "Euclid domain name service (DNS zones, records)"},
                 {"eap", "Euclid applications (Java, Python, Node.js, Rust or C++ processes euclid runs and scales)"},
                 {"eag", "Euclid API gateway (publishes paths and proxies them to EAP application instances)"},
         };
@@ -85,6 +87,7 @@ namespace {
         if (module == "emo") actions = &Euclid::CLI::EmoCli::Actions();
         if (module == "ees") actions = &Euclid::CLI::EesCli::Actions();
         if (module == "ekv") actions = &Euclid::CLI::EkvCli::Actions();
+        if (module == "eds") actions = &Euclid::CLI::EdsCli::Actions();
         if (module == "eag") actions = &Euclid::CLI::EagCli::Actions();
         if (module == "ekm") actions = &Euclid::CLI::EkmCli::Actions();
         if (module == "ess") actions = &Euclid::CLI::EssCli::Actions();
@@ -123,6 +126,7 @@ namespace {
         if (module == "emo") std::ignore = Euclid::CLI::EmoCli("").process(action, args);
         if (module == "ees") std::ignore = Euclid::CLI::EesCli("").process(action, args);
         if (module == "ekv") std::ignore = Euclid::CLI::EkvCli("").process(action, args);
+        if (module == "eds") std::ignore = Euclid::CLI::EdsCli("").process(action, args);
         if (module == "eag") std::ignore = Euclid::CLI::EagCli("").process(action, args);
         if (module == "ekm") std::ignore = Euclid::CLI::EkmCli("").process(action, args);
         if (module == "ess") std::ignore = Euclid::CLI::EssCli("").process(action, args);
@@ -206,6 +210,7 @@ int main(const int argc, char *argv[]) {
             "\tEMM Euclid module management (start, stop, restart, auto-scaler)\n"
             "\tETS Euclid transfer server (FTP/SFTP endpoints onto ESM buckets)\n"
             "\tEKV Euclid key/value store (tables, items)\n"
+            "\tEDS Euclid domain name service (DNS zones, records)\n"
             "\tEAP Euclid applications (Java, Python, Node.js, Rust or C++ processes euclid runs and scales)\n"
             "\tEAG Euclid API gateway (publishes paths and proxies them to EAP application instances)\n";
 
@@ -370,6 +375,11 @@ int main(const int argc, char *argv[]) {
         const auto authToken = Euclid::CLI::Credentials::Load();
         const Euclid::CLI::EkvCli ekv(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return ekv.process(action, args);
+    }
+    if (module == "eds") {
+        const auto authToken = Euclid::CLI::Credentials::Load();
+        const Euclid::CLI::EdsCli eds(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
+        return eds.process(action, args);
     }
     if (module == "eag") {
         const auto authToken = Euclid::CLI::Credentials::Load();
