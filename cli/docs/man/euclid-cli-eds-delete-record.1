@@ -1,0 +1,54 @@
+.TH EUCLID-CLI-EDS-DELETE-RECORD 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds-delete-record \- remove the records of one type at one name
+.SH SYNOPSIS
+.B euclid-cli eds delete-record
+.BR \-\-zone | \-z
+.I ZONE
+[\fB\-\-name\fR|\fB\-n\fR \fINAME\fR]
+.BR \-\-type | \-t
+.I TYPE
+.SH DESCRIPTION
+Removes a record set: every record of one type at one name. Records of
+other types at the same name stay.
+.PP
+To remove one value and keep the rest, write the rest with
+.BR euclid-cli-eds-put-record (1)
+instead.
+.PP
+Once the last record at a name is gone, the name answers NXDOMAIN \-
+unless a wildcard covers it, or names below it still have records, in
+which case it answers with no records but without NXDOMAIN.
+.SH OPTIONS
+.TP
+.BR \-z ", " \-\-zone " " \fIZONE\fR
+The zone's apex. Required.
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+The record's name, written as for
+.BR euclid-cli-eds-put-record (1).
+Defaults to the apex.
+.TP
+.BR \-t ", " \-\-type " " \fITYPE\fR
+The record type. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The record set was removed.
+.TP
+.B 1
+No such zone in your account, no records of that type at that name
+(HTTP 404), a name outside the zone, or a grant does not allow it.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eds delete-record --zone corp.example --name api --type AAAA
+euclid-cli eds delete-record --zone corp.example --type TXT
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-put-record (1),
+.BR euclid-cli-eds-delete-zone (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

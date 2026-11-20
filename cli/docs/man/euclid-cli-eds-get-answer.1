@@ -1,0 +1,98 @@
+.TH EUCLID-CLI-EDS-GET-ANSWER 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds-get-answer \- show what the name server answers for a name
+.SH SYNOPSIS
+.B euclid-cli eds get-answer
+.BR \-\-name | \-n
+.I NAME
+[\fB\-\-type\fR|\fB\-t\fR \fITYPE\fR]
+.SH DESCRIPTION
+Asks the name server a question and shows its answer \- the same one a
+DNS client gets from the DNS port, without needing a DNS client, the
+port being reachable, or the local resolver being set up to send the
+name there.
+.PP
+It answers from every zone the server holds, including
+.I euclid.internal
+and other accounts' zones, since that is what the DNS port does too.
+No grant on a zone is needed to see it.
+.PP
+A name in none of the zones is shown as
+.B REFUSED
+and not authoritative. The DNS port would forward that name upstream
+instead, if forwarders are configured and the client may recurse; this
+command never forwards.
+.PP
+The answer comes from what the server currently has loaded. A record
+written a moment ago on another instance may not be in it for up to
+the refresh interval.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+The name to look up. Required.
+.TP
+.BR \-t ", " \-\-type " " \fITYPE\fR
+The record type to ask for: any stored type, or
+.BR SOA ,
+.B NS
+or
+.BR ANY .
+Defaults to
+.BR A .
+.SH OUTPUT
+A JSON object:
+.TP
+.I rcode
+.B NOERROR
+\- the name exists, with or without records of that type;
+.B NXDOMAIN
+\- it does not;
+.B SERVFAIL
+\- a CNAME chain loops or runs longer than eight links;
+.B REFUSED
+\- the name is in none of the zones.
+.TP
+.I authoritative
+Whether one of the server's zones holds the name.
+.TP
+.I zone
+Which zone answered.
+.TP
+.I answers
+The records, each with
+.IR name ,
+.IR type ,
+.I ttl
+and
+.I value
+in presentation form. A CNAME is followed while its target is in one of
+the zones, and every link is listed.
+.TP
+.I authority
+For a negative answer, the zone's SOA \- whose last field is how long a
+resolver will cache that the name or type is not there.
+.SH EXIT STATUS
+.TP
+.B 0
+The question was answered, whatever the answer was.
+.TP
+.B 1
+No name was given, the type is unknown, or the request could not be
+sent.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eds get-answer --name www.corp.example
+euclid-cli eds get-answer --name corp.example --type MX
+euclid-cli eds get-answer --name image-processing.app.euclid.internal
+euclid-cli eds get-answer \e
+    --name _http._tcp.image-processing.app.euclid.internal --type SRV
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-put-record (1),
+.BR euclid-eds (8),
+.BR dig (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

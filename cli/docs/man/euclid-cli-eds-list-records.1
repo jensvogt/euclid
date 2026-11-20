@@ -1,0 +1,74 @@
+.TH EUCLID-CLI-EDS-LIST-RECORDS 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds-list-records \- list a zone's record sets
+.SH SYNOPSIS
+.B euclid-cli eds list-records
+.BR \-\-zone | \-z
+.I ZONE
+[\fB\-\-name\fR|\fB\-n\fR \fINAME\fR]
+[\fB\-\-type\fR|\fB\-t\fR \fITYPE\fR]
+[\fB\-\-page\-size\fR \fIN\fR]
+[\fB\-\-page\-index\fR \fIN\fR]
+.SH DESCRIPTION
+Lists the record sets stored in a zone, ordered by name and then by
+type, with their values exactly as they were put.
+.PP
+The zone's SOA and its default NS are not listed: they are made from the
+zone rather than stored. To see them as the server answers them, use
+.BR euclid-cli-eds-get-answer (1).
+.SH OPTIONS
+.TP
+.BR \-z ", " \-\-zone " " \fIZONE\fR
+The zone's apex. Required.
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Only the sets at this name, written as for
+.BR euclid-cli-eds-put-record (1).
+.TP
+.BR \-t ", " \-\-type " " \fITYPE\fR
+Only the sets of this type.
+.TP
+.BR \-\-page\-size " " \fIN\fR
+Most sets to return. Without it, all of them.
+.TP
+.BR \-\-page\-index " " \fIN\fR
+Zero-based page, used with
+.BR \-\-page\-size .
+.SH OUTPUT
+A JSON object:
+.I records
+\- each with
+.IR zone ,
+.IR name ,
+.IR type ,
+.I ttl
+(0 meaning the zone's),
+.IR values ,
+.I created
+and
+.I modified
+\- and
+.IR total ,
+the number of sets matching the filters.
+.SH EXIT STATUS
+.TP
+.B 0
+The records were listed, possibly none.
+.TP
+.B 1
+No such zone in your account, a name outside the zone, an unknown type,
+or a grant does not allow reading the zone.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eds list-records --zone corp.example
+euclid-cli eds list-records --zone corp.example --type A \e
+    | jq -r '.records[] | "\e(.name) \e(.values | join(" "))"'
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-put-record (1),
+.BR euclid-cli-eds-delete-record (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

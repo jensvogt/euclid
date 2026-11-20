@@ -1,0 +1,59 @@
+.TH EUCLID-CLI-EDS-LIST-ZONES 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds-list-zones \- list the account's zones
+.SH SYNOPSIS
+.B euclid-cli eds list-zones
+[\fB\-\-prefix\fR|\fB\-p\fR \fITEXT\fR]
+[\fB\-\-page\-size\fR \fIN\fR]
+[\fB\-\-page\-index\fR \fIN\fR]
+.SH DESCRIPTION
+Lists the zones of the account you are logged in to, in the namespace
+your session is scoped to, ordered by name, each with how many record
+sets it holds.
+.PP
+A zone your grants do not let you read is left out of the list, so a
+principal granted one zone sees that zone. The
+.I total
+counts every zone in the namespace, whichever of them were listed.
+.PP
+Zones of other accounts are never listed, and neither is
+.IR euclid.internal ,
+which is made from what runs rather than stored.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-prefix " " \fITEXT\fR
+Only zones whose name starts with this.
+.TP
+.BR \-\-page\-size " " \fIN\fR
+Most zones to return. Without it, all of them.
+.TP
+.BR \-\-page\-index " " \fIN\fR
+Zero-based page, used with
+.BR \-\-page\-size .
+.SH OUTPUT
+A JSON object:
+.I zones
+\- each as
+.BR euclid-cli-eds-get-zone (1)
+shows it \- and
+.IR total .
+.SH EXIT STATUS
+.TP
+.B 0
+The zones were listed, possibly none.
+.TP
+.B 1
+The request could not be sent or was refused.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eds list-zones
+euclid-cli eds list-zones --prefix lab. | jq -r '.zones[].name'
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-get-zone (1),
+.BR euclid-cli-eds-create-zone (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

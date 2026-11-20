@@ -1,0 +1,48 @@
+.TH EUCLID-CLI-EDS-DELETE-ZONE 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds-delete-zone \- delete a zone and every record in it
+.SH SYNOPSIS
+.B euclid-cli eds delete-zone
+.BR \-\-name | \-n
+.I ZONE
+.SH DESCRIPTION
+Deletes a zone and every record set in it. There is no undo: what the
+zone held is gone when this returns.
+.PP
+The server stops answering for the zone at once. What a question about
+one of its names gets afterwards depends on what is left: an enclosing
+zone answers it from its own records, and with none it is forwarded or
+refused like any name EDS does not hold.
+.PP
+Resolvers that cached an answer from the zone keep it for up to that
+record's TTL, and a negative answer for up to the zone's TTL. Lowering
+the zone's TTLs a while before deleting it is how to make the change
+land quickly everywhere.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fIZONE\fR
+The zone's apex. Required.
+.SH OUTPUT
+A JSON object with
+.IR deletedRecords ,
+the number of record sets that went with the zone.
+.SH EXIT STATUS
+.TP
+.B 0
+The zone was deleted.
+.TP
+.B 1
+No such zone in your account (HTTP 404), or a grant does not allow
+deleting it.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eds delete-zone --name lab.corp.example
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-create-zone (1),
+.BR euclid-cli-eds-delete-record (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
