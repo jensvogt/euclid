@@ -209,6 +209,31 @@
         "maxInstances": 4,
         "threads": 8
       },
+      "eds": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "eds",
+        "socketPath": "/var/run/euclid/euclid-eds.sock",
+        "executable": "/usr/local/euclid/bin/euclid-eds",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 4,
+        "address": "0.0.0.0",
+        "port": 1053,
+        "io-threads": 2,
+        "worker-threads": 8,
+        "service-domain": "euclid.internal",
+        "manager-address": "",
+        "nameserver": "localhost",
+        "service-ttl": 5,
+        "refresh-seconds": 5,
+        "forwarders": [],
+        "allow-recursion": ["127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"],
+        "forward-timeout-ms": 2000,
+        "tcp-idle-seconds": 10
+      },
       "ess": {
         "dependencies": [
           "emd"

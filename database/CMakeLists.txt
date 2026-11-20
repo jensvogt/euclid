@@ -13,7 +13,8 @@ set(SOURCES src/Database.cpp src/Collection.cpp src/PeriodicClaim.cpp src/EventB
         src/entity/eag/Route.cpp src/repository/eag/MongoEagRepository.cpp
         src/entity/ess/Secret.cpp src/repository/ess/MongoEssRepository.cpp
         src/entity/ekv/Value.cpp src/entity/ekv/Table.cpp src/entity/ekv/Item.cpp
-        src/entity/ekv/SortCondition.cpp src/repository/ekv/MongoEkvRepository.cpp src/emd/DocumentStore.cpp src/emd/RemoteDocumentStore.cpp
+        src/entity/ekv/SortCondition.cpp src/repository/ekv/MongoEkvRepository.cpp src/entity/eds/HostedZone.cpp src/entity/eds/Record.cpp
+        src/repository/eds/MongoEdsRepository.cpp src/emd/DocumentStore.cpp src/emd/RemoteDocumentStore.cpp
         src/entity/eap/Application.cpp src/entity/eap/ApplicationIdentity.cpp src/entity/eap/Node.cpp src/repository/eap/MongoEapRepository.cpp
         src/entity/RuntimeName.cpp)
 

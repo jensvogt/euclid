@@ -105,6 +105,9 @@ namespace Euclid::EMM {
                     // rule of its own, because asking for ekm already requires a passphrase and
                     // that is exactly the file this would be part of.
                     {"ess", {.topLevel = {"ess_secret"}, .fullOnly = {}}},
+                    // Zones and their records are what an operator wrote; the service names are made
+                    // from what runs and are not stored at all, so there is nothing else to keep.
+                    {"eds", {.topLevel = {"eds_zone", "eds_record"}, .fullOnly = {}}},
             };
             return specs;
         }

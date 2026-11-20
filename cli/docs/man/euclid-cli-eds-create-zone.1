@@ -1,0 +1,94 @@
+.TH EUCLID-CLI-EDS-CREATE-ZONE 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds-create-zone \- create a zone the name server answers for
+.SH SYNOPSIS
+.B euclid-cli eds create-zone
+.BR \-\-name | \-n
+.I ZONE
+[\fB\-\-ttl\fR \fISECONDS\fR]
+[\fB\-\-description\fR|\fB\-d\fR \fITEXT\fR]
+.SH DESCRIPTION
+Creates a zone. From then on the name server answers for every name in
+it: with the records put into it, and with NXDOMAIN for every other
+name. A new zone holds only its SOA and NS records.
+.PP
+The name is lowercased and a trailing dot is dropped, so
+.I Corp.Example.
+and
+.I corp.example
+are the same zone.
+.PP
+.B The name is unique across the installation,
+not only within your account \- a DNS question names no account, so
+there can be only one zone of a name to answer it from. A name another
+account already has is refused as existing, the same as one of your
+own.
+.PP
+A zone inside another is allowed, and wins for the names below it:
+with both
+.I corp.example
+and
+.I lab.corp.example
+stored, a question about
+.I host.lab.corp.example
+is answered from the second.
+.PP
+The zone belongs to your account and to the namespace your session is
+scoped to, which is what its ERN is built from.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fIZONE\fR
+The zone's apex, e.g.
+.IR corp.example .
+Required. Cannot contain a wildcard, and cannot be in
+.IR euclid.internal ,
+which holds the names euclid gives what it runs.
+.TP
+.BR \-\-ttl " " \fISECONDS\fR
+TTL of every record in the zone that does not set its own, and how long
+a resolver may cache an answer saying a name or a type is not there.
+Defaults to 300.
+.TP
+.BR \-d ", " \-\-description " " \fITEXT\fR
+Free text, shown by
+.BR euclid-cli-eds-get-zone (1)
+and
+.BR euclid-cli-eds-list-zones (1).
+.SH OUTPUT
+The zone, as JSON:
+.IR name ,
+.IR ern ,
+.IR namespace ,
+.IR ttl ,
+.IR description ,
+.IR recordCount ,
+.IR serial ,
+.I created
+and
+.IR modified .
+.SH EXIT STATUS
+.TP
+.B 0
+The zone was created.
+.TP
+.B 1
+A zone of that name exists already (HTTP 409), the name is not a valid
+domain name or is in
+.IR euclid.internal ,
+the TTL is negative or larger than 2147483647, or a grant does not allow
+it.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eds create-zone --name corp.example
+euclid-cli eds create-zone --name lab.corp.example --ttl 30 \e
+    --description "test machines, changed often"
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-put-record (1),
+.BR euclid-cli-eds-delete-zone (1),
+.BR euclid-cli-eam-change-namespace (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

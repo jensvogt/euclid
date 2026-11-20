@@ -71,6 +71,11 @@ Key/value store: tables of JSON items, read one at a time by key and
 queried by sort-key range. See
 .BR euclid-cli-ekv (1).
 .TP
+.B eds
+Domain name service: DNS zones and records, names for every
+application and worker node, and forwarding to upstream resolvers. See
+.BR euclid-cli-eds (1).
+.TP
 .B emm
 Module management: what the manager is running, and export/import of a
 module's collections. See
@@ -292,11 +297,13 @@ euclid-cli --endpoint https://euclid.example.com:5566 \e
 .BR euclid-cli-ees (1),
 .BR euclid-cli-ekm (1),
 .BR euclid-cli-ekv (1),
+.BR euclid-cli-eds (1),
 .BR euclid-cli-emm (1),
 .BR euclid-cli-emo (1),
 .BR euclid-cli-ets (1),
 .BR euclid-cli-eap (1),
 .BR euclid-cli-eag (1),
+.BR euclid-eds (8),
 .BR euclid-ftp (8),
 .BR euclid-sftp (8)
 .SH AUTHOR

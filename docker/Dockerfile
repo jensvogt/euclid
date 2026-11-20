@@ -222,5 +222,8 @@ RUN ln -s /usr/local/euclid/bin/euclid-mgr /usr/bin/euclid-mgr || true
 EXPOSE 5566
 EXPOSE 4567
 EXPOSE 4569
+# Domain name service (EDS), UDP and TCP
+EXPOSE 1053/udp
+EXPOSE 1053/tcp
 
 CMD ["/usr/local/euclid/bin/euclid-mgr", "--config", "/usr/local/euclid/etc/euclid.json"]

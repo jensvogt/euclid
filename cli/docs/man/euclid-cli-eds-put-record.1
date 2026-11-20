@@ -1,0 +1,148 @@
+.TH EUCLID-CLI-EDS-PUT-RECORD 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds-put-record \- write the records of one type at one name
+.SH SYNOPSIS
+.B euclid-cli eds put-record
+.BR \-\-zone | \-z
+.I ZONE
+[\fB\-\-name\fR|\fB\-n\fR \fINAME\fR]
+.BR \-\-type | \-t
+.I TYPE
+.BR \-\-value | \-v
+.I VALUE
+[\fB\-\-value\fR \fIVALUE\fR...]
+[\fB\-\-ttl\fR \fISECONDS\fR]
+.SH DESCRIPTION
+Writes a record set \- every record of one type at one name \- and
+replaces the one that was there.
+.PP
+.B It replaces rather than adds.
+To add a third address to a name that has two, give all three.
+To remove one, give the other two. Replacing the set in one write means
+the server never answers with half the old addresses and half the new
+ones.
+.PP
+Every value is checked before anything is stored, so a value the server
+could not serve is refused here rather than skipped later.
+.PP
+The server answers the new records within a moment. Resolvers that
+cached the old ones keep them for up to their TTL.
+.SH TYPES AND VALUES
+Values are written as in a zone file, without the quoting. A value with
+spaces in it is one argument to the shell, so quote it.
+.TP
+.B A
+An IPv4 address:
+.IR 192.0.2.1 .
+.TP
+.B AAAA
+An IPv6 address:
+.IR 2001:db8::1 .
+.TP
+.B CNAME
+The name this one is an alias of:
+.IR api.corp.example .
+Exactly one value. A CNAME has to be the only record at its name, and
+the zone's apex cannot be one, since it holds the zone's SOA and NS.
+Both are refused rather than stored.
+.TP
+.B MX
+Preference and mail host:
+.IR "10 mail.corp.example" .
+.TP
+.BR NS ", " PTR
+A host name.
+.TP
+.B SRV
+Priority, weight, port and host:
+.IR "10 5 8080 api.corp.example" .
+The host must be a name with an address record, never an address.
+.TP
+.B TXT
+Any text, up to 4000 bytes. Longer than 255 bytes, it is sent as
+several strings, which a reader joins together.
+.PP
+SOA cannot be written: each zone's SOA is made from the zone itself.
+.SH NAMES
+.TP
+.I api
+relative to the zone;
+.TP
+.IR api.corp.example " or " api.corp.example.
+fully qualified;
+.TP
+.IR @ " or no " \-\-name
+the zone's apex;
+.TP
+.I *.dev
+a wildcard, answering for every name below
+.I dev.corp.example
+that has no records of its own.
+.PP
+A name outside the zone is refused.
+.SH OPTIONS
+.TP
+.BR \-z ", " \-\-zone " " \fIZONE\fR
+The zone's apex. Required.
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+The record's name, as above. Defaults to the apex.
+.TP
+.BR \-t ", " \-\-type " " \fITYPE\fR
+.BR A ,
+.BR AAAA ,
+.BR CNAME ,
+.BR MX ,
+.BR NS ,
+.BR PTR ,
+.B SRV
+or
+.BR TXT ,
+in any case. Required.
+.TP
+.BR \-v ", " \-\-value " " \fIVALUE\fR
+A value. Repeat for several. At least one is required.
+.TP
+.BR \-\-ttl " " \fISECONDS\fR
+How long resolvers may cache the records. Defaults to the zone's TTL.
+.SH OUTPUT
+The record set as stored, as JSON:
+.IR zone ,
+.I name
+(fully qualified),
+.IR type ,
+.IR ttl ,
+.IR values ,
+.I created
+and
+.IR modified .
+.SH EXIT STATUS
+.TP
+.B 0
+The record set was written.
+.TP
+.B 1
+No such zone in your account, a value that cannot be encoded, a name
+outside the zone, a type that cannot be stored, a CNAME beside other
+records or other records beside a CNAME (HTTP 409), or a grant does not
+allow it.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eds put-record -z corp.example -n api -t A \e
+    -v 10.1.2.3 -v 10.1.2.4
+euclid-cli eds put-record -z corp.example -n www -t CNAME -v api.corp.example
+euclid-cli eds put-record -z corp.example -t MX -v "10 mail.corp.example"
+euclid-cli eds put-record -z corp.example -n _ldap._tcp -t SRV \e
+    -v "0 5 389 dc1.corp.example"
+euclid-cli eds put-record -z corp.example -t TXT -v "v=spf1 -all"
+euclid-cli eds put-record -z corp.example -n "*.dev" -t A -v 10.9.0.1 --ttl 30
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-list-records (1),
+.BR euclid-cli-eds-delete-record (1),
+.BR euclid-cli-eds-get-answer (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
