@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.1](https://github.com/jensvogt/euclid/compare/v2.4.0...v2.4.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* add EDS man pages ([c71ee95](https://github.com/jensvogt/euclid/commit/c71ee956d4a44eab322869aac40829522bcf9628))
+* add EDS man pages ([8201623](https://github.com/jensvogt/euclid/commit/82016232cc78a58d8e1307595b976cc8cd0cbad5))
+
 ## [2.4.0](https://github.com/jensvogt/euclid/compare/2.3.2...v2.4.0) (2026-11-20)
 
 
