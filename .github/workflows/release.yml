@@ -65,6 +65,10 @@ jobs:
       BUILD_DIR: "${{ github.workspace }}/cmake-build-release"
       SEMVER: ${{ needs.release-please.outputs.tag_name }}
       VCPKG_DEFAULT_TRIPLET: x64-windows-static
+      # libbson and mongo-c-driver with C4047 left a warning rather than mongo-c's /we4047 - see
+      # vcpkg-overlays/msvc/README.md. Windows only: no other compiler needs it, and an overlay
+      # on the other jobs would only change their package ABIs and force a rebuild for nothing.
+      VCPKG_OVERLAY_PORTS: "${{ github.workspace }}/vcpkg-overlays/msvc"
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
