@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.2](https://github.com/jensvogt/euclid/compare/v2.4.1...v2.4.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* windows overlays ([225b5cc](https://github.com/jensvogt/euclid/commit/225b5cc0540e70a7dff269d3d8c6446c2ac1fbbc))
+* windows overlays ([f01fecf](https://github.com/jensvogt/euclid/commit/f01fecf2ab85c20eece7bb48d40ce4f975eb67d0))
+
 ## [2.4.1](https://github.com/jensvogt/euclid/compare/v2.4.0...v2.4.1) (2026-11-20)
 
 
