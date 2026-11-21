@@ -65,10 +65,6 @@ jobs:
       BUILD_DIR: "${{ github.workspace }}/cmake-build-release"
       SEMVER: ${{ needs.release-please.outputs.tag_name }}
       VCPKG_DEFAULT_TRIPLET: x64-windows-static
-      # libbson and mongo-c-driver with C4047 left a warning rather than mongo-c's /we4047 - see
-      # vcpkg-overlays/msvc/README.md. Windows only: no other compiler needs it, and an overlay
-      # on the other jobs would only change their package ABIs and force a rebuild for nothing.
-      VCPKG_OVERLAY_PORTS: "${{ github.workspace }}/vcpkg-overlays/msvc"
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
@@ -145,15 +141,6 @@ jobs:
             vcpkg-${{ runner.os }}-${{ env.IMAGE_VERSION }}-
             vcpkg-${{ runner.os }}-
 
-      # CMake pinned below 4.5. 4.5 turned Boost.Locale 1.92's source_group(TREE ...) - which names
-      # boost/locale.hpp, outside the tree it gives - from a quiet mismatch into a configure error,
-      # and vcpkg builds boost-locale from source whenever the binary cache misses. Put on PATH
-      # first, so vcpkg's port builds and this project's own configure both take it. Lift once
-      # the vcpkg baseline carries a boost-locale that configures under 4.5.
-      - name: Pin CMake
-        uses: lukka/get-cmake@latest
-        with:
-          cmakeVersion: "~4.4.0"
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -376,15 +363,6 @@ jobs:
             vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.IMAGE_VERSION }}-
             vcpkg-${{ runner.os }}-${{ runner.arch }}-
 
-      # CMake pinned below 4.5. 4.5 turned Boost.Locale 1.92's source_group(TREE ...) - which names
-      # boost/locale.hpp, outside the tree it gives - from a quiet mismatch into a configure error,
-      # and vcpkg builds boost-locale from source whenever the binary cache misses. Put on PATH
-      # first, so vcpkg's port builds and this project's own configure both take it. Lift once
-      # the vcpkg baseline carries a boost-locale that configures under 4.5.
-      - name: Pin CMake
-        uses: lukka/get-cmake@latest
-        with:
-          cmakeVersion: "~4.4.0"
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -781,15 +759,6 @@ jobs:
             vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ env.IMAGE_VERSION }}-
             vcpkg-${{ runner.os }}-${{ matrix.arch }}-
 
-      # CMake pinned below 4.5. 4.5 turned Boost.Locale 1.92's source_group(TREE ...) - which names
-      # boost/locale.hpp, outside the tree it gives - from a quiet mismatch into a configure error,
-      # and vcpkg builds boost-locale from source whenever the binary cache misses. Put on PATH
-      # first, so vcpkg's port builds and this project's own configure both take it. Lift once
-      # the vcpkg baseline carries a boost-locale that configures under 4.5.
-      - name: Pin CMake
-        uses: lukka/get-cmake@latest
-        with:
-          cmakeVersion: "~4.4.0"
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
