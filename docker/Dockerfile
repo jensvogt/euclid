@@ -27,7 +27,7 @@ RUN mkdir -p /usr/share/aclocal && mkdir -p /vcpkg-cache
 # Pinning it puts the commit in the layer's cache key, so moving the baseline rebuilds the clone.
 # Keep this equal to "builtin-baseline" in vcpkg.json; the build stage below checks that it is and
 # recovers if it is not.
-ARG VCPKG_BASELINE=5d4a3dc90c0b3773f3bac81bf41297b54328f471
+ARG VCPKG_BASELINE=b94b6bdc326c0faea9070b4862e0e0d4e4ac5396
 WORKDIR /usr/local/vcpkg
 RUN git clone https://github.com/microsoft/vcpkg.git . && git checkout "$VCPKG_BASELINE"
 RUN ./bootstrap-vcpkg.sh
