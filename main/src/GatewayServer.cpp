@@ -114,7 +114,7 @@ namespace Euclid::main {
         // emd is deliberately absent: it is the document store the other modules talk to over
         // their own sockets, and nothing outside euclid has business addressing it.
         static const std::unordered_set<std::string> kModules{
-                "ead", "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ess", "ets", "eap", "ees", "eag", "ekv"
+                "ead", "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ess", "ets", "eap", "ees", "eag", "ekv", "eds"
         };
 
         if (const auto module = std::string(req["x-euclid-target"]); !module.empty()) {

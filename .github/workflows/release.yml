@@ -141,6 +141,7 @@ jobs:
             vcpkg-${{ runner.os }}-${{ env.IMAGE_VERSION }}-
             vcpkg-${{ runner.os }}-
 
+
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
@@ -361,6 +362,7 @@ jobs:
           restore-keys: |
             vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.IMAGE_VERSION }}-
             vcpkg-${{ runner.os }}-${{ runner.arch }}-
+
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -756,6 +758,7 @@ jobs:
           restore-keys: |
             vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ env.IMAGE_VERSION }}-
             vcpkg-${{ runner.os }}-${{ matrix.arch }}-
+
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11

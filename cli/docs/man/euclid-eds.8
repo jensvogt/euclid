@@ -1,0 +1,322 @@
+.TH EUCLID-EDS 8 "November 2026" "euclid 2.3.2" "Euclid System Manager's Manual"
+.SH NAME
+euclid-eds \- euclid's domain name service
+.SH SYNOPSIS
+.B euclid-eds
+[\fB\-\-config\fR|\fB\-c\fR \fIFILE\fR]
+[\fB\-\-socket\fR|\fB\-s\fR \fIPATH\fR]
+[\fB\-\-loglevel\fR|\fB\-l\fR \fILEVEL\fR]
+[\fB\-\-console\-log\fR] [\fB\-\-file\-log\fR]
+.SH DESCRIPTION
+.B euclid-eds
+is a DNS server. The euclid manager starts it like any other module and
+keeps it running; nobody normally starts it by hand.
+.PP
+It has two ports:
+.IP \(bu 2
+the module's
+.B Unix socket,
+through which zones and records are managed with the usual credentials
+and grants \- see
+.BR euclid-cli-eds (1);
+.IP \(bu 2
+a
+.B DNS port,
+UDP and TCP, 1053 by default, which answers anybody who asks. DNS has no
+credentials.
+.PP
+It answers from three sources, in this order:
+.TP
+.B Stored zones
+Answered authoritatively, with the AA flag set. A name with records of
+the type asked for gets them. A CNAME is followed while its target is in
+one of the zones, for up to eight links; a longer chain is answered
+SERVFAIL as a loop. A name that exists without that type is answered
+NOERROR with no records and the zone's SOA. A name that does not exist
+is matched against a wildcard directly below its closest existing
+ancestor (RFC 4592), and is NXDOMAIN with the SOA when there is none. A
+name with nothing of its own but records below it exists (RFC 8020).
+Where zones nest, the most specific answers.
+.TP
+.B Service names
+The zone named by
+.IR service-domain ,
+.I euclid.internal
+by default, made from what is running rather than stored:
+.I manager.<domain>
+for the manager,
+.I <node>.node.<domain>
+for each worker node with a live lease,
+.I <application>.app.<domain>
+for every address a running instance is at, and
+.I _http._tcp.<application>.app.<domain>
+SRV records with each instance's port. An instance assigned to a node
+that has stopped renewing is left out, because it cannot be reached.
+.TP
+.B Upstream resolvers
+Every other name, if the query asks for recursion,
+.I forwarders
+lists at least one upstream, and the client's address is in
+.IR allow-recursion .
+Otherwise it is answered REFUSED.
+.PP
+Zone transfers (AXFR, IXFR) are refused. Anything that is not a single
+standard query is answered NOTIMP or FORMERR, and a message that is
+itself a response is never answered.
+.SH HOW IT ANSWERS
+No query reads the database. The server answers from an in-memory copy
+of every zone and every service name, which a background thread
+rebuilds every
+.I refresh-seconds
+and replaces whole. A write through the API rebuilds it immediately on
+the instance that took the write.
+.PP
+If the database stops answering, the previous copy stays: zones go
+stale, they do not disappear. A stored value that can no longer be
+encoded is left out with a warning, logged once and again only when the
+set of such values changes, instead of taking its zone down with it.
+.PP
+Answers over UDP are limited to 512 bytes, or to the size the client
+advertises with EDNS0, at most 1232 \- the largest payload that survives
+a minimal IPv6 path without fragmenting. A larger answer is sent with no
+records and TC set, which tells the client to ask again over TCP.
+.PP
+A TCP connection may carry several queries, each prefixed with its
+length, and is closed after
+.I tcp-idle-seconds
+of silence.
+.SH FORWARDING
+Upstreams are tried in order, each for up to
+.IR forward-timeout-ms .
+Every forwarded query goes out on its own socket, from a fresh ephemeral
+port, and a reply is accepted only from the upstream it was sent to and
+only with the query's ID \- the two things that make a forged answer
+hard to land (RFC 5452). The upstream's reply is passed back unchanged.
+.PP
+Leave
+.I allow-recursion
+at its default \- loopback and the private ranges \- unless you know why
+not. A forwarder that answers anybody is an open resolver, which the
+internet uses as a traffic amplifier against third parties.
+Authoritative answers are given to every client whatever it says; they
+are small, and only about names stored here.
+.SH OPTIONS
+.TP
+.BR \-c ", " \-\-config " " \fIFILE\fR
+Configuration file. Defaults to
+.IR /usr/local/euclid/etc/euclid.json .
+.TP
+.BR \-s ", " \-\-socket " " \fIPATH\fR
+Unix socket the API is served on. The manager passes the one from the
+module's
+.IR socketPath .
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+One of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.B \-\-console\-log
+Log to standard output. Overrides
+.I euclid.logging.console-active
+only when given.
+.TP
+.B \-\-file\-log
+Log to the log file. Overrides
+.I euclid.logging.file-active
+only when given.
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the version and exit.
+.SH CONFIGURATION
+Under
+.IR euclid.modules.eds :
+.TP
+.I address
+Address the DNS port is bound to.
+.I 0.0.0.0
+for every IPv4 interface,
+.I ::
+for every interface. Default
+.IR 0.0.0.0 .
+.TP
+.I port
+UDP and TCP port. Default 1053. Not 5353, though that is the usual
+unprivileged DNS port: it is multicast DNS, which Avahi and Bonjour
+already hold on most machines, and a server beside them would be handed
+every mDNS packet on the network and answer it.
+.TP
+.I io-threads
+Threads for the sockets. Default 2.
+.TP
+.I worker-threads
+Threads that answer queries. A forwarded query holds one for as long as
+its upstreams take. Default 8.
+.TP
+.I service-domain
+Domain of the service names; empty switches them off. Default
+.IR euclid.internal ,
+from the TLD reserved for private use, so it can never collide with a
+real name.
+.TP
+.I manager-address
+What
+.I manager.<domain>
+answers, and where instances the manager runs itself are reached. Empty
+takes the host's first non-loopback address, IPv4 first. Default empty.
+.TP
+.I nameserver
+SOA MNAME of every zone, and the NS record of one that stores none.
+Default
+.IR localhost .
+.TP
+.I service-ttl
+TTL of the service names, in seconds. Default 5.
+.TP
+.I refresh-seconds
+How often the in-memory copy is rebuilt. Default 5.
+.TP
+.I forwarders
+Upstream resolvers:
+.IR 192.0.2.53 ,
+.IR 192.0.2.53:5300 ,
+.IR [2001:db8::53]:53 .
+Default none, which refuses every name not held here.
+.TP
+.I allow-recursion
+CIDRs whose clients may have names forwarded. An IPv4-mapped IPv6
+address is matched as the IPv4 address it carries. Default
+.IR "127.0.0.0/8 ::1/128 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fc00::/7" .
+.TP
+.I forward-timeout-ms
+How long one upstream is waited for. Default 2000.
+.TP
+.I tcp-idle-seconds
+How long a TCP connection may sit idle. Default 10.
+.TP
+.IR minInstances ", " maxInstances
+Keep both at 1. Two instances cannot share the port; the second would
+run, serve the API, and log that it could not bind.
+.PP
+.I euclid.modules.eap.node-lease-seconds
+decides how long a silent node is still named. A port that cannot be
+bound is logged and the module keeps running without it, so the zones
+can still be managed and the log says why nothing answers.
+.SH PORT 53
+euclid runs unprivileged, and a port below 1024 needs
+.BR CAP_NET_BIND_SERVICE .
+Either give it to the manager, whose children inherit it, and set
+.I port
+to 53:
+.PP
+.RS
+.nf
+# /etc/systemd/system/euclid.service.d/dns.conf
+[Service]
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+.fi
+.RE
+.PP
+\- with an explicit
+.IR address ,
+since
+.B systemd-resolved
+usually holds 127.0.0.53:53 and a wildcard bind would collide with it.
+.PP
+Or leave the server on 1053 and have the local resolver send it the
+domains it holds:
+.PP
+.RS
+.nf
+# /etc/systemd/resolved.conf.d/euclid.conf
+[Resolve]
+DNS=127.0.0.1:1053
+Domains=~euclid.internal ~corp.example
+.fi
+.RE
+.PP
+The
+.I ~
+makes each a routing domain: questions for it go to EDS, and nothing is
+appended to short names. Add a zone here when you create one, and
+restart
+.BR systemd-resolved .
+.PP
+A global
+.I DNS=
+server with only routing domains may still be sent questions for other
+names \-
+.B resolvectl query example.org
+shows which server answered. Without forwarders EDS refuses them and
+resolved falls back to the next server, so they still resolve but take
+a detour. Setting
+.I forwarders
+to the network's usual resolver makes EDS answer them directly; that
+cannot loop, since the router never asks EDS anything.
+.PP
+Docker containers do not use the host's resolver: they are handed its
+upstream instead, and
+.B \-\-dns
+takes no port. Containers reach EDS only if it is on port 53.
+.SH METRICS
+.TP
+.I eds-query-count
+DNS queries, labelled
+.I outcome
+\-
+.BR NOERROR ,
+.BR NXDOMAIN ,
+.BR SERVFAIL ,
+.BR REFUSED ,
+.BR FORMERR ,
+.BR NOTIMP ,
+.B FORWARDED
+or
+.BR TRUNCATED .
+.TP
+.IR eds-service-count ", " eds-service-time
+API calls and their duration, labelled by action.
+.SH FILES
+.TP
+.I /usr/local/euclid/etc/euclid.json
+Configuration.
+.TP
+.I /var/run/euclid/euclid-eds.sock
+The API socket, by default.
+.PP
+Zones and record sets are stored in the
+.I eds_zone
+and
+.I eds_record
+collections, and are part of the EMM backup. The service names are not
+stored anywhere.
+.SH EXIT STATUS
+.TP
+.B 0
+Stopped by SIGTERM or SIGINT.
+.TP
+.B 1
+The configuration could not be read, the database could not be
+reached at start, or the API socket could not be bound. A DNS port that
+cannot be bound is not a reason to exit.
+.SH EXAMPLES
+Asking it directly:
+.PP
+.RS
+.nf
+dig @127.0.0.1 -p 1053 www.corp.example
+dig @127.0.0.1 -p 1053 +tcp corp.example ANY
+dig @127.0.0.1 -p 1053 _http._tcp.image-processing.app.euclid.internal SRV
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-get-answer (1),
+.BR euclid-cli-emm (1),
+.BR dig (1),
+.BR resolvectl (1),
+.BR resolved.conf (5)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

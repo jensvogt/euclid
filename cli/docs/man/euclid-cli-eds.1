@@ -1,0 +1,241 @@
+.TH EUCLID-CLI-EDS 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds \- manage DNS zones and records, and ask the name server
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B eds
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B eds
+module is euclid's domain name service. Its DNS server listens on UDP
+and TCP port 1053 and answers questions from three sources:
+.IP \(bu 2
+.B zones you store in it
+\- managed with the actions below and answered authoritatively, the way
+a hosted zone is;
+.IP \(bu 2
+.B the names euclid gives what it runs
+\- every application, every live worker node and the manager have a
+name under
+.IR euclid.internal ,
+rebuilt every few seconds from what is actually running (see
+.B SERVICE NAMES
+below);
+.IP \(bu 2
+.B upstream resolvers
+\- every other name is forwarded to them, but only when some are
+configured and only for clients on the networks allowed to recurse.
+.PP
+This command manages the zones and records over the API, with the usual
+credentials and grants. The DNS port itself has no credentials: anybody
+who can reach it can ask it a question. The server is described in
+.BR euclid-eds (8).
+.SH ZONES
+A zone is a domain name \-
+.I corp.example
+\- and every record stored below it. Once a zone exists, the server
+answers for every name in it: with the records stored, and with
+NXDOMAIN for every other name.
+.PP
+.B A zone's name is unique across the installation,
+not only within an account. Every other euclid resource is named per
+account and namespace, but a DNS question carries no account, so two
+accounts each holding
+.I corp.example
+would leave the server nothing to choose by. The account and namespace
+say whose the zone is and who may change it. Its ERN,
+.IR ern:eds:<region>:<account>:<namespace>:zone:<name> ,
+is what a grant names. Another account's zone is answered 404, the same
+as one that does not exist.
+.PP
+Each zone gets an
+.B SOA
+and an
+.B NS
+record of its own. The SOA serial is the time of the zone's last change
+in seconds, so it moves with every write. The NS record names the
+configured name server, unless NS records are stored at the apex.
+.PP
+Zones cannot be created in
+.IR euclid.internal ,
+which holds the service names.
+.SH RECORDS
+Records are written and removed as
+.BR "record sets" :
+every value of one type at one name.
+.BR euclid-cli-eds-put-record (1)
+replaces the whole set at once, so there is never a moment when half the
+old addresses and half the new ones are served.
+.PP
+The types that can be stored are
+.BR A ,
+.BR AAAA ,
+.BR CNAME ,
+.BR MX ,
+.BR NS ,
+.BR PTR ,
+.B SRV
+and
+.BR TXT .
+Values are written as in a zone file, without the quoting \- see
+.BR euclid-cli-eds-put-record (1).
+.SH NAMES
+Wherever a record's name is given, it can be:
+.TP
+.I api
+relative to the zone \-
+.IR api.corp.example ;
+.TP
+.I api.corp.example
+fully qualified, because it already ends in the zone;
+.TP
+.I api.corp.example.
+fully qualified, because of the trailing dot;
+.TP
+.IR @ " or nothing"
+the zone's apex itself;
+.TP
+.I *.dev
+a wildcard, answering for every name below
+.I dev.corp.example
+that has no records of its own.
+.PP
+Names are compared without regard to case. An answer carries the name
+the way the client spelled it.
+.SH SERVICE NAMES
+.TP
+.I manager.euclid.internal
+A/AAAA \- the manager.
+.TP
+.I <node>.node.euclid.internal
+A/AAAA \- each worker node whose lease is live.
+.TP
+.I <application>.app.euclid.internal
+A/AAAA \- every address a running instance of the application is at.
+.TP
+.I _http._tcp.<application>.app.euclid.internal
+SRV \- each instance's port, with its node, or the manager, as the
+target.
+.PP
+They are served with a TTL of five seconds, because the autoscaler
+starts and stops instances far more often than a resolver would
+otherwise look again. Names are lowercased and anything but a letter, a
+digit or a hyphen becomes a hyphen:
+.I Image_Processing
+is
+.IR image-processing .
+.SH ACTIONS
+.TP
+.B create-zone
+Creates a zone the name server answers for. See
+.BR euclid-cli-eds-create-zone (1).
+.TP
+.B get-zone
+Shows a zone, its serial and how many record sets it holds. See
+.BR euclid-cli-eds-get-zone (1).
+.TP
+.B list-zones
+Lists the account's zones. See
+.BR euclid-cli-eds-list-zones (1).
+.TP
+.B delete-zone
+Deletes a zone and every record in it. See
+.BR euclid-cli-eds-delete-zone (1).
+.TP
+.B put-record
+Writes the records of one type at one name, replacing any there. See
+.BR euclid-cli-eds-put-record (1).
+.TP
+.B list-records
+Lists a zone's record sets. See
+.BR euclid-cli-eds-list-records (1).
+.TP
+.B delete-record
+Removes the records of one type at one name. See
+.BR euclid-cli-eds-delete-record (1).
+.TP
+.B get-answer
+Shows what the name server answers for a name, without a DNS client.
+See
+.BR euclid-cli-eds-get-answer (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I eds
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.SH AUTHENTICATION
+.B eds
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials ,
+and signed with RFC 9421 HTTP Message Signatures using the stored
+access key if there is one.
+.SH LIMITS
+No zone transfers (AXFR/IXFR) \- a secondary that wants the zones reads
+them through the API. No DNSSEC signing. No CAA, NAPTR or other record
+types beyond the eight above. Only one instance of the server can run,
+since two cannot share the port.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the request could not be sent, or the server
+rejected it. Details are printed to standard error.
+.SH EXAMPLES
+A zone for an office network, an API behind two addresses, and the
+web site as an alias of it:
+.PP
+.RS
+.nf
+euclid-cli eds create-zone --name corp.example
+euclid-cli eds put-record --zone corp.example --name api --type A \e
+    --value 10.1.2.3 --value 10.1.2.4
+euclid-cli eds put-record --zone corp.example --name www --type CNAME \e
+    --value api.corp.example
+euclid-cli eds get-answer --name www.corp.example
+.fi
+.RE
+.PP
+Asking the server directly, and finding an application's instances:
+.PP
+.RS
+.nf
+dig @127.0.0.1 -p 1053 www.corp.example
+dig @127.0.0.1 -p 1053 image-processing.app.euclid.internal
+dig @127.0.0.1 -p 1053 _http._tcp.image-processing.app.euclid.internal SRV
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-eds (8),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eds-create-zone (1),
+.BR euclid-cli-eds-put-record (1),
+.BR euclid-cli-eds-get-answer (1),
+.BR dig (1),
+.BR resolvectl (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

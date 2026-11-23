@@ -1,0 +1,60 @@
+.TH EUCLID-CLI-EDS-GET-ZONE 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds-get-zone \- show a zone
+.SH SYNOPSIS
+.B euclid-cli eds get-zone
+.BR \-\-name | \-n
+.I ZONE
+.SH DESCRIPTION
+Shows a zone: its TTL, its description, its SOA serial and how many
+record sets it holds. The count is counted when asked rather than kept,
+so it is always right.
+.PP
+The serial is the time of the zone's last change, in seconds since the
+epoch \- creating it, or writing or deleting any record in it. Comparing
+it with what a DNS client sees in the SOA says whether the server has
+picked the change up yet:
+.PP
+.RS
+.nf
+dig @127.0.0.1 -p 1053 corp.example SOA +short
+.fi
+.RE
+.PP
+A zone of another account is answered as not existing.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fIZONE\fR
+The zone's apex. Required.
+.SH OUTPUT
+The zone, as JSON:
+.IR name ,
+.IR ern ,
+.IR namespace ,
+.IR ttl ,
+.IR description ,
+.IR recordCount ,
+.IR serial ,
+.I created
+and
+.IR modified .
+.SH EXIT STATUS
+.TP
+.B 0
+The zone was shown.
+.TP
+.B 1
+No such zone in your account (HTTP 404), or a grant does not allow
+reading it.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eds get-zone --name corp.example
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-list-zones (1),
+.BR euclid-cli-eds-list-records (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
