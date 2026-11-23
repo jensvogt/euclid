@@ -1004,7 +1004,12 @@ jobs:
           # xz rather than fpm's gzip default: the payload is almost entirely executables,
           # where xz is worth another 25% over gzip -9. dpkg has read xz since 2009, so this
           # costs no compatibility on anything with systemd - which the package already requires.
+          #
+          # --no-deb-auto-config-files: see the worker DEB below. Otherwise euclid.service and the
+          # local node's drop-in are conffiles, and a remove followed by a reinstall comes back
+          # without them.
           fpm -s dir -t deb --name "${{ env.APP_NAME }}" \
+          --no-deb-auto-config-files \
           --deb-compression xz \
           --version "${{ env.SEMVER }}" \
           --architecture ${{ matrix.arch }} \
@@ -1679,7 +1684,14 @@ jobs:
           # binary needs, the same set the CLI package names. No libmagic1: euclidcore links
           # vcpkg's own statically, which is why the server package bundles magic.mgc rather than
           # reading the system one.
+          #
+          # --no-deb-auto-config-files: by default fpm marks everything under /etc a conffile, the
+          # unit file included. postrm deletes the unit on "remove", the package stays in the "rc"
+          # state, and dpkg then treats the missing conffile as an admin's deliberate deletion and
+          # never puts it back - so a later reinstall fails in postinst with "Unit euclid-wrk.service
+          # does not exist". Only the configuration is a conffile; the unit is a plain package file.
           fpm -s dir -t deb --name "${{ env.WORKER_NAME }}" \
+          --no-deb-auto-config-files \
           --config-files /usr/local/euclid-wrk/etc/euclid-wrk.json \
           --deb-compression xz \
           --version "${{ env.SEMVER }}" \
