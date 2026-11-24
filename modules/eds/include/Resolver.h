@@ -75,7 +75,7 @@ namespace Euclid::EDS {
          * @brief Adds one value. A second value of the same type at the same name joins the set;
          * its TTL is the lowest of theirs, since a set has one TTL (RFC 2181 §5.2).
          */
-        void Add(const std::string &owner, std::uint16_t type, std::uint32_t ttl, std::vector<std::uint8_t> rdata,
+        void Add(const std::string &owner, std::uint16_t type, std::uint32_t recordTtl, std::vector<std::uint8_t> rdata,
                  const std::string &target = {});
 
         /**
@@ -88,7 +88,7 @@ namespace Euclid::EDS {
          * @brief Whether a name exists in the zone - has records, or has a name with records
          * below it (an "empty non-terminal", RFC 8020: answered NODATA, not NXDOMAIN).
          */
-        [[nodiscard]] bool Exists(const std::string &name) const { return _existing.contains(name); }
+        [[nodiscard]] bool Exists(const std::string &owner) const { return _existing.contains(owner); }
 
     private:
         std::set<std::string> _existing;
