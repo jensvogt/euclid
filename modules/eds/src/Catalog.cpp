@@ -90,7 +90,10 @@ namespace Euclid::EDS {
     std::string ToLabel(const std::string &name) {
 
         std::string label;
-        for (const unsigned char c: name) {
+        for (const char ch: name) {
+            // Through unsigned char: <cctype> is undefined for a negative char, which any byte
+            // above 0x7F is where char is signed.
+            const auto c = static_cast<unsigned char>(ch);
             if (std::isalnum(c) != 0) label += static_cast<char>(std::tolower(c));
             else label += '-';
         }
