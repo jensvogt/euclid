@@ -45,15 +45,15 @@ namespace Euclid::EDS {
 
     }// namespace
 
-    void Zone::Add(const std::string &owner, const std::uint16_t type, const std::uint32_t ttl, std::vector<std::uint8_t> rdata,
+    void Zone::Add(const std::string &owner, const std::uint16_t type, const std::uint32_t recordTtl, std::vector<std::uint8_t> rdata,
                    const std::string &target) {
 
         auto &set = names[owner][type];
         if (set.rdata.empty()) {
             set.type = type;
-            set.ttl = ttl;
+            set.ttl = recordTtl;
         } else {
-            set.ttl = std::min(set.ttl, ttl);
+            set.ttl = std::min(set.ttl, recordTtl);
         }
         // A duplicate value is one record, not two (RFC 2181 §5).
         if (std::ranges::find(set.rdata, rdata) == set.rdata.end()) set.rdata.push_back(std::move(rdata));
