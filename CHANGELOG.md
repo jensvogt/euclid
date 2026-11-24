@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.3](https://github.com/jensvogt/euclid/compare/2.4.2...v2.4.3) (2026-11-24)
+
+
+### Bug Fixes
+
+* EDS fix for Resolver.cpp ([3e901c2](https://github.com/jensvogt/euclid/commit/3e901c28c814004e77ab7fa90b1fd8a25a056955))
+* EDS fix for Resolver.cpp ([c2cfc7f](https://github.com/jensvogt/euclid/commit/c2cfc7fe75fdc34a18c5359af3df32c64ba48090))
+
 ## [2.4.2](https://github.com/jensvogt/euclid/compare/v2.4.1...v2.4.2) (2026-11-21)
 
 
