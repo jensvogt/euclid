@@ -41,7 +41,8 @@ namespace Euclid::Core {
                 "ead:list-events",
                 "ead:purge-events",
 
-                // eag - 6 actions
+                // eag - 7 actions
+                "eag:copy-route",
                 "eag:create-route",
                 "eag:delete-route",
                 "eag:get-metrics",
