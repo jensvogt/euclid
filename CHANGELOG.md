@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.4](https://github.com/jensvogt/euclid/compare/2.4.3...v2.4.4) (2026-11-25)
+
+
+### Bug Fixes
+
+* EDS add update zone/record ([89418c6](https://github.com/jensvogt/euclid/commit/89418c63649a462bb17cabdbf3d163b0328ae89a))
+
 ## [2.4.3](https://github.com/jensvogt/euclid/compare/2.4.2...v2.4.3) (2026-11-24)
 
 
