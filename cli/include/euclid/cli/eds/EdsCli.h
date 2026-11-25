@@ -47,8 +47,10 @@ namespace Euclid::CLI {
         [[nodiscard]] int createZone(const std::vector<std::string> &args) const;
         [[nodiscard]] int getZone(const std::vector<std::string> &args) const;
         [[nodiscard]] int listZones(const std::vector<std::string> &args) const;
+        [[nodiscard]] int updateZone(const std::vector<std::string> &args) const;
         [[nodiscard]] int deleteZone(const std::vector<std::string> &args) const;
         [[nodiscard]] int putRecord(const std::vector<std::string> &args) const;
+        [[nodiscard]] int updateRecord(const std::vector<std::string> &args) const;
         [[nodiscard]] int deleteRecord(const std::vector<std::string> &args) const;
         [[nodiscard]] int listRecords(const std::vector<std::string> &args) const;
         [[nodiscard]] int getAnswer(const std::vector<std::string> &args) const;

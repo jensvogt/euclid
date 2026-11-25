@@ -136,7 +136,7 @@ namespace Euclid::Core {
                 "eap:stop-application",
                 "eap:update-application",
 
-                // eds - 9 actions
+                // eds - 11 actions
                 "eds:create-zone",
                 "eds:delete-record",
                 "eds:delete-zone",
@@ -146,6 +146,8 @@ namespace Euclid::Core {
                 "eds:list-records",
                 "eds:list-zones",
                 "eds:put-record",
+                "eds:update-record",
+                "eds:update-zone",
 
                 // ees - 6 actions
                 "ees:ack-events",

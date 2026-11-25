@@ -159,6 +159,22 @@ namespace Euclid::Database {
         }
     }
 
+    bool MongoEdsRepository::updateZone(const Entity::EDS::HostedZone &zone) {
+
+        try {
+            const auto result = Database::instance().collection(ZONE_COLLECTION).update_one(
+                    make_document(kvp("name", zone.name)),
+                    make_document(kvp("$set", make_document(kvp("ttl", static_cast<std::int64_t>(zone.ttl)),
+                                                            kvp("description", zone.description),
+                                                            kvp("modified", bsoncxx::types::b_date{zone.modified})))));
+            return result.has_value() && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Update zone failed, zone: " << zone.name << ", error: " << e.what();
+            throw;
+        }
+    }
+
     void MongoEdsRepository::touchZone(const std::string &name, const std::chrono::system_clock::time_point when) {
 
         try {
