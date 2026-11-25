@@ -23,6 +23,8 @@
 #include <euclid/dto/eds/ListZonesRequest.h>
 #include <euclid/dto/eds/PutRecordRequest.h>
 #include <euclid/dto/eds/RecordRequest.h>
+#include <euclid/dto/eds/UpdateRecordRequest.h>
+#include <euclid/dto/eds/UpdateZoneRequest.h>
 #include <euclid/dto/eds/ZoneRequest.h>
 
 namespace Euclid::EDS {
@@ -269,6 +271,57 @@ namespace Euclid::EDS {
                                                                                   {"total", repository->countZones(auth.user->accountId, ns, prefix)}}));
     }
 
+    // Changes what a zone says about itself - its TTL and description - and nothing else. Only the
+    // fields the request carries are changed, so "ttl" can be set without resending the
+    // description, and an empty description clears it rather than being taken as "not given".
+    static response<string_body> handleUpdateZone(const request<string_body> &req, Catalog &catalog) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "update-zone");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EdsServer::ParseJsonBody(req, jv)) return *err;
+        const auto request = boost::json::value_to<Dto::EDS::UpdateZoneRequest>(jv);
+
+        std::optional<response<string_body> > refusal;
+        auto zone = zoneFor(req, auth, request.name, refusal);
+        if (!zone.has_value()) return *refusal;
+
+        const bool ttlGiven = Core::AttributeExists(jv, "ttl");
+        const bool descriptionGiven = Core::AttributeExists(jv, "description");
+        if (!ttlGiven && !descriptionGiven) {
+            return EdsServer::ErrorResponse(req, status::bad_request, "nothing to change; give ttl, description or both");
+        }
+
+        if (ttlGiven) {
+            // Not 0 here, unlike create-zone where 0 means "the default": an update that set a zone
+            // to 300 because somebody typed 0 would be a change nobody asked for.
+            if (request.ttl < 1 || request.ttl > kMaxTtl) {
+                return EdsServer::ErrorResponse(req, status::bad_request, "ttl has to be between 1 and 2147483647 seconds");
+            }
+            zone->ttl = request.ttl;
+        }
+        if (descriptionGiven) zone->description = request.description;
+
+        // Modified moves even when only the description changed. The SOA serial is made from it,
+        // and the zone's TTL is in the SOA (its negative-caching field), so a TTL change is a
+        // change to what the server answers - and a serial that did not move would hide it.
+        zone->modified = std::chrono::system_clock::now();
+
+        const auto repository = Database::RepositoryFactory::instance().edsRepository();
+        if (!repository->updateZone(*zone)) {
+            // Deleted between the lookup and the write.
+            return EdsServer::ErrorResponse(req, status::not_found, "Zone does not exist: " + zone->name);
+        }
+        catalog.Invalidate();
+
+        log_info << "EDS UpdateZone, zone: " << zone->name << (ttlGiven ? ", ttl: " + std::to_string(zone->ttl) : std::string{})
+                 << (descriptionGiven ? ", description changed" : "");
+        return EdsServer::JsonResponse(req, status::ok, boost::json::serialize(describeZone(*zone, repository->countRecords(zone->name, {}, {}))));
+    }
+
     static response<string_body> handleDeleteZone(const request<string_body> &req, Catalog &catalog) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-zone");
@@ -364,6 +417,101 @@ namespace Euclid::EDS {
         catalog.Invalidate();
 
         log_info << "EDS PutRecord, name: " << stored.name << ", type: " << stored.type << ", values: " << stored.values.size();
+        return EdsServer::JsonResponse(req, status::ok, boost::json::serialize(describeRecord(stored)));
+    }
+
+    // Changes part of a record set without resending the rest of it: its TTL, values removed and
+    // values added. Removal comes first, so one request can swap one address for another. Values are
+    // compared encoded rather than as typed, so "Host.Example.COM." removes "host.example.com".
+    static response<string_body> handleUpdateRecord(const request<string_body> &req, Catalog &catalog) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "update-record");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EdsServer::ParseJsonBody(req, jv)) return *err;
+        const auto request = boost::json::value_to<Dto::EDS::UpdateRecordRequest>(jv);
+
+        std::optional<response<string_body> > refusal;
+        const auto zone = zoneFor(req, auth, request.zone, refusal);
+        if (!zone.has_value()) return *refusal;
+
+        std::string error;
+        const auto name = ownerName(zone->name, request.name, error);
+        if (!name.has_value()) return EdsServer::ErrorResponse(req, status::bad_request, error);
+
+        const auto type = Dns::TypeFromString(request.type);
+        if (!type.has_value()) return EdsServer::ErrorResponse(req, status::bad_request, "type is required");
+        const auto typeName = Dns::TypeToString(*type);
+
+        const bool ttlGiven = Core::AttributeExists(jv, "ttl");
+        if (!ttlGiven && request.addValues.empty() && request.removeValues.empty()) {
+            return EdsServer::ErrorResponse(req, status::bad_request, "nothing to change; give ttl, addValues, removeValues or a combination");
+        }
+        // 0 is allowed here, unlike for a zone: on a record it means "the zone's TTL", which is a
+        // setting a record can be put back to.
+        if (ttlGiven && (request.ttl < 0 || request.ttl > kMaxTtl)) {
+            return EdsServer::ErrorResponse(req, status::bad_request, "ttl has to be between 0 (the zone's) and 2147483647 seconds");
+        }
+
+        const auto repository = Database::RepositoryFactory::instance().edsRepository();
+        std::optional<Record> record;
+        for (auto &found: repository->findRecords(zone->name, *name)) {
+            if (found.type == typeName) record = std::move(found);
+        }
+        if (!record.has_value()) {
+            return EdsServer::ErrorResponse(req, status::not_found, "No " + typeName + " records at " + *name + "; put-record creates them");
+        }
+
+        const auto encode = [&](const std::string &value) { return Dns::EncodeRdata(*type, value, error); };
+
+        // Removals first, each of which has to be there: a typo that removed nothing and said
+        // "done" would leave the address somebody meant to take out still being served.
+        std::vector<std::string> values = record->values;
+        for (const auto &value: request.removeValues) {
+            const auto target = encode(value);
+            if (!target.has_value()) return EdsServer::ErrorResponse(req, status::bad_request, error);
+            const auto match = std::ranges::find_if(values, [&](const std::string &stored) {
+                std::string ignored;
+                return Dns::EncodeRdata(*type, stored, ignored) == target;
+            });
+            if (match == values.end()) {
+                return EdsServer::ErrorResponse(req, status::bad_request, "'" + value + "' is not one of the " + typeName + " values at " + *name);
+            }
+            values.erase(match);
+        }
+
+        // Additions, each checked as put-record checks it. One already there is not added twice.
+        for (const auto &value: request.addValues) {
+            const auto added = encode(value);
+            if (!added.has_value()) return EdsServer::ErrorResponse(req, status::bad_request, error);
+            const bool present = std::ranges::any_of(values, [&](const std::string &stored) {
+                std::string ignored;
+                return Dns::EncodeRdata(*type, stored, ignored) == added;
+            });
+            if (!present) values.push_back(value);
+        }
+
+        if (values.empty()) {
+            return EdsServer::ErrorResponse(req, status::bad_request, "that would leave " + *name + " with no " + typeName + " values; delete-record removes a record set");
+        }
+        if (*type == Dns::Type::CNAME && values.size() != 1) {
+            return EdsServer::ErrorResponse(req, status::bad_request, "a CNAME has exactly one value; give the new one with addValues and the old one with removeValues");
+        }
+
+        const auto now = std::chrono::system_clock::now();
+        record->values = std::move(values);
+        if (ttlGiven) record->ttl = request.ttl;
+        record->modified = now;
+
+        const auto stored = repository->putRecord(*record);
+        repository->touchZone(zone->name, now);
+        catalog.Invalidate();
+
+        log_info << "EDS UpdateRecord, name: " << stored.name << ", type: " << stored.type << ", values: " << stored.values.size()
+                 << (ttlGiven ? ", ttl: " + std::to_string(stored.ttl) : std::string{});
         return EdsServer::JsonResponse(req, status::ok, boost::json::serialize(describeRecord(stored)));
     }
 
@@ -494,8 +642,10 @@ namespace Euclid::EDS {
         if (action == "create-zone") return handleCreateZone(req, catalog);
         if (action == "get-zone") return handleGetZone(req);
         if (action == "list-zones") return handleListZones(req);
+        if (action == "update-zone") return handleUpdateZone(req, catalog);
         if (action == "delete-zone") return handleDeleteZone(req, catalog);
         if (action == "put-record") return handlePutRecord(req, catalog);
+        if (action == "update-record") return handleUpdateRecord(req, catalog);
         if (action == "delete-record") return handleDeleteRecord(req, catalog);
         if (action == "list-records") return handleListRecords(req);
         if (action == "get-answer") return handleGetAnswer(req, catalog);

@@ -1,0 +1,68 @@
+.TH EUCLID-CLI-EDS-UPDATE-ZONE 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds-update-zone \- change a zone's TTL or description
+.SH SYNOPSIS
+.B euclid-cli eds update-zone
+.BR \-\-name | \-n
+.I ZONE
+[\fB\-\-ttl\fR \fISECONDS\fR]
+[\fB\-\-description\fR|\fB\-d\fR \fITEXT\fR]
+.SH DESCRIPTION
+Changes what a zone says about itself: its TTL, its description, or
+both. Only what is given changes \- setting the TTL leaves the
+description as it was, and the other way round. At least one of the two
+has to be given.
+.PP
+The zone's TTL is used by every record in it that sets none of its own,
+and is how long a resolver may cache an answer saying a name or a type
+is not there. A changed TTL is answered by the server within a moment;
+resolvers that cached an answer under the old TTL keep it until that
+runs out. Lowering it a while before a planned change is how to make
+the change land quickly everywhere.
+.PP
+Every update moves the zone's SOA serial, the TTL being part of the
+SOA.
+.PP
+A zone cannot be renamed or moved to another namespace: its name is
+what its records and every grant on it refer to. To rename one, create
+the new zone, put its records, and delete the old one.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fIZONE\fR
+The zone's apex. Required.
+.TP
+.BR \-\-ttl " " \fISECONDS\fR
+New TTL, at least 1 and at most 2147483647. Unlike
+.BR euclid-cli-eds-create-zone (1),
+0 does not mean the default here; it is refused.
+.TP
+.BR \-d ", " \-\-description " " \fITEXT\fR
+New description.
+.I \(dq\(dq
+clears it.
+.SH OUTPUT
+The zone as it now is, as JSON, in the form
+.BR euclid-cli-eds-get-zone (1)
+shows it.
+.SH EXIT STATUS
+.TP
+.B 0
+The zone was updated.
+.TP
+.B 1
+Neither option was given, no such zone in your account (HTTP 404), the
+TTL is out of range, or a grant does not allow it.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eds update-zone --name corp.example --ttl 60
+euclid-cli eds update-zone --name corp.example --description "office network"
+euclid-cli eds update-zone --name lab.corp.example --description ""
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-get-zone (1),
+.BR euclid-cli-eds-create-zone (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

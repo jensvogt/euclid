@@ -20,6 +20,7 @@ can ask.
 euclid-cli eds create-zone --name corp.example [--ttl 300] [--description "office network"]
 euclid-cli eds list-zones
 euclid-cli eds get-zone --name corp.example
+euclid-cli eds update-zone --name corp.example --ttl 60 [--description "..."]   # only what is given changes
 euclid-cli eds delete-zone --name corp.example        # and every record in it
 ```
 
@@ -46,6 +47,16 @@ euclid-cli eds put-record --zone corp.example --name @    --type TXT   --value "
 euclid-cli eds put-record --zone corp.example --name "*.dev" --type A  --value 10.9.0.1 --ttl 30
 euclid-cli eds list-records --zone corp.example [--name api] [--type A]
 euclid-cli eds delete-record --zone corp.example --name api --type A
+```
+
+`update-record` changes part of an existing set without resending the rest: its TTL (`0` puts it back to the zone's),
+values removed and values added. Removals happen first, so one call can swap a value. A value to remove has to be
+there, or nothing changes; values are compared encoded, so `"10 MAIL.Corp.Example."` matches `"10 mail.corp.example"`.
+It never leaves a set empty (that is `delete-record`) or a CNAME with other than one value:
+
+```bash
+euclid-cli eds update-record --zone corp.example --name api --type A --remove-value 10.1.2.3 --add-value 10.1.2.5
+euclid-cli eds update-record --zone corp.example --name api --type A --ttl 60
 ```
 
 **Names** can be given in several forms:

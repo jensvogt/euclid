@@ -70,6 +70,9 @@ every value of one type at one name.
 .BR euclid-cli-eds-put-record (1)
 replaces the whole set at once, so there is never a moment when half the
 old addresses and half the new ones are served.
+.BR euclid-cli-eds-update-record (1)
+changes part of one \- its TTL, or single values added and removed \-
+without resending the rest.
 .PP
 The types that can be stored are
 .BR A ,
@@ -142,6 +145,10 @@ Shows a zone, its serial and how many record sets it holds. See
 Lists the account's zones. See
 .BR euclid-cli-eds-list-zones (1).
 .TP
+.B update-zone
+Changes a zone's TTL or description. See
+.BR euclid-cli-eds-update-zone (1).
+.TP
 .B delete-zone
 Deletes a zone and every record in it. See
 .BR euclid-cli-eds-delete-zone (1).
@@ -149,6 +156,10 @@ Deletes a zone and every record in it. See
 .B put-record
 Writes the records of one type at one name, replacing any there. See
 .BR euclid-cli-eds-put-record (1).
+.TP
+.B update-record
+Changes a record set's TTL, or adds and removes single values. See
+.BR euclid-cli-eds-update-record (1).
 .TP
 .B list-records
 Lists a zone's record sets. See
@@ -233,7 +244,9 @@ dig @127.0.0.1 -p 1053 _http._tcp.image-processing.app.euclid.internal SRV
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-eap (1),
 .BR euclid-cli-eds-create-zone (1),
+.BR euclid-cli-eds-update-zone (1),
 .BR euclid-cli-eds-put-record (1),
+.BR euclid-cli-eds-update-record (1),
 .BR euclid-cli-eds-get-answer (1),
 .BR dig (1),
 .BR resolvectl (1)

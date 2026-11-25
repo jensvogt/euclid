@@ -972,6 +972,18 @@ target_link_libraries(${EDS_DNS_BINARY} PRIVATE eucliddto Boost::thread Boost::u
 
 add_test(NAME ${EDS_DNS_BINARY} COMMAND ${EDS_DNS_BINARY})
 
+set(EDS_UPDATE_BINARY euclid-eds-update-tests)
+
+add_executable(${EDS_UPDATE_BINARY} EdsUpdateTest.cpp ${CMAKE_SOURCE_DIR}/modules/eds/src/EdsServer.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eds/src/DnsMessage.cpp ${CMAKE_SOURCE_DIR}/modules/eds/src/Resolver.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eds/src/Catalog.cpp ${CMAKE_SOURCE_DIR}/modules/eds/src/DnsListener.cpp)
+set_target_properties(${EDS_UPDATE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EDS_UPDATE_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eds/include)
+target_link_libraries(${EDS_UPDATE_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${EDS_UPDATE_BINARY} COMMAND ${EDS_UPDATE_BINARY})
+
 set(EKV_VALUE_BINARY euclid-ekv-value-tests)
 
 add_executable(${EKV_VALUE_BINARY} EkvValueTest.cpp)
