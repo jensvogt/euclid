@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.5](https://github.com/jensvogt/euclid/compare/v2.4.4...v2.4.5) (2026-11-25)
+
+
+### Bug Fixes
+
+* EAG add copy routes ([9873ee1](https://github.com/jensvogt/euclid/commit/9873ee1db3952152598fca3349f58cbd7cb28c65))
+* EAG add copy routes ([c8e608e](https://github.com/jensvogt/euclid/commit/c8e608e01178ac4bcd90257f718485c38f8e71ec))
+
 ## [2.4.4](https://github.com/jensvogt/euclid/compare/2.4.3...v2.4.4) (2026-11-25)
 
 
