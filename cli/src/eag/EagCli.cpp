@@ -84,6 +84,66 @@ namespace Euclid::CLI {
             return false;
         }
 
+        // The changes update-route and copy-route both accept: one list, so a setting that can be
+        // changed on a route can be changed on a copy of it, and the two cannot drift apart.
+        void addRouteChangeOptions(po::options_description &desc) {
+            desc.add_options()
+                    ("path,p", po::value<std::string>(), "new path prefix")
+                    ("type,t", po::value<std::string>(), "proxy or upload")
+                    ("application,a", po::value<std::string>(), "application the requests are sent to")
+                    ("module,M", po::value<std::string>(), "euclid module the requests are sent to instead of an application")
+                    ("action", po::value<std::string>(), "the action the module answers for on this route")
+                    ("bucket,b", po::value<std::string>(), "upload routes only: ERN of the bucket bodies are written to")
+                    ("key-prefix,k", po::value<std::string>(), "upload routes only: prefix every key is confined to")
+                    ("max-bytes,x", po::value<std::int64_t>(), "upload routes only: largest body accepted, in bytes; 0 for no limit")
+                    ("part-size,s", po::value<std::int64_t>(), "upload routes only: bytes per part streamed to ESM")
+                    ("content-types,c", po::value<std::string>(), "upload routes only: comma-separated content types accepted; an empty string for any")
+                    ("methods,m", po::value<std::string>(), "comma-separated HTTP methods, or an empty string for all of them")
+                    ("region,R", po::value<std::string>(), "region requests on this route act in")
+                    ("namespace,N", po::value<std::string>(), "namespace requests on this route act in")
+                    ("authentication,A", po::value<std::string>(), "none, euclid or basic")
+                    ("timeout,T", po::value<std::int64_t>(), "seconds the backend has to answer, 1 to 3600; 0 to go back to the gateway's default")
+                    ("active", po::value<bool>(), "true to put the route into service, false to take it out");
+        }
+
+        // Adds to request every change the command line names. False, having said why, when one of
+        // them cannot be sent.
+        bool readRouteChanges(const po::variables_map &vm, boost::json::object &request, const std::string &action) {
+            if (vm.contains("path")) {
+                const auto path = vm["path"].as<std::string>();
+                if (!ValidPath(path, action)) return false;
+                request["path"] = path;
+            }
+            if (vm.contains("type")) {
+                auto type = vm["type"].as<std::string>();
+                std::ranges::transform(type, type.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (type != "proxy" && type != "upload") {
+                    std::cerr << "error: " << action << " failed: --type must be proxy or upload\n";
+                    return false;
+                }
+                request["type"] = type;
+            }
+            if (vm.contains("application")) request["applicationId"] = vm["application"].as<std::string>();
+            if (vm.contains("module")) request["moduleTarget"] = vm["module"].as<std::string>();
+            if (vm.contains("action")) request["moduleAction"] = vm["action"].as<std::string>();
+            if (vm.contains("bucket")) request["bucket"] = vm["bucket"].as<std::string>();
+            if (vm.contains("key-prefix")) request["keyPrefix"] = vm["key-prefix"].as<std::string>();
+            if (vm.contains("max-bytes")) request["maxBytes"] = vm["max-bytes"].as<std::int64_t>();
+            if (vm.contains("part-size")) request["partSize"] = vm["part-size"].as<std::int64_t>();
+            if (vm.contains("content-types")) request["contentTypes"] = SplitContentTypes(vm["content-types"].as<std::string>());
+            if (vm.contains("region")) request["region"] = vm["region"].as<std::string>();
+            if (vm.contains("namespace")) request["namespace"] = vm["namespace"].as<std::string>();
+            if (vm.contains("methods")) request["methods"] = SplitMethods(vm["methods"].as<std::string>());
+            if (vm.contains("authentication")) {
+                const auto authentication = vm["authentication"].as<std::string>();
+                if (!ValidAuthentication(authentication, action)) return false;
+                request["authentication"] = authentication;
+            }
+            if (vm.contains("timeout")) request["timeout"] = vm["timeout"].as<std::int64_t>();
+            if (vm.contains("active")) request["active"] = vm["active"].as<bool>();
+            return true;
+        }
+
     }// namespace
 
     EagCli::EagCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
@@ -98,6 +158,7 @@ namespace Euclid::CLI {
      */
     const std::vector<std::pair<std::string, std::string> > &EagCli::Actions() {
         static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"copy-route", "Create a route from an existing one, changing only what is named"},
                 {"create-route", "Publish a path through the gateway, pointing it at an application"},
                 {"delete-route", "Remove a route, taking its path out of service"},
                 {"get-route", "Show one route's definition"},
@@ -129,6 +190,7 @@ namespace Euclid::CLI {
 
         if (action == "create-route") return createRoute(args);
         if (action == "update-route") return updateRoute(args);
+        if (action == "copy-route") return copyRoute(args);
         if (action == "list-routes") return listRoutes(args);
         if (action == "get-route") return getRoute(args);
         if (action == "delete-route") return deleteRoute(args);
@@ -317,23 +379,8 @@ namespace Euclid::CLI {
     int EagCli::updateRoute(const std::vector<std::string> &args) const {
         po::options_description desc("update a route");
         desc.add_options()
-                ("route-id,r", po::value<std::string>()->required(), "route to change")
-                ("path,p", po::value<std::string>(), "new path prefix")
-                ("type,t", po::value<std::string>(), "proxy or upload")
-                ("application,a", po::value<std::string>(), "application the requests are sent to")
-                ("module,M", po::value<std::string>(), "euclid module the requests are sent to instead of an application")
-                ("action", po::value<std::string>(), "the action the module answers for on this route")
-                ("bucket,b", po::value<std::string>(), "upload routes only: ERN of the bucket bodies are written to")
-                ("key-prefix,k", po::value<std::string>(), "upload routes only: prefix every key is confined to")
-                ("max-bytes,x", po::value<std::int64_t>(), "upload routes only: largest body accepted, in bytes; 0 for no limit")
-                ("part-size,s", po::value<std::int64_t>(), "upload routes only: bytes per part streamed to ESM")
-                ("content-types,c", po::value<std::string>(), "upload routes only: comma-separated content types accepted; an empty string for any")
-                ("methods,m", po::value<std::string>(), "comma-separated HTTP methods, or an empty string for all of them")
-                ("region,R", po::value<std::string>(), "region requests on this route act in")
-                ("namespace,N", po::value<std::string>(), "namespace requests on this route act in")
-                ("authentication,A", po::value<std::string>(), "none, euclid or basic")
-                ("timeout,T", po::value<std::int64_t>(), "seconds the backend has to answer, 1 to 3600; 0 to go back to the gateway's default")
-                ("active", po::value<bool>(), "true to put the route into service, false to take it out");
+                ("route-id,r", po::value<std::string>()->required(), "route to change");
+        addRouteChangeOptions(desc);
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eag", "update-route",
@@ -370,40 +417,53 @@ namespace Euclid::CLI {
 
         boost::json::object request{{"routeId", vm["route-id"].as<std::string>()}};
 
-        if (vm.contains("path")) {
-            const auto path = vm["path"].as<std::string>();
-            if (!ValidPath(path, "update-route")) return 1;
-            request["path"] = path;
-        }
-        if (vm.contains("type")) {
-            auto type = vm["type"].as<std::string>();
-            std::ranges::transform(type, type.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            if (type != "proxy" && type != "upload") {
-                std::cerr << "error: update-route failed: --type must be proxy or upload\n";
-                return 1;
-            }
-            request["type"] = type;
-        }
-        if (vm.contains("application")) request["applicationId"] = vm["application"].as<std::string>();
-        if (vm.contains("module")) request["moduleTarget"] = vm["module"].as<std::string>();
-        if (vm.contains("action")) request["moduleAction"] = vm["action"].as<std::string>();
-        if (vm.contains("bucket")) request["bucket"] = vm["bucket"].as<std::string>();
-        if (vm.contains("key-prefix")) request["keyPrefix"] = vm["key-prefix"].as<std::string>();
-        if (vm.contains("max-bytes")) request["maxBytes"] = vm["max-bytes"].as<std::int64_t>();
-        if (vm.contains("part-size")) request["partSize"] = vm["part-size"].as<std::int64_t>();
-        if (vm.contains("content-types")) request["contentTypes"] = SplitContentTypes(vm["content-types"].as<std::string>());
-        if (vm.contains("region")) request["region"] = vm["region"].as<std::string>();
-        if (vm.contains("namespace")) request["namespace"] = vm["namespace"].as<std::string>();
-        if (vm.contains("methods")) request["methods"] = SplitMethods(vm["methods"].as<std::string>());
-        if (vm.contains("authentication")) {
-            const auto authentication = vm["authentication"].as<std::string>();
-            if (!ValidAuthentication(authentication, "update-route")) return 1;
-            request["authentication"] = authentication;
-        }
-        if (vm.contains("timeout")) request["timeout"] = vm["timeout"].as<std::int64_t>();
-        if (vm.contains("active")) request["active"] = vm["active"].as<bool>();
+        if (!readRouteChanges(vm, request, "update-route")) return 1;
 
         return Send(_endpoint, _authentication, _caCertPath, _pretty, "update-route", request);
+    }
+
+    int EagCli::copyRoute(const std::vector<std::string> &args) const {
+        po::options_description desc("copy a route");
+        desc.add_options()
+                ("route-id,r", po::value<std::string>()->required(), "route to copy")
+                ("new-route-id,n", po::value<std::string>(), "the copy's routeId; defaults to the source's, which needs --namespace");
+        addRouteChangeOptions(desc);
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eag", "copy-route",
+                                   "--route-id <id> [--new-route-id <id>] [--path <prefix>] [--namespace <ns>] [--methods <list>] "
+                                   "[--application <name>] [...any option update-route takes]",
+                                   "Creates a route from an existing one. The copy has everything the source has, with "
+                                   "the options given here changed exactly as update-route would change them, and is "
+                                   "stored under its own routeId - the source is not touched. "
+                                   "\n\n"
+                                   "A copy cannot answer for the same path and methods as the route it was copied from "
+                                   "in the same namespace, so it has to differ in at least one: --path, --methods or "
+                                   "--namespace. Copying into another namespace keeps the source's routeId unless "
+                                   "--new-route-id names another; within the same namespace, --new-route-id is needed. "
+                                   "The result is checked as a whole, as an update is: the application has to exist in "
+                                   "the copy's namespace, and an upload route still needs a bucket and authentication. "
+                                   "\n\n"
+                                   "--inactive is not an option here; add \"--active false\" to create the copy out of "
+                                   "service.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        boost::json::object request{{"routeId", vm["route-id"].as<std::string>()}};
+        if (vm.contains("new-route-id")) request["newRouteId"] = vm["new-route-id"].as<std::string>();
+
+        if (!readRouteChanges(vm, request, "copy-route")) return 1;
+
+        return Send(_endpoint, _authentication, _caCertPath, _pretty, "copy-route", request);
     }
 
     int EagCli::listRoutes(const std::vector<std::string> &args) const {

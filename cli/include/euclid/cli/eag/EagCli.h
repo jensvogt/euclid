@@ -78,6 +78,8 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int updateRoute(const std::vector<std::string> &args) const;
+        [[nodiscard]]
+        int copyRoute(const std::vector<std::string> &args) const;
 
         /**
          * @brief Lists the configured routes.

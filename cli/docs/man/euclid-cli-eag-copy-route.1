@@ -1,0 +1,134 @@
+.TH EUCLID-CLI-EAG-COPY-ROUTE 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eag-copy-route \- create a route from an existing one
+.SH SYNOPSIS
+.B euclid-cli eag copy-route
+.BR \-\-route\-id | \-r
+.I ROUTE
+[\fB\-\-new\-route\-id\fR|\fB\-n\fR \fIID\fR]
+[\fIany option update-route takes\fR...]
+.SH DESCRIPTION
+Creates a new route from an existing one. The copy has everything the
+source has \- path, methods, backend, authentication, timeout, upload
+settings, state \- with the options given here changed exactly as
+.BR euclid-cli-eag-update-route (1)
+would change them, and is stored under its own route ID. The source is
+not touched.
+.PP
+It is for a route that differs from another in one or two settings: the
+same path published in another namespace, another set of methods on the
+same path sent to another application, a second version of an API on a
+neighbouring path. Only what differs is written down, so nothing that
+should have stayed the same can be mistyped on the way.
+.SH WHAT HAS TO DIFFER
+Two routes may not answer for the same path and the same methods in the
+same namespace, so a copy has to differ from its source in at least one
+of
+.BR \-\-path ,
+.B \-\-methods
+or
+.BR \-\-namespace .
+A copy that would collide with its source, or with any other route, is
+refused and nothing is stored.
+.PP
+A route ID is unique within a namespace. Copied into another namespace,
+the copy keeps the source's route ID unless
+.B \-\-new\-route\-id
+names another; within the same namespace,
+.B \-\-new\-route\-id
+is needed.
+.SH CHECKED AS A WHOLE
+The copy is checked the way an update is: as the route it will be, not
+field by field. In particular:
+.IP \(bu 2
+an application it names has to exist in the copy's namespace \- which a
+route copied into another namespace without
+.B \-\-application
+keeps from its source, so that application has to be deployed there
+too;
+.IP \(bu 2
+an upload route still needs a bucket, no application, and
+authentication other than none.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-route\-id " " \fIROUTE\fR
+The route to copy, in the namespace your session is working in.
+Required.
+.TP
+.BR \-n ", " \-\-new\-route\-id " " \fIID\fR
+The copy's route ID. Defaults to the source's, which only works
+together with
+.BR \-\-namespace .
+.PP
+Every other option is one of
+.BR euclid-cli-eag-update-route (1)'s,
+with the same meaning:
+.BR \-\-path ,
+.BR \-\-methods ,
+.BR \-\-application ,
+.BR \-\-module ,
+.BR \-\-action ,
+.BR \-\-type ,
+.BR \-\-bucket ,
+.BR \-\-key\-prefix ,
+.BR \-\-max\-bytes ,
+.BR \-\-part\-size ,
+.BR \-\-content\-types ,
+.BR \-\-region ,
+.BR \-\-namespace ,
+.BR \-\-authentication ,
+.B \-\-timeout
+and
+.BR \-\-active .
+.PP
+.B \-\-active false
+creates the copy out of service, to be put in service with
+.B update-route \-\-active true
+once it has been checked.
+.SH OUTPUT
+The new route, as JSON, in the form
+.BR euclid-cli-eag-get-route (1)
+shows it.
+.SH EXIT STATUS
+.TP
+.B 0
+The copy was created.
+.TP
+.B 1
+No such source route (HTTP 404), a route of the copy's ID exists
+already in the copy's namespace or its path and methods are taken (HTTP
+409), the application it names does not exist in its namespace (HTTP
+404), an option was invalid, or you are not an administrator.
+.SH EXAMPLES
+The same route, published for integration:
+.PP
+.RS
+.nf
+euclid-cli eag copy-route --route-id orders-api --namespace integration
+.fi
+.RE
+.PP
+A second version beside the first:
+.PP
+.RS
+.nf
+euclid-cli eag copy-route --route-id orders-v1 --new-route-id orders-v2 \e
+    --path /api/v2/orders --application orders-v2
+.fi
+.RE
+.PP
+Writes on the same path to another application, created out of service:
+.PP
+.RS
+.nf
+euclid-cli eag copy-route --route-id orders-read --new-route-id orders-write \e
+    --methods POST,PUT,DELETE --application orders-writer --active false
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eag (1),
+.BR euclid-cli-eag-update-route (1),
+.BR euclid-cli-eag-create-route (1),
+.BR euclid-cli-eag-get-route (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
