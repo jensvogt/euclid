@@ -521,6 +521,15 @@ target_link_libraries(${QUEUE_OWNERSHIP_BINARY} PRIVATE eucliddb Boost::unit_tes
 
 add_test(NAME ${QUEUE_OWNERSHIP_BINARY} COMMAND ${QUEUE_OWNERSHIP_BINARY})
 
+set(WORKING_ACCOUNT_BINARY euclid-working-account-tests)
+
+add_executable(${WORKING_ACCOUNT_BINARY} WorkingAccountTest.cpp)
+set_target_properties(${WORKING_ACCOUNT_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${WORKING_ACCOUNT_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${WORKING_ACCOUNT_BINARY} COMMAND ${WORKING_ACCOUNT_BINARY})
+
 set(CLI_COMPLETION_BINARY euclid-cli-completion-tests)
 
 add_executable(${CLI_COMPLETION_BINARY} CliCompletionTest.cpp ../cli/src/help/CliCompletion.cpp)

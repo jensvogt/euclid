@@ -65,7 +65,7 @@ namespace Euclid::EAD {
         if (!auth.subject.has_value()) {
             return {.user = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason};
         }
-        return {.user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(*auth.subject)};
+        return {.user = Database::InWorkingAccount(Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(*auth.subject), req)};
     }
 
     static response<string_body> unauthorized(const request<string_body> &req, const AuthResult &auth) {
@@ -74,7 +74,8 @@ namespace Euclid::EAD {
 
     // The account a read is confined to.
     //
-    // Always the caller's own, never what the body asked for. An audit that let one account read
+    // Always the caller's own, never what the body asked for - the account the session works in,
+    // which the gate has already checked the caller holds a grant in (see InWorkingAccount). An audit that let one account read
     // another's trail would hand over the shape of somebody else's installation - which buckets
     // they keep, who works there, what they do - and it would do it through the one module built
     // to be read by people looking for exactly that.

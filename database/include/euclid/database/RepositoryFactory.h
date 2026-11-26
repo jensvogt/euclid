@@ -639,6 +639,47 @@ namespace Euclid::Database {
     inline constexpr auto kSystemPrincipal = "system";
 
     /**
+     * @brief The user as they are working in this request: in the account the session logged
+     * into, not necessarily the account their record lives in.
+     *
+     * @par
+     * User::accountId is the user's home account. A session logged into another account names
+     * that account in x-euclid-account-id, and every handler that scopes by the caller's account -
+     * list-queues, list-applications, and every other listing - has to answer for that one. Reading
+     * the home account instead showed a user logged into 408066031601 the queues and applications
+     * of 000000000000.
+     *
+     * @par
+     * Trusting the header is safe because the gate has already judged it by the time a handler
+     * runs: CheckScope refuses an account this installation does not serve, and Authorize() refuses
+     * a caller with no grant in that account (administrators excepted, who may work in any). No
+     * header means the home account, as before.
+     *
+     * @par
+     * The result describes the request, not the stored user - never write it back.
+     *
+     * @param user the stored user
+     * @param req the request, for the account it names
+     * @return the user, with accountId set to the account the request works in
+     */
+    inline Entity::EAM::User InWorkingAccount(Entity::EAM::User user,
+                                              const boost::beast::http::request<boost::beast::http::string_body> &req) {
+        if (const auto accountId = std::string(req["x-euclid-account-id"]); !accountId.empty()) {
+            user.accountId = accountId;
+        }
+        return user;
+    }
+
+    /**
+     * @brief InWorkingAccount() for a lookup that may have found nobody.
+     */
+    inline std::optional<Entity::EAM::User> InWorkingAccount(std::optional<Entity::EAM::User> user,
+                                                             const boost::beast::http::request<boost::beast::http::string_body> &req) {
+        if (!user.has_value()) return user;
+        return InWorkingAccount(std::move(*user), req);
+    }
+
+    /**
      * @brief The caller behind an already-verified subject, as a module handler needs it.
      *
      * @par
@@ -661,7 +702,7 @@ namespace Euclid::Database {
                                                           const boost::beast::http::request<boost::beast::http::string_body> &req) {
 
         if (subject != kSystemPrincipal) {
-            return RepositoryFactory::instance().eamRepository()->findUserByUserId(subject);
+            return InWorkingAccount(RepositoryFactory::instance().eamRepository()->findUserByUserId(subject), req);
         }
 
         Entity::EAM::User system;

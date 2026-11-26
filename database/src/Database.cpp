@@ -142,12 +142,7 @@ namespace Euclid::Database {
             const auto entry = _pool->acquire();
             auto db = (*entry)["admin"];
 
-            // "hello" rather than "ping", because a secondary answers a ping exactly as happily as
-            // a primary does. On a set that had lost its primary that made this say reachable:
-            // everything waiting on it ran, every one of their writes failed "not primary", and the
-            // installation came up looking healthy while being unable to record a single thing. What
-            // a caller means by reachable is that a primary exists and this process is talking to
-            // it, which is what isWritablePrimary answers - called ismaster before MongoDB 5.0.
+            // "ping" is answered by a secondary as well as a primary. "hello" returns an error when the node is not writable
             const auto cmd = bsoncxx::builder::stream::document{} << "hello" << 1 << bsoncxx::builder::stream::finalize;
 
             const auto reply = db.run_command(cmd.view());

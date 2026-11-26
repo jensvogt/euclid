@@ -163,7 +163,7 @@ namespace Euclid::ETS {
         if (!auth.subject.has_value()) {
             return {.user = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason};
         }
-        return {.user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(*auth.subject)};
+        return {.user = Database::InWorkingAccount(Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(*auth.subject), req)};
     }
 
     static response<string_body> unauthorized(const request<string_body> &req, const AuthResult &auth) {
