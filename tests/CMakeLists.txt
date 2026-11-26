@@ -981,6 +981,32 @@ target_link_libraries(${EDS_DNS_BINARY} PRIVATE eucliddto Boost::thread Boost::u
 
 add_test(NAME ${EDS_DNS_BINARY} COMMAND ${EDS_DNS_BINARY})
 
+set(EAG_COPY_ROUTE_BINARY euclid-eag-copy-route-tests)
+
+add_executable(${EAG_COPY_ROUTE_BINARY} EagCopyRouteTest.cpp ${CMAKE_SOURCE_DIR}/modules/eag/src/EagServer.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/ProxyServer.cpp ${CMAKE_SOURCE_DIR}/modules/eag/src/RouteTable.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/Backends.cpp ${CMAKE_SOURCE_DIR}/modules/eag/src/BasicAuthenticator.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/ClientStream.cpp ${CMAKE_SOURCE_DIR}/modules/eag/src/ListenerCertificate.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/ModuleCall.cpp ${CMAKE_SOURCE_DIR}/modules/eag/src/UploadTarget.cpp)
+set_target_properties(${EAG_COPY_ROUTE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EAG_COPY_ROUTE_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eag/include)
+target_link_libraries(${EAG_COPY_ROUTE_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework OpenSSL::SSL OpenSSL::Crypto)
+
+add_test(NAME ${EAG_COPY_ROUTE_BINARY} COMMAND ${EAG_COPY_ROUTE_BINARY})
+
+set(EDS_UPDATE_BINARY euclid-eds-update-tests)
+
+add_executable(${EDS_UPDATE_BINARY} EdsUpdateTest.cpp ${CMAKE_SOURCE_DIR}/modules/eds/src/EdsServer.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eds/src/DnsMessage.cpp ${CMAKE_SOURCE_DIR}/modules/eds/src/Resolver.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eds/src/Catalog.cpp ${CMAKE_SOURCE_DIR}/modules/eds/src/DnsListener.cpp)
+set_target_properties(${EDS_UPDATE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EDS_UPDATE_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eds/include)
+target_link_libraries(${EDS_UPDATE_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${EDS_UPDATE_BINARY} COMMAND ${EDS_UPDATE_BINARY})
+
 set(EKV_VALUE_BINARY euclid-ekv-value-tests)
 
 add_executable(${EKV_VALUE_BINARY} EkvValueTest.cpp)

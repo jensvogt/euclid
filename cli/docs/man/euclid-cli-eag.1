@@ -432,6 +432,11 @@ momentary outage there does not become an outage of every application
 behind the gateway.
 .SH ACTIONS
 .TP
+.B copy-route
+Creates a route from an existing one, changing only what is named \- the
+same path for another namespace, other methods on the same path. See
+.BR euclid-cli-eag-copy-route (1).
+.TP
 .B create-route
 Publishes a path prefix and points it at an application. See
 .BR euclid-cli-eag-create-route (1).
@@ -677,6 +682,7 @@ euclid-cli eag update-route --route-id resource --active true
 .BR euclid-cli (1),
 .BR euclid-cli-eag-create-route (1),
 .BR euclid-cli-eag-update-route (1),
+.BR euclid-cli-eag-copy-route (1),
 .BR euclid-cli-eag-list-routes (1),
 .BR euclid-cli-eag-list-listeners (1),
 .BR euclid-cli-eag-get-route (1),

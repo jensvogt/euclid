@@ -78,6 +78,17 @@ namespace Euclid::Database {
         virtual long deleteZone(const std::string &name) = 0;
 
         /**
+         * @brief Writes a zone's TTL and description, and stamps it as changed.
+         *
+         * @par
+         * Those two and modified only: the name is what records and grants refer to, and the
+         * owner is who may change it, so neither is something an update can move.
+         *
+         * @return false when there is no such zone.
+         */
+        virtual bool updateZone(const Entity::EDS::HostedZone &zone) = 0;
+
+        /**
          * @brief Stamps a zone as changed, which moves its SOA serial.
          */
         virtual void touchZone(const std::string &name, std::chrono::system_clock::time_point when) = 0;

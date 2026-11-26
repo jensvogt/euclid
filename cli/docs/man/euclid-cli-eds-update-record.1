@@ -1,0 +1,132 @@
+.TH EUCLID-CLI-EDS-UPDATE-RECORD 1 "November 2026" "euclid-cli 2.3.2" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eds-update-record \- change part of a record set
+.SH SYNOPSIS
+.B euclid-cli eds update-record
+.BR \-\-zone | \-z
+.I ZONE
+[\fB\-\-name\fR|\fB\-n\fR \fINAME\fR]
+.BR \-\-type | \-t
+.I TYPE
+[\fB\-\-ttl\fR \fISECONDS\fR]
+[\fB\-\-add\-value\fR|\fB\-a\fR \fIVALUE\fR...]
+[\fB\-\-remove\-value\fR|\fB\-r\fR \fIVALUE\fR...]
+.SH DESCRIPTION
+Changes part of an existing record set \- every record of one type at
+one name \- without resending the rest of it: its TTL, values removed,
+and values added. At least one of the three has to be given.
+.PP
+This is the counterpart of
+.BR euclid-cli-eds-put-record (1),
+which replaces the whole set. Use this one to take one address out of
+rotation, add another, or change how long the set is cached, without
+having to know or repeat what else is there.
+.PP
+.B Removals happen before additions,
+so one call can swap one value for another \- which is the only way to
+change a CNAME here, since it has exactly one value at all times.
+.PP
+.B A value to remove has to be there.
+One that is not is refused, and nothing is changed: a typo that removed
+nothing and reported success would leave the address you meant to take
+out still being served. A value to add that is there already is not
+added a second time.
+.PP
+Values are compared as the server encodes them, not as they are typed:
+.I "10 MAIL.Example.COM."
+matches a stored
+.IR "10 mail.example.com" .
+.PP
+The change cannot leave the set empty \- that is
+.BR euclid-cli-eds-delete-record (1)
+\- or a CNAME with more or fewer than one value. Every value is checked
+the way
+.BR euclid-cli-eds-put-record (1)
+checks it, and one that cannot be encoded refuses the whole call.
+.PP
+The set has to exist;
+.BR euclid-cli-eds-put-record (1)
+creates it. The server answers with the change within a moment, and the
+zone's SOA serial moves.
+.SH OPTIONS
+.TP
+.BR \-z ", " \-\-zone " " \fIZONE\fR
+The zone's apex. Required.
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+The record's name, written as for
+.BR euclid-cli-eds-put-record (1).
+Defaults to the apex.
+.TP
+.BR \-t ", " \-\-type " " \fITYPE\fR
+The record type. Required.
+.TP
+.BR \-\-ttl " " \fISECONDS\fR
+New TTL.
+.I 0
+puts the set back to the zone's TTL.
+.TP
+.BR \-a ", " \-\-add\-value " " \fIVALUE\fR
+A value to add, in the form
+.BR euclid-cli-eds-put-record (1)
+describes. Repeat for several.
+.TP
+.BR \-r ", " \-\-remove\-value " " \fIVALUE\fR
+A value to remove. Repeat for several.
+.SH OUTPUT
+The record set as now stored, as JSON:
+.IR zone ,
+.IR name ,
+.IR type ,
+.IR ttl ,
+.IR values ,
+.I created
+and
+.IR modified .
+.SH EXIT STATUS
+.TP
+.B 0
+The record set was changed.
+.TP
+.B 1
+Nothing to change was given, no such zone or no such record set (HTTP
+404), a value to remove is not in the set, a value cannot be encoded,
+the change would empty the set or leave a CNAME with other than one
+value, or a grant does not allow it.
+.SH EXAMPLES
+Taking one address out of rotation, and putting a new one in:
+.PP
+.RS
+.nf
+euclid-cli eds update-record -z corp.example -n api -t A -r 10.1.2.3
+euclid-cli eds update-record -z corp.example -n api -t A -a 10.1.2.5
+.fi
+.RE
+.PP
+Swapping in one call, and pointing an alias elsewhere:
+.PP
+.RS
+.nf
+euclid-cli eds update-record -z corp.example -n api -t A \e
+    -r 10.1.2.4 -a 10.1.2.6
+euclid-cli eds update-record -z corp.example -n www -t CNAME \e
+    -r api.corp.example -a api2.corp.example
+.fi
+.RE
+.PP
+Caching for a minute ahead of a change, then back to the zone's TTL:
+.PP
+.RS
+.nf
+euclid-cli eds update-record -z corp.example -n api -t A --ttl 60
+euclid-cli eds update-record -z corp.example -n api -t A --ttl 0
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eds (1),
+.BR euclid-cli-eds-put-record (1),
+.BR euclid-cli-eds-delete-record (1),
+.BR euclid-cli-eds-list-records (1),
+.BR euclid-cli-eds-update-zone (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

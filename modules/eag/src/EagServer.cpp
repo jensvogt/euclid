@@ -397,6 +397,135 @@ namespace Euclid::EAG {
         return EagServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(*saved)));
     }
 
+    // Applies the fields a request names onto a route and checks the result as a whole. Shared by
+    // update-route, which applies them to the stored route, and copy-route, which applies them to a
+    // copy of one - so a copy is held to exactly the rules an update is, and the two cannot drift.
+    //
+    // routeId is the identity the result will be stored under, which the collision check leaves
+    // out: the route's own path is not a collision with itself.
+    static std::optional<response<string_body> > applyRouteChanges(const request<string_body> &req, const boost::json::object &obj,
+                                                                    Route &route, const std::string &routeId) {
+
+        // Only what was named: an absent field leaves the route as it is. The collision check
+        // further down runs on the path and methods the route ends up with, since changing only
+        // the methods can collide just as easily as changing the path.
+        if (obj.contains("methods")) {
+            std::string unknownMethod;
+            const auto methods = readMethods(obj, unknownMethod);
+            if (!methods.has_value()) {
+                return EagServer::ErrorResponse(req, status::bad_request, "Not an HTTP method: " + unknownMethod);
+            }
+            route.methods = *methods;
+        }
+        if (obj.contains("path")) {
+            const auto path = stringField(obj, "path");
+            if (path.empty() || !path.starts_with('/')) {
+                return EagServer::ErrorResponse(req, status::bad_request, "path must start with '/'");
+            }
+            route.path = path;
+        }
+        if (obj.contains("applicationId")) {
+            const auto applicationId = stringField(obj, "applicationId");
+            // Moving a route to an application means it is no longer a module route, and the
+            // other way round - leaving both set would make which one wins depend on the proxy.
+            route.applicationId = applicationId;
+            route.moduleTarget.clear();
+            route.moduleAction.clear();
+        }
+        if (obj.contains("moduleTarget")) {
+            const auto moduleTarget = stringField(obj, "moduleTarget");
+            if (!kModuleTargets.contains(moduleTarget)) {
+                return EagServer::ErrorResponse(req, status::bad_request, "Not a euclid module: " + moduleTarget);
+            }
+            route.moduleTarget = moduleTarget;
+            route.applicationId.clear();
+        }
+        if (obj.contains("moduleAction")) route.moduleAction = stringField(obj, "moduleAction");
+
+        if (!route.moduleTarget.empty() && route.moduleAction.empty()) {
+            return EagServer::ErrorResponse(req, status::bad_request, "moduleAction is required when a module is named");
+        }
+        if (obj.contains("region")) route.region = stringField(obj, "region");
+        if (obj.contains("namespace")) route.nameSpace = stringField(obj, "namespace");
+
+        // Both against the route as it now is. The collision check used to run before a namespace
+        // change was applied, so a route moved into a namespace where its path was taken passed
+        // it; and the application has to exist where the gateway will look for it, which a
+        // namespace change moves just as surely as naming another application does.
+        if (const auto taken = pathTaken(route.path, route.methods, route.nameSpace, routeId)) {
+            return EagServer::ErrorResponse(req, status::conflict, "Path and method are already routed by routeId: " + *taken);
+        }
+        if ((obj.contains("applicationId") || obj.contains("namespace")) && !route.applicationId.empty()
+            && !Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(route.accountId, route.nameSpace, route.applicationId).has_value()) {
+            return EagServer::ErrorResponse(req, status::not_found, "Application not found in namespace '" + route.nameSpace + "', applicationId: " + route.applicationId);
+        }
+        if (obj.contains("authentication")) {
+            // Refused rather than defaulted: somebody asking for EUCLID and silently getting NONE
+            // would be handed a public route they believe is protected.
+            const auto authentication = RouteAuthenticationFromString(stringField(obj, "authentication"));
+            if (!authentication.has_value()) {
+                return EagServer::ErrorResponse(req, status::bad_request, R"(authentication must be "NONE" or "EUCLID")");
+            }
+            route.authentication = *authentication;
+        }
+        if (obj.contains("type")) {
+            const auto type = RouteTypeFromString(stringField(obj, "type"));
+            if (!type.has_value()) {
+                return EagServer::ErrorResponse(req, status::bad_request, R"(type must be "PROXY" or "UPLOAD")");
+            }
+            route.type = *type;
+        }
+        if (obj.contains("bucket")) {
+            const auto bucket = stringField(obj, "bucket");
+            if (!bucket.empty() && !Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(bucket).has_value()) {
+                return EagServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucket);
+            }
+            route.upload.bucket = bucket;
+        }
+        if (obj.contains("keyPrefix")) route.upload.keyPrefix = stringField(obj, "keyPrefix");
+        if (obj.contains("maxBytes")) route.upload.maxBytes = int64Field(obj, "maxBytes");
+        if (obj.contains("partSize")) route.upload.partSize = int64Field(obj, "partSize", kDefaultPartSize);
+        if (const auto *contentTypes = obj.if_contains("contentTypes"); contentTypes && contentTypes->is_array()) {
+            route.upload.contentTypes.clear();
+            for (const auto &contentType: contentTypes->as_array()) {
+                if (contentType.is_string()) route.upload.contentTypes.emplace_back(contentType.as_string());
+            }
+        }
+
+        // Checked after everything has been applied rather than beside each field, because what
+        // makes a route coherent is the combination: naming a bucket and naming an application are
+        // each fine on their own and contradictory together, and an update that changes one of
+        // them has to be judged against the route it produces, not the one it started from.
+        if (route.type == RouteType::UPLOAD) {
+            if (!route.applicationId.empty() || !route.moduleTarget.empty()) {
+                return EagServer::ErrorResponse(req, status::bad_request,
+                                                "An upload route names a bucket, not an application or a euclid module");
+            }
+            if (route.upload.bucket.empty()) {
+                return EagServer::ErrorResponse(req, status::bad_request, "bucket is required for an upload route");
+            }
+            if (route.authentication == RouteAuthentication::NONE) {
+                return EagServer::ErrorResponse(req, status::bad_request,
+                                                R"(An upload route must set authentication to "EUCLID" or "BASIC")");
+            }
+            if (route.upload.partSize <= 0) route.upload.partSize = kDefaultPartSize;
+            if (route.upload.maxBytes < 0) {
+                return EagServer::ErrorResponse(req, status::bad_request, "maxBytes cannot be negative");
+            }
+        } else if (route.applicationId.empty() && route.moduleTarget.empty()) {
+            return EagServer::ErrorResponse(req, status::bad_request,
+                                            "Name either an application or a euclid module, not both and not neither");
+        }
+
+        std::string timeoutError;
+        if (const auto timeout = timeoutField(obj, timeoutError)) route.timeout = *timeout;
+        if (!timeoutError.empty()) return EagServer::ErrorResponse(req, status::bad_request, timeoutError);
+
+        if (const auto *active = obj.if_contains("active"); active && active->is_bool()) route.active = active->as_bool();
+
+        return std::nullopt;
+    }
+
     static response<string_body> handleUpdateRoute(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "update-route");
@@ -418,123 +547,70 @@ namespace Euclid::EAG {
             return EagServer::ErrorResponse(req, status::not_found, "Route not found, routeId: " + routeId);
         }
 
-        // Only what was named: an absent field leaves the route as it is, so one setting can be
-        // changed without restating the rest.
-        // Read before either is applied, since the collision check needs the pair the route will
-        // end up with: changing only the methods can just as easily collide as changing the path.
-        if (obj.contains("methods")) {
-            std::string unknownMethod;
-            const auto methods = readMethods(obj, unknownMethod);
-            if (!methods.has_value()) {
-                return EagServer::ErrorResponse(req, status::bad_request, "Not an HTTP method: " + unknownMethod);
-            }
-            route->methods = *methods;
-        }
-        if (obj.contains("path")) {
-            const auto path = stringField(obj, "path");
-            if (path.empty() || !path.starts_with('/')) {
-                return EagServer::ErrorResponse(req, status::bad_request, "path must start with '/'");
-            }
-            route->path = path;
-        }
-        if (const auto taken = pathTaken(route->path, route->methods, route->nameSpace, routeId)) {
-            return EagServer::ErrorResponse(req, status::conflict, "Path and method are already routed by routeId: " + *taken);
-        }
-        if (obj.contains("applicationId")) {
-            const auto applicationId = stringField(obj, "applicationId");
-            if (!Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(route->accountId, route->nameSpace, applicationId).has_value()) {
-                return EagServer::ErrorResponse(req, status::not_found, "Application not found, applicationId: " + applicationId);
-            }
-            // Moving a route to an application means it is no longer a module route, and the
-            // other way round - leaving both set would make which one wins depend on the proxy.
-            route->applicationId = applicationId;
-            route->moduleTarget.clear();
-            route->moduleAction.clear();
-        }
-        if (obj.contains("moduleTarget")) {
-            const auto moduleTarget = stringField(obj, "moduleTarget");
-            if (!kModuleTargets.contains(moduleTarget)) {
-                return EagServer::ErrorResponse(req, status::bad_request, "Not a euclid module: " + moduleTarget);
-            }
-            route->moduleTarget = moduleTarget;
-            route->applicationId.clear();
-        }
-        if (obj.contains("moduleAction")) route->moduleAction = stringField(obj, "moduleAction");
-
-        if (!route->moduleTarget.empty() && route->moduleAction.empty()) {
-            return EagServer::ErrorResponse(req, status::bad_request, "moduleAction is required when a module is named");
-        }
-        if (obj.contains("region")) route->region = stringField(obj, "region");
-        if (obj.contains("namespace")) route->nameSpace = stringField(obj, "namespace");
-        if (obj.contains("authentication")) {
-            // Refused rather than defaulted: somebody asking for EUCLID and silently getting NONE
-            // would be handed a public route they believe is protected.
-            const auto authentication = RouteAuthenticationFromString(stringField(obj, "authentication"));
-            if (!authentication.has_value()) {
-                return EagServer::ErrorResponse(req, status::bad_request, R"(authentication must be "NONE" or "EUCLID")");
-            }
-            route->authentication = *authentication;
-        }
-        if (obj.contains("type")) {
-            const auto type = RouteTypeFromString(stringField(obj, "type"));
-            if (!type.has_value()) {
-                return EagServer::ErrorResponse(req, status::bad_request, R"(type must be "PROXY" or "UPLOAD")");
-            }
-            route->type = *type;
-        }
-        if (obj.contains("bucket")) {
-            const auto bucket = stringField(obj, "bucket");
-            if (!bucket.empty() && !Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(bucket).has_value()) {
-                return EagServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucket);
-            }
-            route->upload.bucket = bucket;
-        }
-        if (obj.contains("keyPrefix")) route->upload.keyPrefix = stringField(obj, "keyPrefix");
-        if (obj.contains("maxBytes")) route->upload.maxBytes = int64Field(obj, "maxBytes");
-        if (obj.contains("partSize")) route->upload.partSize = int64Field(obj, "partSize", kDefaultPartSize);
-        if (const auto *contentTypes = obj.if_contains("contentTypes"); contentTypes && contentTypes->is_array()) {
-            route->upload.contentTypes.clear();
-            for (const auto &contentType: contentTypes->as_array()) {
-                if (contentType.is_string()) route->upload.contentTypes.emplace_back(contentType.as_string());
-            }
-        }
-
-        // Checked after everything has been applied rather than beside each field, because what
-        // makes a route coherent is the combination: naming a bucket and naming an application are
-        // each fine on their own and contradictory together, and an update that changes one of
-        // them has to be judged against the route it produces, not the one it started from.
-        if (route->type == RouteType::UPLOAD) {
-            if (!route->applicationId.empty() || !route->moduleTarget.empty()) {
-                return EagServer::ErrorResponse(req, status::bad_request,
-                                                "An upload route names a bucket, not an application or a euclid module");
-            }
-            if (route->upload.bucket.empty()) {
-                return EagServer::ErrorResponse(req, status::bad_request, "bucket is required for an upload route");
-            }
-            if (route->authentication == RouteAuthentication::NONE) {
-                return EagServer::ErrorResponse(req, status::bad_request,
-                                                R"(An upload route must set authentication to "EUCLID" or "BASIC")");
-            }
-            if (route->upload.partSize <= 0) route->upload.partSize = kDefaultPartSize;
-            if (route->upload.maxBytes < 0) {
-                return EagServer::ErrorResponse(req, status::bad_request, "maxBytes cannot be negative");
-            }
-        } else if (route->applicationId.empty() && route->moduleTarget.empty()) {
-            return EagServer::ErrorResponse(req, status::bad_request,
-                                            "Name either an application or a euclid module, not both and not neither");
-        }
-
-        std::string timeoutError;
-        if (const auto timeout = timeoutField(obj, timeoutError)) route->timeout = *timeout;
-        if (!timeoutError.empty()) return EagServer::ErrorResponse(req, status::bad_request, timeoutError);
-
-        if (const auto *active = obj.if_contains("active"); active && active->is_bool()) route->active = active->as_bool();
+        if (auto refused = applyRouteChanges(req, obj, *route, routeId)) return std::move(*refused);
 
         const auto saved = repository->upsertRoute(*route);
         if (!saved.has_value()) {
             return EagServer::ErrorResponse(req, status::internal_server_error, "Route could not be stored, routeId: " + routeId);
         }
         log_info << "EAG route updated, routeId: " << routeId;
+
+        return EagServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(*saved)));
+    }
+
+    // A new route made from an existing one: everything the source has, the fields the request
+    // names changed exactly as update-route would change them, stored under its own routeId. For a
+    // route that differs from another in one or two settings - the same path for another
+    // namespace, another method on the same backend, a second application on a neighbouring path -
+    // without restating the fifteen that are the same, and without the copy mistyping one of them.
+    static response<string_body> handleCopyRoute(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "copy-route");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EagServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EagServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto sourceId = stringField(obj, "routeId");
+        if (sourceId.empty()) return EagServer::ErrorResponse(req, status::bad_request, "routeId, the route to copy, is required");
+
+        const auto repository = Database::RepositoryFactory::instance().eagRepository();
+        const auto source = repository->findRouteByRouteId(auth.user->accountId, std::string(req["x-euclid-namespace"]), sourceId);
+        if (!source.has_value()) {
+            return EagServer::ErrorResponse(req, status::not_found, "Route not found, routeId: " + sourceId);
+        }
+
+        // The source's own name unless another is given: a route copied into another namespace
+        // usually keeps it, and a routeId is only unique within a namespace.
+        const auto newRouteId = stringField(obj, "newRouteId", sourceId);
+
+        Route copy = *source;
+        copy.oid.clear();
+        copy.routeId = newRouteId;
+        // Not the source's: upsertRoute stamps both when created is unset.
+        copy.created = {};
+        copy.modified = {};
+
+        if (auto refused = applyRouteChanges(req, obj, copy, newRouteId)) return std::move(*refused);
+
+        // After the changes, because a namespace given in them is part of the copy's identity.
+        if (repository->routeExists(copy.accountId, copy.nameSpace, newRouteId)) {
+            return EagServer::ErrorResponse(req, status::conflict,
+                                            newRouteId == sourceId && copy.nameSpace == source->nameSpace
+                                                    ? "A copy needs a newRouteId, or a namespace other than the source's"
+                                                    : "Route exists already, routeId: " + newRouteId + ", namespace: " + copy.nameSpace);
+        }
+        copy.ern = Core::createErn("eag", copy.accountId, copy.nameSpace, "route:" + newRouteId);
+
+        const auto saved = repository->upsertRoute(copy);
+        if (!saved.has_value()) {
+            return EagServer::ErrorResponse(req, status::internal_server_error, "Route could not be stored, routeId: " + newRouteId);
+        }
+        log_info << "EAG route copied, from: " << sourceId << ", to: " << newRouteId << ", namespace: " << copy.nameSpace << ", path: " << copy.path;
 
         return EagServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(*saved)));
     }
@@ -626,6 +702,7 @@ namespace Euclid::EAG {
 
         if (action == "create-route") return handleCreateRoute(req);
         if (action == "update-route") return handleUpdateRoute(req);
+        if (action == "copy-route") return handleCopyRoute(req);
         if (action == "list-routes") return handleListRoutes(req);
         if (action == "get-route") return handleGetRoute(req);
         if (action == "delete-route") return handleDeleteRoute(req);

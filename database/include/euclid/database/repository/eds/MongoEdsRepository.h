@@ -39,6 +39,8 @@ namespace Euclid::Database {
 
         long deleteZone(const std::string &name) override;
 
+        bool updateZone(const Entity::EDS::HostedZone &zone) override;
+
         void touchZone(const std::string &name, std::chrono::system_clock::time_point when) override;
 
         Entity::EDS::Record putRecord(Entity::EDS::Record &record) override;

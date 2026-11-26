@@ -21,6 +21,8 @@ namespace Euclid::CLI {
                 {"list-records", "List a zone's record sets"},
                 {"list-zones", "List the account's zones"},
                 {"put-record", "Write the records of one type at one name, replacing any there"},
+                {"update-record", "Change a record set's TTL, or add and remove single values"},
+                {"update-zone", "Change a zone's TTL or description"},
         };
         return kActions;
     }
@@ -32,8 +34,10 @@ namespace Euclid::CLI {
         if (action == "create-zone") return createZone(args);
         if (action == "get-zone") return getZone(args);
         if (action == "list-zones") return listZones(args);
+        if (action == "update-zone") return updateZone(args);
         if (action == "delete-zone") return deleteZone(args);
         if (action == "put-record") return putRecord(args);
+        if (action == "update-record") return updateRecord(args);
         if (action == "delete-record") return deleteRecord(args);
         if (action == "list-records") return listRecords(args);
         if (action == "get-answer") return getAnswer(args);
@@ -135,6 +139,35 @@ namespace Euclid::CLI {
         return call("list-zones", body);
     }
 
+    int EdsCli::updateZone(const std::vector<std::string> &args) const {
+
+        po::options_description desc("eds update-zone options");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "the zone's apex")
+                ("ttl", po::value<long>(), "new TTL in seconds, 1 or more")
+                ("description,d", po::value<std::string>(), "new description; \"\" clears it");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eds", "update-zone", "--name <zone> [--ttl <seconds>] [--description <text>]",
+                                   "Changes a zone's TTL, its description, or both. Only what is given changes. The "
+                                   "zone's SOA serial moves, and the server answers with the new TTL within a moment. "
+                                   "A zone cannot be renamed; create the new one and move its records.",
+                                   desc);
+        }
+        po::variables_map vm;
+        if (!parse(args, desc, vm)) return 1;
+
+        if (!vm.contains("ttl") && !vm.contains("description")) {
+            std::cerr << "error: nothing to change; give --ttl, --description or both\n";
+            return 1;
+        }
+
+        boost::json::object body{{"name", vm["name"].as<std::string>()}};
+        if (vm.contains("ttl")) body["ttl"] = vm["ttl"].as<long>();
+        if (vm.contains("description")) body["description"] = vm["description"].as<std::string>();
+        return call("update-zone", body);
+    }
+
     int EdsCli::deleteZone(const std::vector<std::string> &args) const {
 
         po::options_description desc("eds delete-zone options");
@@ -182,6 +215,51 @@ namespace Euclid::CLI {
                                  {"values", values}};
         if (vm.contains("ttl")) body["ttl"] = vm["ttl"].as<long>();
         return call("put-record", body);
+    }
+
+    int EdsCli::updateRecord(const std::vector<std::string> &args) const {
+
+        po::options_description desc("eds update-record options");
+        desc.add_options()
+                ("zone,z", po::value<std::string>()->required(), "the zone's apex")
+                ("name,n", po::value<std::string>()->default_value("@"), "owner name, as for put-record")
+                ("type,t", po::value<std::string>()->required(), "record type")
+                ("ttl", po::value<long>(), "new TTL in seconds; 0 takes the zone's")
+                ("add-value,a", po::value<std::vector<std::string> >()->composing(), "a value to add; repeat for several")
+                ("remove-value,r", po::value<std::vector<std::string> >()->composing(), "a value to remove; repeat for several");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eds", "update-record",
+                                   "--zone <zone> --name <name> --type <type> [--ttl <seconds>] [--add-value <value>...] [--remove-value <value>...]",
+                                   "Changes part of an existing record set without resending the rest: its TTL, values "
+                                   "removed and values added. Removals happen first, so one call can swap one value for "
+                                   "another. A value to remove has to be there; one to add that is there already is "
+                                   "not added twice. To replace the whole set, use put-record.",
+                                   desc);
+        }
+        po::variables_map vm;
+        if (!parse(args, desc, vm)) return 1;
+
+        if (!vm.contains("ttl") && !vm.contains("add-value") && !vm.contains("remove-value")) {
+            std::cerr << "error: nothing to change; give --ttl, --add-value, --remove-value or a combination\n";
+            return 1;
+        }
+
+        const auto array = [&](const std::string &option) {
+            boost::json::array values;
+            if (vm.contains(option)) {
+                for (const auto &value: vm[option].as<std::vector<std::string> >()) values.emplace_back(value);
+            }
+            return values;
+        };
+
+        boost::json::object body{{"zone", vm["zone"].as<std::string>()},
+                                 {"name", vm["name"].as<std::string>()},
+                                 {"type", vm["type"].as<std::string>()},
+                                 {"addValues", array("add-value")},
+                                 {"removeValues", array("remove-value")}};
+        if (vm.contains("ttl")) body["ttl"] = vm["ttl"].as<long>();
+        return call("update-record", body);
     }
 
     int EdsCli::deleteRecord(const std::vector<std::string> &args) const {
