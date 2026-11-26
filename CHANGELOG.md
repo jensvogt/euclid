@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.6](https://github.com/jensvogt/euclid/compare/2.4.5...v2.4.6) (2026-11-26)
+
+
+### Bug Fixes
+
+* working account checks ([506da66](https://github.com/jensvogt/euclid/commit/506da66cf82be130ac441fe7ac238a39ea2b04a7))
+* working account checks ([0d79c35](https://github.com/jensvogt/euclid/commit/0d79c35040d35139096d125fa4c987c963676c67))
+
 ## [2.4.5](https://github.com/jensvogt/euclid/compare/v2.4.4...v2.4.5) (2026-11-25)
 
 
