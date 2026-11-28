@@ -328,6 +328,12 @@ namespace Euclid::Database {
          */
         static void ensureIndexes();
 
+        /**
+         * @brief Builds the (topicErn, size) index recountTopics() reads instead of the messages,
+         * in the background.
+         */
+        static void ensureRecountIndex();
+
         void recountTopics() override;
     };
 

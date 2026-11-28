@@ -285,13 +285,25 @@ namespace Euclid::Database {
          * queue's or a bucket's totals - expressed as a method so that both backends can answer
          * it: MongoDB with a "$group" pipeline, the in-memory store by walking its documents.
          *
+         * @par
+         * A pipeline that is nothing but a "$group" is never planned on an index - with no "$match"
+         * and no "$sort" the planner has no reason to look at one, and reads every document in
+         * full instead. Over a message collection that is the message bodies: 39 GB read, every
+         * five minutes, by a recount that needs three small fields of each. Passing the index that
+         * holds every field the grouping names turns that into a scan of the index alone, with no
+         * document fetched. Should the server refuse the hint - the index is still being built in
+         * the background, or was dropped - the grouping is asked again without one, as slowly as
+         * before but with the same answer.
+         *
          * @param filter narrows what is counted
          * @param groupFields fields whose values identify a group, in order
          * @param sumField numeric field to total per group, or empty to only count
+         * @param hint key of an index covering the filter, groupFields and sumField, or empty to
+         * leave the choice to the planner. Ignored by the in-memory backend.
          */
         [[nodiscard]]
         std::vector<Emd::GroupCounts> group_count(bsoncxx::document::view_or_value filter, const std::vector<std::string> &groupFields,
-                                                  const std::string &sumField = {}) const;
+                                                  const std::string &sumField = {}, bsoncxx::document::view_or_value hint = {}) const;
 
     private:
 

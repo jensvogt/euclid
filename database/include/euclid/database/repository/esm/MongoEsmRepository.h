@@ -366,6 +366,12 @@ namespace Euclid::Database {
          * @brief Builds the sparse (archiveFile) index archiveInUse() runs on, in the background.
          */
         static void ensureArchiveIndex();
+
+        /**
+         * @brief Builds the partial (directory, bucketErn) index recountBuckets() counts directory
+         * markers on, in the background.
+         */
+        static void ensureDirectoryCountIndex();
     };
 
 }// namespace Euclid::Database

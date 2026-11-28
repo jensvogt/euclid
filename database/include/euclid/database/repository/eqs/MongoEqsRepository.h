@@ -355,6 +355,12 @@ namespace Euclid::Database {
         static void ensureIndexes();
 
         /**
+         * @brief Builds the (queueErn, status, size) index recountQueues() reads instead of the
+         * messages, in the background.
+         */
+        static void ensureRecountIndex();
+
+        /**
          * @brief The parts of a queue that decide what happens to a message, cached per queue.
          *
          * @par

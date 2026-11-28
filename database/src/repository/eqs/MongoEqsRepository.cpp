@@ -243,7 +243,9 @@ namespace Euclid::Database {
             };
             std::unordered_map<std::string, Counts> counted;
 
-            for (const auto &group: messageCollection.group_count({}, {"queueErn", "status"}, "size")) {
+            // Hinted, because a bare grouping is never planned on an index - see ensureRecountIndex().
+            const auto recountIndex = make_document(kvp("queueErn", 1), kvp("status", 1), kvp("size", 1));
+            for (const auto &group: messageCollection.group_count({}, {"queueErn", "status"}, "size", recountIndex.view())) {
 
                 const auto &ern = group.key[0];
                 const auto &status = group.key[1];
@@ -355,9 +357,42 @@ namespace Euclid::Database {
             expiresAtOpts.expire_after(std::chrono::seconds(0));
             messageCollection.create_index(make_document(kvp("expiresAt", 1)), expiresAtOpts);
 
+            ensureRecountIndex();
+
         } catch (const std::exception &e) {
             log_error << "Ensure SQS indexes failed, error: " << e.what();
         }
+    }
+
+    void MongoEqsRepository::ensureRecountIndex() {
+
+        // Serves recountQueues(), which groups every message by queue and status and sums its
+        // size - three fields, all of them here, so the recount reads the index and fetches no
+        // message. Without it the grouping read the whole collection, bodies included: 39 GB and
+        // 54 seconds over 3 million messages, every five minutes, on the database every send,
+        // receive and delete is waiting on. Requests that normally answer at once timed out
+        // behind it.
+        //
+        // On a thread of its own for the reason ESM's level index is: on a populated collection
+        // the build takes minutes and this runs while the repository is being constructed. Until
+        // it is done the recount's hint is refused and it groups the slow way, as before.
+        const auto key = make_document(kvp("queueErn", 1), kvp("status", 1), kvp("size", 1));
+        if (!Database::instance().collection(MESSAGE_COLLECTION).supports_aggregation()) {
+            Database::instance().collection(MESSAGE_COLLECTION).create_index(key.view());
+            return;
+        }
+
+        std::thread([key] {
+            try {
+                const auto started = std::chrono::steady_clock::now();
+                Database::instance().collection(MESSAGE_COLLECTION).create_index(key.view());
+                if (const auto took = std::chrono::steady_clock::now() - started; took > std::chrono::seconds(5)) {
+                    log_info << "EQS recount index built, seconds: " << std::chrono::duration_cast<std::chrono::seconds>(took).count();
+                }
+            } catch (const std::exception &e) {
+                log_error << "Ensure EQS recount index failed, error: " << e.what();
+            }
+        }).detach();
     }
 
     std::vector<Entity::EQS::Queue> MongoEqsRepository::listSourceQueues(const std::string &deadLetterQueueErn) const {

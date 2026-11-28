@@ -14,7 +14,9 @@
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/basic/kvp.hpp>
 #include <mongocxx/bulk_write.hpp>
+#include <mongocxx/hint.hpp>
 #include <mongocxx/model/update_one.hpp>
+#include <mongocxx/options/aggregate.hpp>
 #include <mongocxx/options/bulk_write.hpp>
 
 // Euclid includes
@@ -286,7 +288,7 @@ namespace Euclid::Database {
     }
 
     std::vector<Emd::GroupCounts> Collection::group_count(const bsoncxx::document::view_or_value filter, const std::vector<std::string> &groupFields,
-                                                          const std::string &sumField) const {
+                                                          const std::string &sumField, const bsoncxx::document::view_or_value hint) const {
 
         if (!_collection.has_value()) {
             return _store->GroupCount(_name, filter.view(), groupFields, sumField);
@@ -309,8 +311,32 @@ namespace Euclid::Database {
         if (filter.view().begin() != filter.view().end()) pipeline.match(filter.view());
         pipeline.group(group.extract());
 
+        // Hinted when asked, and asked again without the hint when the server will not take it -
+        // see the header. Drained inside the try, since a cursor's first batch is only requested
+        // when it is iterated, and that is where a refused hint surfaces.
+        std::vector<bsoncxx::document::value> documents;
+        const auto run = [&](const mongocxx::options::aggregate &options) {
+            documents.clear();
+            for (auto cursor = _collection->aggregate(pipeline, options); auto document: cursor) {
+                documents.emplace_back(document);
+            }
+        };
+        if (hint.view().begin() != hint.view().end()) {
+            try {
+                mongocxx::options::aggregate options;
+                options.hint(mongocxx::hint(hint.view()));
+                run(options);
+            } catch (const std::exception &e) {
+                log_warning << "Grouping without its index, collection: " << _name << ", reason: " << e.what();
+                run({});
+            }
+        } else {
+            run({});
+        }
+
         std::vector<Emd::GroupCounts> groups;
-        for (auto cursor = _collection->aggregate(pipeline); auto document: cursor) {
+        for (const auto &value: documents) {
+            const auto document = value.view();
 
             Emd::GroupCounts counts;
             const auto identifier = document["_id"].get_document().value;

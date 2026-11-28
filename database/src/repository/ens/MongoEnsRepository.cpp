@@ -172,9 +172,40 @@ namespace Euclid::Database {
             expiresAtOpts.expire_after(std::chrono::seconds(0));
             messageCollection.create_index(make_document(kvp("expiresAt", 1)), expiresAtOpts);
 
+            ensureRecountIndex();
+
         } catch (const std::exception &e) {
             log_error << "Ensure ENS indexes failed, error: " << e.what();
         }
+    }
+
+    void MongoEnsRepository::ensureRecountIndex() {
+
+        // Serves recountTopics(), which groups every message by topic and sums its size - both
+        // fields here, so the recount reads the index and fetches no message. Without it the
+        // grouping read the whole collection, bodies included: 33 GB and 25 seconds over 11
+        // million messages, on the database every publish and delivery is waiting on. See
+        // MongoEqsRepository::ensureRecountIndex(), which is the same problem one module over.
+        //
+        // On a thread of its own because on a populated collection the build takes minutes; until
+        // it is done the recount's hint is refused and it groups the slow way, as before.
+        const auto key = make_document(kvp("topicErn", 1), kvp("size", 1));
+        if (!Database::instance().collection(MESSAGE_COLLECTION).supports_aggregation()) {
+            Database::instance().collection(MESSAGE_COLLECTION).create_index(key.view());
+            return;
+        }
+
+        std::thread([key] {
+            try {
+                const auto started = std::chrono::steady_clock::now();
+                Database::instance().collection(MESSAGE_COLLECTION).create_index(key.view());
+                if (const auto took = std::chrono::steady_clock::now() - started; took > std::chrono::seconds(5)) {
+                    log_info << "ENS recount index built, seconds: " << std::chrono::duration_cast<std::chrono::seconds>(took).count();
+                }
+            } catch (const std::exception &e) {
+                log_error << "Ensure ENS recount index failed, error: " << e.what();
+            }
+        }).detach();
     }
 
     bool MongoEnsRepository::topicExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
@@ -1289,7 +1320,9 @@ namespace Euclid::Database {
 
             // Grouped, counted and summed through the neutral path, so a recount does not need a
             // server to evaluate a pipeline - see Collection::group_count.
-            for (const auto &group: messageCollection.group_count({}, {"topicErn"}, "size")) {
+            // Hinted, because a bare grouping is never planned on an index - see ensureRecountIndex().
+            const auto recountIndex = make_document(kvp("topicErn", 1), kvp("size", 1));
+            for (const auto &group: messageCollection.group_count({}, {"topicErn"}, "size", recountIndex.view())) {
                 counted[group.key[0]] = {.messages = group.count, .size = group.sum};
             }
 
