@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.4.7](https://github.com/jensvogt/euclid/compare/2.4.6...v2.4.7) (2026-11-28)
+
+
+### Bug Fixes
+
+* add better indexes for EQS, ENS, ESM ([94e6d75](https://github.com/jensvogt/euclid/commit/94e6d75d70aa4d808e679e1bb7c681b4010bed34))
+* better indexes for EQS, ENS, ESM ([2aee455](https://github.com/jensvogt/euclid/commit/2aee45585678e76d1c6db18ca59e5f9410567ba6))
+* better indexes for EQS, ENS, ESM ([8a57447](https://github.com/jensvogt/euclid/commit/8a57447c425b6ea1df70aabc79e477716e92c2dd))
+
 ## [2.4.6](https://github.com/jensvogt/euclid/compare/2.4.5...v2.4.6) (2026-11-26)
 
 
