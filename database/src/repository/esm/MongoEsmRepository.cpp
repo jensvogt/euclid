@@ -936,8 +936,13 @@ namespace Euclid::Database {
         // the planner choose it without being told to. On a thread for the reason the level
         // index is.
         const auto build = [] {
+            // Held in a variable for as long as opts is used: partial_filter_expression() keeps a
+            // view, not a copy, so a filter built in its argument is freed at the end of that
+            // statement and create_index() then reads freed memory. That crashed euclid-mgr at
+            // startup, on this thread, in bson_init_static.
+            const auto filter = make_document(kvp("directory", true));
             mongocxx::options::index opts;
-            opts.partial_filter_expression(make_document(kvp("directory", true)));
+            opts.partial_filter_expression(filter.view());
             Database::instance().collection(OBJECT_COLLECTION).create_index(make_document(kvp("directory", 1), kvp("bucketErn", 1)).view(), opts);
         };
         if (!Database::instance().collection(OBJECT_COLLECTION).supports_aggregation()) {
